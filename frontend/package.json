@@ -1,0 +1,51 @@
+{
+  "name": "sinounion-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/next.js dev",
+    "build": "node scripts/next.js build",
+    "start": "node scripts/next.js start",
+    "snapshot": "node scripts/generate-static-snapshot.mjs",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "clsx": "^2.0.0",
+    "framer-motion": "^12.8.0",
+    "lucide-react": "^0.510.0",
+    "mammoth": "^1.12.0",
+    "next": "15.3.3",
+    "pdfjs-dist": "^6.2.108",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-is": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.8.1",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "supports-color": "^10.2.2",
+    "tailwind-merge": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=24.16.0",
+    "npm": ">=11.13.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^20.10.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.3.3",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.8"
+  }
+}

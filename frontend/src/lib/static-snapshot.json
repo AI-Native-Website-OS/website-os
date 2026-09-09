@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-08-11T09:25:00.588Z",
+  "modules": [
+    {
+      "moduleKey": "solutions",
+      "moduleType": 1,
+      "path": "",
+      "status": 1
+    },
+    {
+      "moduleKey": "resources",
+      "moduleType": 1,
+      "path": "",
+      "status": 1
+    },
+    {
+      "moduleKey": "products",
+      "moduleType": 1,
+      "path": "",
+      "status": 1
+    },
+    {
+      "moduleKey": "cases",
+      "moduleType": 2,
+      "path": "",
+      "status": 1
+    },
+    {
+      "moduleKey": "module",
+      "moduleType": 2,
+      "path": "/module",
+      "status": 1
+    },
+    {
+      "moduleKey": "2",
+      "moduleType": 1,
+      "path": "/2",
+      "status": 1
+    }
+  ],
+  "categories": {
+    "2": [
+      {
+        "slug": "duan-shipin",
+        "value": "2"
+      },
+      {
+        "slug": "fa-sadan-fangfa",
+        "value": "4"
+      }
+    ],
+    "solutions": [],
+    "resources": [],
+    "products": []
+  },
+  "content": {
+    "2": [
+      {
+        "slug": "changshi-po-1",
+        "status": 1,
+        "categoryId": 4
+      }
+    ],
+    "solutions": [],
+    "resources": [],
+    "products": [],
+    "cases": [],
+    "module": [
+      {
+        "slug": "ceshi-shipin-1",
+        "status": 1,
+        "groupName": ""
+      }
+    ]
+  }
+}

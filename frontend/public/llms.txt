@@ -1,0 +1,54 @@
+﻿# 河北圣诺联合科技有限公司
+
+> 中国领先的企业数字基础设施服务商，专注于为政府、国企和企业客户提供智慧招采平台、可信数据空间、分布式数据治理、区块链可信基础设施和AI智能体应用等数字化转型解决方案。
+
+站点关键信息：
+- 圣诺联合是一家专注于智慧招标采购、人工智能、可信数据空间和区块链技术的科技企业，为政府、国企和企业客户提供数字化解决方案。
+- 核心业务包括智慧招标采购、AI 招标文件分析、AI 投标文件分析、辅助评标、可信数据空间和相关数字化服务。
+- 主要服务政府、企业及招标采购相关业务场景，重点提供招标文件编制、投标文件分析、辅助评标等 AI 能力。
+
+## Table of Contents
+
+### 品牌
+- [企业数字基础设施服务商](https://www.snlh.cn/): 圣诺联合为中国政府、国企和企业客户提供智慧招采平台、可信数据空间、分布式数据治理、区块链可信基础设施和AI智能体应用等企业数字基础设施解决方案。
+- [关于我们](https://www.snlh.cn/about): 河北圣诺联合科技有限公司——企业数字基础设施服务商
+
+### 解决方案
+- [解决方案](https://www.snlh.cn/list/category?moduleKey=solutions): 覆盖多行业、多场景的端到端解决方案
+- [上帝发誓](https://www.snlh.cn/list/detail?moduleKey=solutions&slug=shangdi-fashi): 圣诺联合提供企业级可信数据空间与分布式数据治理解决方案，基于区块链基础设施确保数据全生命周期安全。通过AI智能体应用赋能智慧招采，实现数据确权、隐私计算与合规流通，助力通用行业构建透明、可信的数字基础设施。
+- [撒旦发多少](https://www.snlh.cn/list/detail?moduleKey=solutions&slug=sadan-fa-duoshao): 圣诺联合提供政务数据治理与可信共享解决方案，基于区块链与分布式技术构建安全数据空间。实现政务数据跨部门高效流通、全程留痕与合规监管，助力数字政府建设，提升公共服务效率与数据资产价值。
+
+### 资源中心
+- [资源中心](https://www.snlh.cn/list/category?moduleKey=resources): 获取最新的行业洞察、技术白皮书和专业文章
+- [放大发生的发](https://www.snlh.cn/list/detail?moduleKey=resources&slug=fangda-fasheng-de-fa): 圣诺联合资源中心提供智慧招采、可信数据空间及区块链基础设施的行业洞察与咨询动态。涵盖分布式数据治理案例、AI智能体应用趋势及企业数字化转型最佳实践，助力企业构建安全高效的数字基础设施。
+
+### 核心业务
+- [核心业务](https://www.snlh.cn/list/category?moduleKey=products): 覆盖企业数字化全场景，提供端到端的解决方案
+- [圣诺天算AI训练推理平台](https://www.snlh.cn/list/detail?moduleKey=products&slug=shengnuo-tiansuan-ai-xunlian-tuili-pingtai): 圣诺天算AI训练推理平台是圣诺联合推出的企业级AI基础设施，提供高性能模型训练与低延迟推理服务。支持分布式算力调度、多框架兼容及私有化部署，助力企业高效构建可信、安全的智能化应用底座。
+- [公共资源交易系统111](https://www.snlh.cn/list/detail?moduleKey=products&slug=gonggongziyuan-jiaoyi-xitong): 圣诺联合提供基于区块链与AI技术的公共资源交易系统解决方案。支持全流程电子化招投标、可信数据存证及智能辅助评标，确保交易公开透明、安全合规，助力政府及企事业单位提升采购效率与监管能力。
+- [发到付](https://www.snlh.cn/list/detail?moduleKey=products&slug=fa-dao-fu): 圣诺联合提供企业级招采结算中的‘发到付’业务解决方案，依托区块链可信基础设施与智能合约技术，实现采购订单、物流轨迹与支付指令的自动匹配与实时清算。支持多方在线协同，确保资金流与信息流一致，降低对公结算风险，提升供应链金融效率。
+- [圣诺云数算法平台](https://www.snlh.cn/list/detail?moduleKey=products&slug=shengnuoyun-shu-suanfa-pingtai): 圣诺云数算法平台是圣诺联合推出的企业级AI智能体应用基础设施，提供分布式数据治理与可信数据空间支持。平台集成区块链可信技术，助力企业实现智慧招采、数据资产化管理及智能化决策，确保数据流转的安全、合规与高效。
+- [区块链社交系统（IM）](https://www.snlh.cn/list/detail?moduleKey=products&slug=qukuai-lian-shejiao-xitong-none-im-none): 圣诺联合区块链社交系统（IM）基于可信数据空间与分布式治理技术，提供去中心化即时通讯服务。通过端到端加密与链上身份验证，确保用户数据隐私与通信安全，适用于高敏感行业及Web3.0社交场景，构建可信数字交互基础设施。
+
+### 客户案例
+- [客户案例](https://www.snlh.cn/list/category?moduleKey=cases): 100+客户的选择，覆盖全国30+城市
+- [大师傅地方](https://www.snlh.cn/list/detail?moduleKey=cases&slug=dashifu-difang): 圣诺联合为大师傅地方打造智慧招采平台与可信数据空间解决方案。通过分布式数据治理与区块链基础设施，实现采购流程透明化、数据资产可信流通，助力企业降低合规风险，提升供应链协同效率与数字化管理水平。
+
+### 视频中心
+- [视频中心](https://www.snlh.cn/list/category?moduleKey=module): 视频中心
+- [测试视频1](https://www.snlh.cn/list/detail?moduleKey=module&slug=ceshi-shipin-1): 圣诺联合视频中心展示企业数字基础设施应用案例，涵盖智慧招采、可信数据空间及区块链基础设施。通过可视化视频解析分布式数据治理与AI智能体技术，直观呈现解决方案在提升数据安全性与业务效率方面的实际价值。
+
+### 视频中心2
+- [视频中心2](https://www.snlh.cn/list/category?moduleKey=2): 视频中心2
+- [尝试破1](https://www.snlh.cn/list/detail?moduleKey=2&slug=changshi-po-1): 圣诺联合视频中心展示企业数字基础设施前沿应用案例，涵盖智慧招采、可信数据空间及AI智能体实战演示。通过可视化视频内容，直观解析分布式数据治理与区块链技术在复杂业务场景中的落地效果，助力企业理解数字化转型核心价值。
+
+### 常见问题
+- [常见问题 - FAQ](https://www.snlh.cn/faqs): 圣诺联合常见问题解答：了解产品功能、服务流程、技术支持和价格方案等常见问题。
+- **问：**你是谁
+  **答：**我是谁
+
+### 其他
+- [圣诺通测](https://www.snlh.cn/list/detail?moduleKey=module-47050&slug=ceshi-ceshi-xiangqing): 圣诺通测是河北圣诺联合科技有限公司提供的专业软件与系统测试服务。涵盖功能测试、性能压测及安全漏洞扫描，助力企业验证数字基础设施稳定性，确保智慧招采平台与数据治理系统上线前的高可用性与合规性。
+
+## 联系方式
+- [官网](https://www.snlh.cn)

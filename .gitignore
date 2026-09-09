@@ -1,0 +1,38 @@
+# ─── IDE ───
+.idea/
+.superpowers
+.opencode
+
+# ——— Python ————
+AI_consultant/*.log
+
+# ─── Frontend ───
+frontend/node_modules/
+frontend/.next/
+frontend/dist
+frontend/public
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+frontend/*.log
+frontend/.env.local
+
+# ─── Backend (Java / Maven) ───
+backend/target/
+*.jar
+*.war
+
+
+# ─── AI Consultant (Python) ───
+AI_consultant/__pycache__/
+AI_consultant/*.pyc
+AI_consultant/.pytest_cache/
+AI_consultant/memories/
+
+# ─── 用户上传文件 ───
+uploads/
+
+# ─── Sdlc/superpower ───
+doc/
+intent/
+plan/
+spec/

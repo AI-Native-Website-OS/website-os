@@ -1,0 +1,94 @@
+server:
+  port: ${SERVER_PORT}
+  servlet:
+    context-path: /api
+  # 容器级转发头解析策略：默认 NONE（不信任任何 X-Forwarded-*，防伪造）。
+  # 线索 IP 由代码按 app.trust-proxy-ip-header 手动解析，不受此值影响；
+  # 若反向代理场景需要 scheme/host 透传，可设为 native 或 framework。
+  forward-headers-strategy: ${APP_FORWARD_HEADERS_STRATEGY:none}
+
+spring:
+  application:
+    name: ${SPRING_APPLICATION_NAME}
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      max-lifetime: 600000
+      connection-timeout: 30000
+      idle-timeout: 300000
+      validation-timeout: 5000
+      connection-test-query: SELECT 1
+      minimum-idle: 5
+      maximum-pool-size: 20
+  redis:
+    host: ${SPRING_REDIS_HOST}
+    port: ${SPRING_REDIS_PORT}
+    password: sinodata
+    database: 0
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.sinounion.entity
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# JWT配置
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION}
+
+# 文件上传配置
+upload:
+  path: ${UPLOAD_PATH}
+  allowed-types: ${UPLOAD_ALLOWED_TYPES}
+
+# SpringDoc配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# AI服务配置（知识库同步）
+ai:
+  service:
+    url: ${AI_SERVICE_URL}
+    memories-dir: ${AI_SERVICE_MEMORIES_DIR}
+
+# SEO文件路径（相对于工作目录或绝对路径）
+app:
+  frontend-public-dir: ${APP_FRONTEND_PUBLIC_DIR}
+  frontend-dist-dir: ${APP_FRONTEND_DIST_DIR:../frontend/dist}
+  config-file-path: ${APP_CONFIG_FILE_PATH}
+  # 是否信任反向代理透传的 X-Real-IP / X-Forwarded-For 头。
+  # 当浏览器直连后端端口（nginx 不透传任何 IP 头）时应设为 false，
+  # 仅信任 TCP 连接的真实来源 IP，防止客户端伪造 IP 头。
+  trust-proxy-ip-header: ${APP_TRUST_PROXY_IP_HEADER:true}
+  # IP 归属地解析来源：offline=仅离线 ip2region；ipwho=仅在线 ipwho.is；auto=在线优先、失败回退离线（默认）。
+  ip-location-provider: ${APP_IP_LOCATION_PROVIDER:auto}
+  ipwho:
+    url: ${APP_IPWHO_URL:https://ipwho.is}
+    timeout-ms: ${APP_IPWHO_TIMEOUT_MS:3000}
+
+# 日志配置
+logging:
+  level:
+    com.sinounion: INFO
+    org.springframework: INFO

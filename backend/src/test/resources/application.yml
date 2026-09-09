@@ -1,0 +1,71 @@
+server:
+  port: ${SERVER_PORT}
+
+spring:
+  application:
+    name: ${SPRING_APPLICATION_NAME}
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  redis:
+    host: localhost
+    port: 6379
+    password: sinodata
+    database: 0
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.sinounion.entity
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# JWT配置
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION}
+
+# 文件上传配置
+upload:
+  path: ${UPLOAD_PATH}
+  allowed-types: ${UPLOAD_ALLOWED_TYPES}
+
+# SpringDoc配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# AI服务配置（知识库同步）
+ai:
+  service:
+    url: ${AI_SERVICE_URL}
+    memories-dir: ${AI_SERVICE_MEMORIES_DIR}
+
+# SEO文件路径（相对于工作目录或绝对路径）
+app:
+  frontend-public-dir: ${APP_FRONTEND_PUBLIC_DIR}
+  frontend-dist-dir: ${APP_FRONTEND_DIST_DIR:../frontend/dist}
+  config-file-path: ${APP_CONFIG_FILE_PATH}
+
+# 日志配置
+logging:
+  level:
+    com.sinounion: INFO
+    org.springframework: INFO
