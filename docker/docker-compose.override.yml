@@ -1,0 +1,22 @@
+# 本地构建覆盖（在 docker/ 目录直接执行 docker compose up 时自动生效）
+# 仅添加 build 段，从源码本地构建镜像，便于开发/调试。
+# 生产部署请显式指定基线文件：docker compose -f docker-compose.yml up -d
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    image: sino_website/backend:local
+
+  ai:
+    build:
+      context: ..
+      dockerfile: docker/ai.Dockerfile
+    image: sino_website/ai:local
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    image: sino_website/frontend:local
