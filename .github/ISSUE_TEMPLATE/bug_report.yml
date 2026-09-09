@@ -1,43 +1,43 @@
-name: 🐞 Bug Report
-description: 提交程序缺陷、报错、异常问题
+name: 🐞 Bug Report / 缺陷反馈
+description: 提交程序异常、报错、Bug / Submit bugs and exceptions
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: textarea
     id: description
     attributes:
-      label: Bug简述
-      placeholder: 简短描述出现了什么故障
+      label: Bug简述 / Summary
+      placeholder: 一句话描述故障现象 / Briefly describe the bug
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: 复现步骤
-      placeholder: "1.执行xx操作\n2.点击xx\n3.出现异常"
+      label: 复现步骤 / Reproduce steps
+      placeholder: "1.执行XX操作\n2.点击XX\n3.出现异常\n1.Operation...\n2.Click...\n3.Error occurs"
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: 预期正常结果
-      placeholder: 程序本应该如何运行
+      label: 预期结果 / Expected result
+      placeholder: 程序正常应该表现如何 / What should happen normally
   - type: textarea
     id: actual
     attributes:
-      label: 实际现象 & 报错日志
-      placeholder: 粘贴报错堆栈、日志文本，截图可粘贴在此处
+      label: 实际现象 & 报错日志 / Actual result & logs
+      placeholder: 粘贴报错堆栈、截图，日志文本粘贴于此 / Paste error stack, screenshots
   - type: dropdown
     id: os
     attributes:
-      label: 操作系统
+      label: 操作系统 / OS
       options:
         - Windows
         - Linux
         - macOS
-        - 其他
+        - 其他 / Others
   - type: input
     id: version
     attributes:
       label: 项目版本 / Commit ID
-      placeholder: 填写版本号或者commit哈希
+      placeholder: 填写版本号或提交哈希 / Version or commit hash

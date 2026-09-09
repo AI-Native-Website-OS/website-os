@@ -1,28 +1,28 @@
-name: ❓ Question
-description: 使用疑问、配置问题、技术咨询
+name: ❓ Question / 使用疑问
+description: 配置疑问、使用咨询 / Usage and configuration questions
 title: "[Question] "
 labels: ["question"]
 body:
   - type: textarea
     id: scene
     attributes:
-      label: 使用场景
-      placeholder: 你正在做什么操作
+      label: 使用场景 / Usage scenario
+      placeholder: 正在进行什么操作 / What operation are you performing
     validations:
       required: true
   - type: textarea
     id: tried
     attributes:
-      label: 自己已经尝试过的排查方法
+      label: 已尝试的排查方法 / What you have tried
   - type: textarea
     id: ask
     attributes:
-      label: 明确你的问题
-      placeholder: 描述你需要哪方面帮助
+      label: 明确你的问题 / Your question
+      placeholder: 清晰描述需要帮助的地方 / Describe what help you need
     validations:
       required: true
   - type: input
     id: env
     attributes:
-      label: 环境与版本
-      placeholder: 系统、项目版本、依赖版本
+      label: 运行环境与版本 / Environment & Version
+      placeholder: 操作系统、项目版本、依赖版本 / OS, project and dependency version
