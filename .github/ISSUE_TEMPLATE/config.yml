@@ -1,0 +1,5 @@
+blank_issues_enabled: false #关闭空白issue，强制选择模板
+contact_links:
+  - name: 讨论区
+    url: https://github.com/AI-Native-Website-OS/website-os/discussions
+    about: 通用问题优先到讨论区交流

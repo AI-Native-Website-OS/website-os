@@ -1,0 +1,43 @@
+name: 🐞 Bug Report
+description: 提交程序缺陷、报错、异常问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug简述
+      placeholder: 简短描述出现了什么故障
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: "1.执行xx操作\n2.点击xx\n3.出现异常"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期正常结果
+      placeholder: 程序本应该如何运行
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际现象 & 报错日志
+      placeholder: 粘贴报错堆栈、日志文本，截图可粘贴在此处
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - 其他
+  - type: input
+    id: version
+    attributes:
+      label: 项目版本 / Commit ID
+      placeholder: 填写版本号或者commit哈希
