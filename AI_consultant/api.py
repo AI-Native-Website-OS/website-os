@@ -7,7 +7,7 @@ import time as _time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path as _EnvPath
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("api")
@@ -15,17 +15,60 @@ logger = logging.getLogger("api")
 from sqlalchemy import select, delete as sa_delete
 
 import uvicorn
+import httpx as _httpx
 from fastapi import FastAPI, APIRouter, HTTPException, Path, File, UploadFile, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from main import Config, ChatGPT, AIClient, MemoryManager
-from schemas import *
+from pydantic import BaseModel
+from schemas import (
+    ChatRequest,
+    ConfigOut,
+    ConfigUpdateRequest,
+    ForbiddenDetectRequest,
+    ForbiddenDetectResult,
+    KnowledgeBaseCreateRequest,
+    KnowledgeBaseListOut,
+    KnowledgeBaseOut,
+    KnowledgeBaseUpdateRequest,
+    KnowledgeChunkOut,
+    KnowledgeDocumentListOut,
+    KnowledgeDocumentOut,
+    KnowledgeProcessOut,
+    KnowledgeReembedOut,
+    KnowledgeSearchOut,
+    KnowledgeSearchRequest,
+    MemoryFileContentOut,
+    MemoryFileListOut,
+    MemoryFileSaveRequest,
+    MemoryInitRequest,
+    MemorySearchOut,
+    MessageOut,
+    ModelConfigItem,
+    ModelConfigOut,
+    ModelConfigSaveRequest,
+    PromptConfigOut,
+    PromptConfigSaveRequest,
+    SeoGenerateRequest,
+    SeoGenerateResponse,
+    SeoGenerateResult,
+    SessionCreateRequest,
+    SessionHistoryOut,
+    SessionOut,
+    StatsOut,
+    StatusOut,
+    SyncDocumentRequest,
+    TestConnectivityRequest,
+    TestConnectivityResult,
+    TokenLogEntryOut,
+)
 from db import get_db
 from models import AiPromptConfig
 from knowledge import KnowledgeEngine, EmbeddingClient, RerankerClient, extract_text_from_file
 from forbidden_detector import get_detector, ForbiddenDetector
 from rate_limit import get_rate_limiter
+from auth import authenticate, requires_auth
 
 app = FastAPI(title="AI Consultant API", version="1.0.0")
 router = APIRouter(prefix="/ai")
@@ -38,9 +81,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def ai_auth_middleware(request, call_next):
+    """对管理/破坏性 AI 接口强制鉴权（JWT 或内部令牌），公开聊天接口不受影响。"""
+    if requires_auth(request.method, request.url.path):
+        try:
+            request.state.identity = authenticate(
+                request.headers.get("authorization"),
+                request.headers.get("x-internal-token"),
+            )
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    return await call_next(request)
+
 _lock = threading.Lock()
 
 _engine: Optional[ChatGPT] = None
+
+_JSON_MEDIA_TYPE = "application/json"
+MEMORY_MD = "MEMORY.md"
+KB_ID_DESCRIPTION = "知识库 ID"
+KB_NOT_FOUND = "Knowledge base not found"
 
 def ensure_tables():
     from db import _engine as _db_engine
@@ -63,6 +125,20 @@ def get_engine() -> ChatGPT:
 
 # ── Chat ──────────────────────────────────────────────────────────
 
+def _extract_file_attachment(att: dict, req: ChatRequest) -> dict:
+    name = att.get("name") or "file.bin"
+    try:
+        import base64 as _b64
+        raw = _b64.b64decode(att["base64"])
+        text = extract_text_from_file(raw, name)
+        if text:
+            req.user_input = (req.user_input or "") + f"\n\n以下是我上传的文件 {name} 的内容：\n```\n{text}\n```"
+    except Exception as e:
+        logger.warning("Attachment parse failed %s: %s", name, e)
+    stripped = dict(att)
+    stripped.pop("base64", None)
+    return stripped
+
 def _merge_attachments(req: ChatRequest) -> List[Dict]:
     """解析附件中的文件内容并注入用户输入；返回移除 base64 后的附件列表（用于存储）"""
     if not req.attachments:
@@ -71,23 +147,89 @@ def _merge_attachments(req: ChatRequest) -> List[Dict]:
     for att in req.attachments:
         if not isinstance(att, dict):
             cleaned.append(att)
-            continue
-        if att.get("type") == "file" and att.get("base64"):
-            name = att.get("name") or "file.bin"
-            try:
-                import base64 as _b64
-                raw = _b64.b64decode(att["base64"])
-                text = extract_text_from_file(raw, name)
-                if text:
-                    req.user_input = (req.user_input or "") + f"\n\n以下是我上传的文件 {name} 的内容：\n```\n{text}\n```"
-            except Exception as e:
-                logger.warning("Attachment parse failed %s: %s", name, e)
-            stripped = dict(att)
-            stripped.pop("base64", None)
-            cleaned.append(stripped)
+        elif att.get("type") == "file" and att.get("base64"):
+            cleaned.append(_extract_file_attachment(att, req))
         else:
             cleaned.append(att)
     return cleaned
+
+def _limit_stream(reason, message):
+    yield f"data: {json.dumps({'type': 'limit', 'reason': reason, 'message': message, 'remaining': 0}, ensure_ascii=False)}\n\n"
+
+def _done_payload(data) -> dict:
+    payload = {"type": "done"}
+    if isinstance(data, dict):
+        payload["content"] = data.get("content", "")
+        payload["reasoning"] = data.get("reasoning")
+        payload["prompt_tokens"] = data.get("prompt_tokens", 0)
+        payload["completion_tokens"] = data.get("completion_tokens", 0)
+        payload["total_tokens"] = data.get("total_tokens", 0)
+        payload["model"] = data.get("model", "")
+        if data.get("finish_reason") == "stopped":
+            payload["stopped"] = True
+        rec = data.get("recommendations")
+        if rec and any(v for v in rec.values()):
+            payload["recommendations"] = rec
+    return payload
+
+def _chat_run(eng, req, attachments, sid, sync_q, stop_evt):
+    try:
+        result = eng.chat(
+            user_input=req.user_input,
+            images=req.images,
+            attachments=attachments,
+            original_input=req.original_input,
+            stream=True,
+            on_chunk=lambda text: sync_q.put(("content", text)),
+            on_reasoning=lambda text: sync_q.put(("reasoning", text)),
+            username=req.username,
+            session_id=sid,
+            use_knowledge=req.use_knowledge,
+            use_thinking=req.use_thinking,
+            stop_event=stop_evt,
+        )
+        sync_q.put(("done", result))
+    except Exception as e:
+        logger.exception("AI chat error (session=%s): %s", sid, e)
+        sync_q.put(("error", str(e)))
+
+def _stream_events(sync_q, stop_evt):
+    try:
+        while True:
+            typ, data = sync_q.get()
+            if typ == "done":
+                yield f"data: {json.dumps(_done_payload(data), ensure_ascii=False)}\n\n"
+                break
+            if typ == "error":
+                yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
+                break
+            if typ == "content" or typ == "reasoning":
+                yield f"data: {json.dumps({'type': typ, 'content': data}, ensure_ascii=False)}\n\n"
+    finally:
+        # 客户端断开/取消时通知后台线程停止生成，避免空转与继续计费
+        stop_evt.set()
+
+def _prepare_session(eng, req) -> Optional[str]:
+    with _lock:
+        if req.session_id:
+            ok = eng.switch_session(req.session_id)
+            if not ok:
+                eng.sessions.create(session_id=req.session_id, username=req.username or "")
+        if req.username:
+            s = eng.current_session()
+            if s:
+                s.username = req.username
+                if req.role:
+                    s.role = req.role
+        return eng.current_session().session_id if eng.current_session() else None
+
+def _stream_chat_response(eng, req):
+    attachments = _merge_attachments(req)
+    sid = _prepare_session(eng, req)
+    sync_q: "q.Queue" = q.Queue()
+    stop_evt = threading.Event()
+    threading.Thread(target=_chat_run, args=(eng, req, attachments, sid, sync_q, stop_evt), daemon=True).start()
+    return StreamingResponse(_stream_events(sync_q, stop_evt), media_type="text/event-stream")
 
 @router.post("/chat")
 def chat(req: ChatRequest):
@@ -105,90 +247,9 @@ def chat(req: ChatRequest):
         message = "您今日的免费咨询次数已用完，请登录后继续使用AI顾问。"
 
     if not allowed:
-        def limit_stream():
-            yield f"data: {json.dumps({'type': 'limit', 'reason': reason, 'message': message, 'remaining': 0}, ensure_ascii=False)}\n\n"
-        return StreamingResponse(limit_stream(), media_type="text/event-stream")
+        return StreamingResponse(_limit_stream(reason, message), media_type="text/event-stream")
 
-    eng = get_engine()
-    attachments = _merge_attachments(req)
-    with _lock:
-        if req.session_id:
-            ok = eng.switch_session(req.session_id)
-            if not ok:
-                eng.sessions.create(session_id=req.session_id, username=req.username or "")
-        if req.username:
-            s = eng.current_session()
-            if s:
-                s.username = req.username
-                if req.role:
-                    s.role = req.role
-        sid = eng.current_session().session_id if eng.current_session() else None
-
-    # streaming is always enabled → SSE
-    sync_q: "q.Queue" = q.Queue()
-    stop_evt = threading.Event()
-
-    def on_chunk(text: str):
-        sync_q.put(("content", text))
-
-    def on_reasoning(text: str):
-        sync_q.put(("reasoning", text))
-
-    def run():
-        try:
-            result = eng.chat(
-                user_input=req.user_input,
-                images=req.images,
-                attachments=attachments,
-                original_input=req.original_input,
-                stream=True,
-                on_chunk=on_chunk,
-                on_reasoning=on_reasoning,
-                username=req.username,
-                session_id=sid,
-                use_knowledge=req.use_knowledge,
-                use_thinking=req.use_thinking,
-                stop_event=stop_evt,
-            )
-            sync_q.put(("done", result))
-        except Exception as e:
-            logger.exception("AI chat error (session=%s): %s", sid, e)
-            sync_q.put(("error", str(e)))
-
-    threading.Thread(target=run, daemon=True).start()
-
-    def event_stream():
-        try:
-            while True:
-                typ, data = sync_q.get()
-                if typ == "content":
-                    yield f"data: {json.dumps({'type': 'content', 'content': data}, ensure_ascii=False)}\n\n"
-                elif typ == "reasoning":
-                    yield f"data: {json.dumps({'type': 'reasoning', 'content': data}, ensure_ascii=False)}\n\n"
-                elif typ == "done":
-                    payload = {"type": "done"}
-                    if isinstance(data, dict):
-                        payload["content"] = data.get("content", "")
-                        payload["reasoning"] = data.get("reasoning")
-                        payload["prompt_tokens"] = data.get("prompt_tokens", 0)
-                        payload["completion_tokens"] = data.get("completion_tokens", 0)
-                        payload["total_tokens"] = data.get("total_tokens", 0)
-                        payload["model"] = data.get("model", "")
-                        if data.get("finish_reason") == "stopped":
-                            payload["stopped"] = True
-                        rec = data.get("recommendations")
-                        if rec and any(v for v in rec.values()):
-                            payload["recommendations"] = rec
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                    break
-                elif typ == "error":
-                    yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
-                    break
-        finally:
-            # 客户端断开/取消时通知后台线程停止生成，避免空转与继续计费
-            stop_evt.set()
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return _stream_chat_response(get_engine(), req)
 
 
 # ── Sessions ──────────────────────────────────────────────────────
@@ -211,7 +272,7 @@ def list_sessions():
     return get_engine().list_sessions()
 
 
-@router.get("/sessions/{session_id}/history", response_model=SessionHistoryOut)
+@router.get("/sessions/{session_id}/history", response_model=SessionHistoryOut, responses={404: {"description": "Session not found"}})
 def get_history(session_id: str = Path(...)):
     msgs = get_engine().show_history(session_id, None)
     if msgs is None:
@@ -219,7 +280,7 @@ def get_history(session_id: str = Path(...)):
     return SessionHistoryOut(session_id=session_id, messages=[MessageOut(**m) for m in msgs])
 
 
-@router.post("/sessions/{session_id}/switch", response_model=StatusOut)
+@router.post("/sessions/{session_id}/switch", response_model=StatusOut, responses={404: {"description": "Session not found"}})
 def switch_session(session_id: str = Path(...)):
     ok = get_engine().switch_session(session_id)
     if not ok:
@@ -506,97 +567,103 @@ def save_model_config(req: ModelConfigSaveRequest):
 
 # ── Model Connectivity Test ──────────────────────────────────────
 
+def _test_llm_connectivity(c, start):
+    base_url = (c.llm_base_url or "").rstrip("/")
+    api_key = c.llm_api_key or ""
+    model = c.llm_model or ""
+    if not base_url or not model:
+        return TestConnectivityResult(success=False, model_type="llm", message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
+    url = f"{base_url}/chat/completions"
+    headers = {"Content-Type": _JSON_MEDIA_TYPE}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body = {"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5, "stream": False}
+    with _httpx.Client(timeout=30) as client:
+        resp = client.post(url, headers=headers, json=body)
+    latency = round((_time.time() - start) * 1000, 1)
+    if resp.status_code == 200:
+        return TestConnectivityResult(success=True, model_type="llm", message=f"连接成功 ({resp.status_code})", latency_ms=latency)
+    detail = resp.text[:200]
+    return TestConnectivityResult(success=False, model_type="llm", message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
+
+def _test_embedding_connectivity(c, start):
+    base_url = (c.embedding_base_url or c.llm_base_url or "").rstrip("/")
+    api_key = c.embedding_api_key or c.llm_api_key or ""
+    model = c.embedding_model or ""
+    if not base_url or not model:
+        return TestConnectivityResult(success=False, model_type="embedding", message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
+    url = f"{base_url}/embeddings"
+    headers = {"Content-Type": _JSON_MEDIA_TYPE}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body = {"model": model, "input": "Hello"}
+    with _httpx.Client(timeout=30) as client:
+        resp = client.post(url, headers=headers, json=body)
+    latency = round((_time.time() - start) * 1000, 1)
+    if resp.status_code == 200:
+        data = resp.json()
+        dim = len(data.get("data", [{}])[0].get("embedding", []))
+        return TestConnectivityResult(success=True, model_type="embedding", message=f"连接成功 维度={dim}", latency_ms=latency)
+    detail = resp.text[:200]
+    return TestConnectivityResult(success=False, model_type="embedding", message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
+
+def _test_vl_connectivity(c, start):
+    base_url = (c.vl_base_url or c.llm_base_url or "").rstrip("/")
+    api_key = c.vl_api_key or c.llm_api_key or ""
+    model = c.vl_model or c.llm_model or ""
+    if not base_url or not model:
+        return TestConnectivityResult(success=False, model_type="vl", message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
+    url = f"{base_url}/chat/completions"
+    headers = {"Content-Type": _JSON_MEDIA_TYPE}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body = {"model": model, "messages": [{"role": "user", "content": [{"type": "text", "text": "describe this"}]}], "max_tokens": 10, "stream": False}
+    with _httpx.Client(timeout=30) as client:
+        resp = client.post(url, headers=headers, json=body)
+    latency = round((_time.time() - start) * 1000, 1)
+    if resp.status_code == 200:
+        return TestConnectivityResult(success=True, model_type="vl", message=f"连接成功 ({resp.status_code})", latency_ms=latency)
+    detail = resp.text[:200]
+    return TestConnectivityResult(success=False, model_type="vl", message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
+
+def _test_rerank_connectivity(c, start):
+    base_url = (c.reranker_base_url or "").rstrip("/")
+    api_key = c.reranker_api_key or c.llm_api_key or ""
+    model = c.reranker_model or ""
+    if not base_url or not model:
+        return TestConnectivityResult(success=False, model_type="rerank", message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
+    url = f"{base_url}/rerank"
+    headers = {"Content-Type": _JSON_MEDIA_TYPE}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body = {"model": model, "query": "test", "documents": ["hello world"]}
+    with _httpx.Client(timeout=30) as client:
+        resp = client.post(url, headers=headers, json=body)
+    latency = round((_time.time() - start) * 1000, 1)
+    if resp.status_code == 200:
+        data = resp.json()
+        results = data.get("results") or []
+        return TestConnectivityResult(success=True, model_type="rerank", message=f"连接成功 结果数={len(results)}", latency_ms=latency)
+    detail = resp.text[:200]
+    return TestConnectivityResult(success=False, model_type="rerank", message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
+
+_CONNECTIVITY_TESTERS = {
+    "llm": _test_llm_connectivity,
+    "embedding": _test_embedding_connectivity,
+    "vl": _test_vl_connectivity,
+    "rerank": _test_rerank_connectivity,
+}
+
 @router.post("/model-config/test", response_model=TestConnectivityResult)
 def test_model_connectivity(req: TestConnectivityRequest):
-    import time as _time
-    import httpx as _httpx
     c = get_engine().config
     model_type = req.model_type
     start = _time.time()
-
+    tester = _CONNECTIVITY_TESTERS.get(model_type)
+    if tester is None:
+        return TestConnectivityResult(success=False, model_type=model_type, message=f"未知模型类型: {model_type}")
     try:
-        if model_type == "llm":
-            base_url = (c.llm_base_url or "").rstrip("/")
-            api_key = c.llm_api_key or ""
-            model = c.llm_model or ""
-            if not base_url or not model:
-                return TestConnectivityResult(success=False, model_type=model_type, message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
-            url = f"{base_url}/chat/completions"
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            body = {"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5, "stream": False}
-            with _httpx.Client(timeout=30) as client:
-                resp = client.post(url, headers=headers, json=body)
-            latency = round((_time.time() - start) * 1000, 1)
-            if resp.status_code == 200:
-                return TestConnectivityResult(success=True, model_type=model_type, message=f"连接成功 ({resp.status_code})", latency_ms=latency)
-            detail = resp.text[:200]
-            return TestConnectivityResult(success=False, model_type=model_type, message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
-
-        elif model_type == "embedding":
-            base_url = (c.embedding_base_url or c.llm_base_url or "").rstrip("/")
-            api_key = c.embedding_api_key or c.llm_api_key or ""
-            model = c.embedding_model or ""
-            if not base_url or not model:
-                return TestConnectivityResult(success=False, model_type=model_type, message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
-            url = f"{base_url}/embeddings"
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            body = {"model": model, "input": "Hello"}
-            with _httpx.Client(timeout=30) as client:
-                resp = client.post(url, headers=headers, json=body)
-            latency = round((_time.time() - start) * 1000, 1)
-            if resp.status_code == 200:
-                data = resp.json()
-                dim = len(data.get("data", [{}])[0].get("embedding", []))
-                return TestConnectivityResult(success=True, model_type=model_type, message=f"连接成功 维度={dim}", latency_ms=latency)
-            detail = resp.text[:200]
-            return TestConnectivityResult(success=False, model_type=model_type, message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
-
-        elif model_type == "vl":
-            base_url = (c.vl_base_url or c.llm_base_url or "").rstrip("/")
-            api_key = c.vl_api_key or c.llm_api_key or ""
-            model = c.vl_model or c.llm_model or ""
-            if not base_url or not model:
-                return TestConnectivityResult(success=False, model_type=model_type, message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
-            url = f"{base_url}/chat/completions"
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            body = {"model": model, "messages": [{"role": "user", "content": [{"type": "text", "text": "describe this"}]}], "max_tokens": 10, "stream": False}
-            with _httpx.Client(timeout=30) as client:
-                resp = client.post(url, headers=headers, json=body)
-            latency = round((_time.time() - start) * 1000, 1)
-            if resp.status_code == 200:
-                return TestConnectivityResult(success=True, model_type=model_type, message=f"连接成功 ({resp.status_code})", latency_ms=latency)
-            detail = resp.text[:200]
-            return TestConnectivityResult(success=False, model_type=model_type, message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
-
-        elif model_type == "rerank":
-            base_url = (c.reranker_base_url or "").rstrip("/")
-            api_key = c.reranker_api_key or c.llm_api_key or ""
-            model = c.reranker_model or ""
-            if not base_url or not model:
-                return TestConnectivityResult(success=False, model_type=model_type, message=f"缺少配置: BASE_URL={base_url} MODEL={model}")
-            url = f"{base_url}/rerank"
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            body = {"model": model, "query": "test", "documents": ["hello world"]}
-            with _httpx.Client(timeout=30) as client:
-                resp = client.post(url, headers=headers, json=body)
-            latency = round((_time.time() - start) * 1000, 1)
-            if resp.status_code == 200:
-                data = resp.json()
-                results = data.get("results") or []
-                return TestConnectivityResult(success=True, model_type=model_type, message=f"连接成功 结果数={len(results)}", latency_ms=latency)
-            detail = resp.text[:200]
-            return TestConnectivityResult(success=False, model_type=model_type, message=f"HTTP {resp.status_code}: {detail}", latency_ms=latency)
-
-        else:
-            return TestConnectivityResult(success=False, model_type=model_type, message=f"未知模型类型: {model_type}")
+        return tester(c, start)
     except Exception as e:
         latency = round((_time.time() - start) * 1000, 1)
         return TestConnectivityResult(success=False, model_type=model_type, message=str(e), latency_ms=latency)
@@ -622,18 +689,24 @@ def list_memory_files():
 
 
 @router.get("/memory/file", response_model=MemoryFileContentOut)
-def get_memory_file(username: str = Query(...), filename: str = Query("MEMORY.md"), role: str = Query(""), file_type: str = Query("")):
+def get_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD), role: str = Query(""), file_type: str = Query("")):
     if file_type and file_type in MemoryManager.MEMORY_FILE_NAMES:
         filename = MemoryManager.MEMORY_FILE_NAMES[file_type]
-    content = get_engine().read_memory_file(username, filename, role)
+    try:
+        content = get_engine().read_memory_file(username, filename, role)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return MemoryFileContentOut(username=username, content=content)
 
 
 @router.put("/memory/file", response_model=StatusOut)
-def save_memory_file(username: str = Query(...), filename: str = Query("MEMORY.md"), role: str = Query(""), file_type: str = Query(""), req: MemoryFileSaveRequest = None):
+def save_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD), role: str = Query(""), file_type: str = Query(""), req: MemoryFileSaveRequest = None):
     if file_type and file_type in MemoryManager.MEMORY_FILE_NAMES:
         filename = MemoryManager.MEMORY_FILE_NAMES[file_type]
-    get_engine().write_memory_file(username, req.content, filename, role)
+    try:
+        get_engine().write_memory_file(username, req.content, filename, role)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return StatusOut(status="ok", message=f"Saved {role}/{username}/{filename}")
 
 
@@ -671,14 +744,14 @@ def list_user_memory_files(username: str = Query(...), role: str = Query("")):
 # backward compat: default to MEMORY.md
 @router.get("/memory/files/{username}", response_model=MemoryFileContentOut)
 def get_memory_file_legacy(username: str):
-    content = get_engine().read_memory_file(username, "MEMORY.md", "")
+    content = get_engine().read_memory_file(username, MEMORY_MD, "")
     return MemoryFileContentOut(username=username, content=content)
 
 
 @router.put("/memory/files/{username}", response_model=StatusOut)
 def save_memory_file_legacy(username: str, req: MemoryFileSaveRequest):
-    get_engine().write_memory_file(username, req.content, "MEMORY.md", "")
-    return StatusOut(status="ok", message=f"Saved {username}/MEMORY.md")
+    get_engine().write_memory_file(username, req.content, MEMORY_MD, "")
+    return StatusOut(status="ok", message=f"Saved {username}/{MEMORY_MD}")
 
 
 # ── Forbidden Detection ─────────────────────────────────────────────
@@ -780,21 +853,21 @@ def create_knowledge_base(req: KnowledgeBaseCreateRequest):
     return KnowledgeBaseOut(**(_get_ke()._kb_to_dict(kb)))
 
 
-@router.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut)
-def get_knowledge_base(kb_id: int = Path(..., description="知识库 ID")):
+@router.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut, responses={404: {"description": KB_NOT_FOUND}})
+def get_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION)):
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        raise HTTPException(404, KB_NOT_FOUND)
     return KnowledgeBaseOut(**ke._kb_to_dict(kb))
 
 
-@router.put("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut)
-def update_knowledge_base(kb_id: int = Path(..., description="知识库 ID"), req: KnowledgeBaseUpdateRequest = None):
+@router.put("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut, responses={404: {"description": KB_NOT_FOUND}, 500: {"description": "Failed to update"}})
+def update_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION), req: KnowledgeBaseUpdateRequest = None):
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        raise HTTPException(404, KB_NOT_FOUND)
     kwargs = req.model_dump(exclude_none=True)
     updated = ke.update_kb_config(kb_id, **kwargs)
     if not updated:
@@ -802,12 +875,12 @@ def update_knowledge_base(kb_id: int = Path(..., description="知识库 ID"), re
     return KnowledgeBaseOut(**ke._kb_to_dict(updated))
 
 
-@router.delete("/knowledge-bases/{kb_id}", response_model=StatusOut)
-def delete_knowledge_base(kb_id: int = Path(..., description="知识库 ID")):
+@router.delete("/knowledge-bases/{kb_id}", response_model=StatusOut, responses={404: {"description": KB_NOT_FOUND}})
+def delete_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION)):
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        raise HTTPException(404, KB_NOT_FOUND)
     ke.delete_kb(kb_id)
     return StatusOut(status="ok", message="Knowledge base deleted")
 
@@ -819,7 +892,7 @@ def list_documents(kb_id: int = Path(...)):
     return KnowledgeDocumentListOut(items=_get_ke().list_documents(kb_id))
 
 
-@router.post("/knowledge-bases/{kb_id}/documents/upload", response_model=KnowledgeDocumentOut)
+@router.post("/knowledge-bases/{kb_id}/documents/upload", response_model=KnowledgeDocumentOut, responses={404: {"description": KB_NOT_FOUND}})
 def upload_document(
     kb_id: int = Path(...),
     file: UploadFile = File(...),
@@ -828,7 +901,7 @@ def upload_document(
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        raise HTTPException(404, KB_NOT_FOUND)
 
     content_bytes = file.file.read()
     doc_title = title or file.filename or "untitled"
@@ -859,7 +932,7 @@ def upload_document(
     )
 
 
-@router.post("/knowledge-bases/{kb_id}/documents/text", response_model=KnowledgeDocumentOut)
+@router.post("/knowledge-bases/{kb_id}/documents/text", response_model=KnowledgeDocumentOut, responses={404: {"description": KB_NOT_FOUND}})
 def add_text_document(
     kb_id: int = Path(...),
     title: str = Form(...),
@@ -868,7 +941,7 @@ def add_text_document(
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        raise HTTPException(404, KB_NOT_FOUND)
 
     doc = ke.add_document(kb_id=kb_id, title=title, content=content, file_name="")
     ke.process_document(doc.id)
@@ -891,7 +964,7 @@ def process_document(doc_id: int = Path(...)):
     return KnowledgeProcessOut(**result)
 
 
-@router.delete("/documents/{doc_id}", response_model=StatusOut)
+@router.delete("/documents/{doc_id}", response_model=StatusOut, responses={404: {"description": "Document not found"}})
 def delete_document(doc_id: int = Path(...)):
     ke = _get_ke()
     doc = ke.get_document(doc_id)
@@ -1005,6 +1078,36 @@ def _parse_json_block(text: str) -> dict:
     return json.loads(text[si:ei + 1])
 
 
+def _build_keyword_entries(data) -> List[Dict]:
+    categories = {"品牌", "产品", "场景", "问题", "对比"}
+    entries = []
+    for ke in (data.get("keyword_entries") or []):
+        if not isinstance(ke, dict):
+            continue
+        kw = str(ke.get("keyword") or "").strip()
+        if not kw:
+            continue
+        cat = str(ke.get("category") or "").strip()
+        if cat not in categories:
+            cat = "产品"
+        entries.append({
+            "keyword": kw,
+            "category": cat,
+            "intent_note": str(ke.get("intent_note") or "").strip(),
+        })
+    return entries
+
+def _build_faqs(data) -> List[Dict]:
+    faqs = []
+    for f in (data.get("faqs") or []):
+        if not isinstance(f, dict):
+            continue
+        q = str(f.get("question") or "").strip()
+        if not q:
+            continue
+        faqs.append({"question": q, "answer": str(f.get("answer") or "").strip()})
+    return faqs
+
 def _generate_one(client: AIClient, page, sp: str) -> dict:
     user = (
         f"页面标题：{page.title or ''}\n"
@@ -1015,38 +1118,14 @@ def _generate_one(client: AIClient, page, sp: str) -> dict:
     resp = client.chat(sp, [], user, max_tokens=4000, temperature=0.3,
                        chat_template_kwargs={"enable_thinking": False})
     data = _parse_json_block(resp["content"])
-
-    categories = {"品牌", "产品", "场景", "问题", "对比"}
-    result = {
+    return {
         "key": page.key,
         "description": str(data.get("description") or "").strip(),
         "keywords": [str(k).strip() for k in (data.get("keywords") or []) if str(k).strip()],
         "geo_summary": str(data.get("geo_summary") or "").strip(),
-        "keyword_entries": [],
-        "faqs": [],
+        "keyword_entries": _build_keyword_entries(data),
+        "faqs": _build_faqs(data),
     }
-    for ke in (data.get("keyword_entries") or []):
-        if not isinstance(ke, dict):
-            continue
-        kw = str(ke.get("keyword") or "").strip()
-        if not kw:
-            continue
-        cat = str(ke.get("category") or "").strip()
-        if cat not in categories:
-            cat = "产品"
-        result["keyword_entries"].append({
-            "keyword": kw,
-            "category": cat,
-            "intent_note": str(ke.get("intent_note") or "").strip(),
-        })
-    for f in (data.get("faqs") or []):
-        if not isinstance(f, dict):
-            continue
-        q = str(f.get("question") or "").strip()
-        if not q:
-            continue
-        result["faqs"].append({"question": q, "answer": str(f.get("answer") or "").strip()})
-    return result
 
 
 @router.post("/seo/generate", response_model=SeoGenerateResponse)
@@ -1064,8 +1143,8 @@ def seo_generate(req: SeoGenerateRequest):
             key = futs[fut]
             try:
                 results.append(fut.result())
-            except Exception as e:
-                logger.error("SEO generate failed for %s: %s", key, e)
+            except Exception:
+                logger.exception("SEO generate failed for %s", key)
                 failed.append(key)
     order = {p.key: i for i, p in enumerate(req.pages)}
     results.sort(key=lambda r: order.get(r["key"], len(req.pages)))
@@ -1110,4 +1189,6 @@ app.include_router(ai_md_router, prefix="/ai")
 if __name__ == "__main__":
     import multiprocessing
     workers = max(2, multiprocessing.cpu_count() // 2)
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, workers=workers)
+    host = os.getenv("AI_HOST", "127.0.0.1")
+    port = int(os.getenv("AI_PORT", "8000"))
+    uvicorn.run("api:app", host=host, port=port, workers=workers)

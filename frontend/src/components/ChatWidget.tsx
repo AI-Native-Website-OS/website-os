@@ -7,7 +7,7 @@ import aiApi from '@/lib/aiApi';
 import { aiService } from '@/lib/aiService';
 import api from '@/lib/api';
 import config from '@/config';
-import { generateVisitorId } from '@/lib/utils';
+import { generateVisitorId, secureRandomString } from '@/lib/utils';
 import { parseDocumentFile } from '@/lib/fileParser';
 import { useAuth } from '@/hooks/useAuth';
 import Markdown from '@/components/Markdown';
@@ -40,6 +40,162 @@ interface LeadForm {
   phone: string;
   email: string;
   requirement: string;
+}
+
+interface ChatStreamContext {
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setLeadForm: React.Dispatch<React.SetStateAction<LeadForm>>;
+  setShowLeadForm: (v: boolean) => void;
+}
+
+function buildUserInput(text: string, files: PendingFile[]): string {
+  const textFiles = files.filter(f => f.type === 'file' && f.textContent);
+  if (textFiles.length === 0) return text;
+  const parts = textFiles.map(f => `以下是我上传的文件${f.name}的内容：\n\`\`\`\n${f.textContent}\n\`\`\``);
+  return parts.join('\n\n') + `\n\n${text || '请分析这个文件'}`;
+}
+
+function buildChatBody(user: any, userInput: string, sessionId: string, text: string, files: PendingFile[]): Record<string, any> {
+  const body: Record<string, any> = { user_input: userInput, session_id: sessionId, username: user?.realName || user?.username || '', original_input: text || (files.length > 0 ? '查看附件' : '') };
+  if (files.length > 0) {
+    const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
+    if (imgUrls.length > 0) body.images = imgUrls;
+    body.attachments = files.filter(f => f.type !== 'image').map(f => ({ type: 'file' as const, name: f.name, ...(f.rawBase64 ? { base64: f.rawBase64 } : {}) }));
+  }
+  return body;
+}
+
+function pushAssistant(prev: Message[], content: string): Message[] {
+  return [...prev, { role: 'assistant', content, timestamp: new Date() }];
+}
+
+function appendReasoning(prev: Message[], content: string): Message[] {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    updated[updated.length - 1] = { ...last, reasoning: (last.reasoning || '') + content };
+  } else {
+    updated.push({ role: 'assistant', content: '', reasoning: content, timestamp: new Date() });
+  }
+  return updated;
+}
+
+function appendContent(prev: Message[], content: string): Message[] {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    last.content += content;
+  } else {
+    updated.push({ role: 'assistant', content, timestamp: new Date() });
+  }
+  return updated;
+}
+
+function finalizeAssistant(prev: Message[], parsed: any): Message[] {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    updated[updated.length - 1] = { ...last, content: parsed.content || last.content, reasoning: parsed.reasoning || last.reasoning, recommendations: parsed.recommendations };
+  } else {
+    updated.push({ role: 'assistant', content: parsed.content || '', reasoning: parsed.reasoning, recommendations: parsed.recommendations, timestamp: new Date() });
+  }
+  return updated;
+}
+
+function handleChatEvent(parsed: any, ctx: ChatStreamContext): boolean {
+  if (parsed.type === 'error') {
+    ctx.setMessages(prev => pushAssistant(prev, '抱歉，AI顾问暂时无法回答。请稍后再试。'));
+    return true;
+  }
+  if (parsed.type === 'reasoning' && parsed.content) {
+    ctx.setMessages(prev => appendReasoning(prev, parsed.content));
+    return false;
+  }
+  if (parsed.type === 'content' && parsed.content) {
+    ctx.setMessages(prev => appendContent(prev, parsed.content));
+    return false;
+  }
+  if (parsed.type === 'done') {
+    ctx.setMessages(prev => finalizeAssistant(prev, parsed));
+    if (parsed.recommendations?.action === 'showForm') {
+      const req = parsed.recommendations?.actionData?.requirement;
+      if (req) {
+        ctx.setLeadForm(prev => ({ ...prev, requirement: req }));
+      }
+      ctx.setShowLeadForm(true);
+    }
+    return false;
+  }
+  return false;
+}
+
+async function consumeChatStream(body: ReadableStream<Uint8Array>, ctx: ChatStreamContext): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(line.substring(6));
+      } catch {
+        continue;
+      }
+      if (handleChatEvent(parsed, ctx)) break;
+    }
+  }
+}
+
+async function streamChat(body: Record<string, any>, ctx: ChatStreamContext): Promise<void> {
+  const controller = new AbortController();
+  const response = await fetch(config.ai.baseUrl + '/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  if (!response.ok) throw new Error('Request failed');
+  if (!response.body) throw new Error('Stream not available');
+  await consumeChatStream(response.body, ctx);
+}
+
+async function retryChatRequest(user: any, userInput: string, sessionId: string, text: string, files: PendingFile[], ctx: ChatStreamContext): Promise<void> {
+  const body = buildChatBody(user, userInput, sessionId, text, files);
+  const resp = await (await fetch(config.ai.baseUrl + '/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })).json();
+  ctx.setMessages(prev => {
+    const updated = [...prev];
+    const last = updated[updated.length - 1];
+    if (last && last.role === 'assistant') {
+      updated[updated.length - 1] = { ...last, content: resp.content || resp.message || last.content, reasoning: resp.reasoning || last.reasoning, recommendations: resp.recommendations };
+    } else {
+      updated.push({ role: 'assistant', content: resp.content || resp.message || '感谢您的提问。我们的专业顾问会尽快为您解答。', reasoning: resp.reasoning, recommendations: resp.recommendations, timestamp: new Date() });
+    }
+    return updated;
+  });
+  if (resp.recommendations?.action === 'showForm') {
+    ctx.setShowLeadForm(true);
+  }
+}
+
+function pushAssistantFallback(prev: Message[]): Message[] {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    last.content = '抱歉，我暂时无法回答您的问题。您可以：\n• 稍后再试\n• 点击"预约演示"与顾问直接沟通\n• 填写需求表单，我们会主动联系您';
+  } else {
+    updated.push({ role: 'assistant', content: '抱歉，我暂时无法回答您的问题。您可以：\n• 稍后再试\n• 点击"预约演示"与顾问直接沟通\n• 填写需求表单，我们会主动联系您', timestamp: new Date() });
+  }
+  return updated;
 }
 
 export default function ChatWidget() {
@@ -79,7 +235,7 @@ export default function ChatWidget() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const sid = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const sid = 'session_' + Date.now() + '_' + secureRandomString(9);
     const vid = generateVisitorId();
     setSessionId(sid);
     setVisitorId(vid);
@@ -113,22 +269,12 @@ export default function ChatWidget() {
   const sendMessage = async (message?: string) => {
     const text = (message || input).trim();
     const files = pendingFiles;
-    if (!text && files.length === 0 || loading) return;
+    if ((!text && files.length === 0) || loading) return;
 
     setInput('');
     setPendingFiles([]);
 
-    // Build user input with file content prepended
-    let userInput = text;
-    const textFiles = files.filter(f => f.type === 'file' && f.textContent);
-    if (textFiles.length > 0) {
-      const parts = textFiles.map(f => `以下是我上传的文件${f.name}的内容：\n\`\`\`\n${f.textContent}\n\`\`\``);
-      userInput = parts.join('\n\n') + `\n\n${text || '请分析这个文件'}`;
-    }
-
-    const buildAttachments = (fs: PendingFile[]) => fs
-      .filter(f => f.type !== 'image')
-      .map(f => ({ type: 'file' as const, name: f.name, ...(f.rawBase64 ? { base64: f.rawBase64 } : {}) }));
+    const userInput = buildUserInput(text, files);
 
     if (files.length > 0) {
       setMessages((prev) => [...prev, { role: 'user', content: text || '查看附件', files, timestamp: new Date() }]);
@@ -137,139 +283,17 @@ export default function ChatWidget() {
     }
     setLoading(true);
 
+    const ctx: ChatStreamContext = { setMessages, setLeadForm, setShowLeadForm };
+
     try {
-      const body: Record<string, any> = { user_input: userInput, session_id: sessionId, username: user?.realName || user?.username || '', original_input: text || (files.length > 0 ? '查看附件' : '') };
-      if (files.length > 0) {
-        const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
-        if (imgUrls.length > 0) body.images = imgUrls;
-        body.attachments = buildAttachments(files);
-      }
-
-      const controller = new AbortController();
-      const response = await fetch(config.ai.baseUrl + '/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) throw new Error('Request failed');
-
-      if (!response.body) throw new Error('Stream not available');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-
-          let parsed: any;
-          try {
-            parsed = JSON.parse(line.substring(6));
-          } catch {
-            continue;
-          }
-
-          if (parsed.type === 'error') {
-            setMessages((prev) => [...prev, { role: 'assistant', content: '抱歉，AI顾问暂时无法回答。请稍后再试。', timestamp: new Date() }]);
-            break;
-          }
-
-          if (parsed.type === 'reasoning' && parsed.content) {
-            setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, reasoning: (last.reasoning || '') + parsed.content };
-              } else {
-                updated.push({ role: 'assistant', content: '', reasoning: parsed.content, timestamp: new Date() });
-              }
-              return updated;
-            });
-          }
-
-          if (parsed.type === 'content' && parsed.content) {
-            setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.role === 'assistant') {
-                last.content += parsed.content;
-              } else {
-                updated.push({ role: 'assistant', content: parsed.content, timestamp: new Date() });
-              }
-              return updated;
-            });
-          }
-
-          if (parsed.type === 'done') {
-            setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, content: parsed.content || last.content, reasoning: parsed.reasoning || last.reasoning, recommendations: parsed.recommendations };
-              } else {
-                updated.push({ role: 'assistant', content: parsed.content || '', reasoning: parsed.reasoning, recommendations: parsed.recommendations, timestamp: new Date() });
-              }
-              return updated;
-            });
-            if (parsed.recommendations?.action === 'showForm') {
-              const req = parsed.recommendations?.actionData?.requirement;
-              if (req) {
-                setLeadForm((prev) => ({ ...prev, requirement: req }));
-              }
-              setShowLeadForm(true);
-            }
-          }
-        }
-      }
+      await streamChat(buildChatBody(user, userInput, sessionId, text, files), ctx);
     } catch (e) {
       console.error('[ChatWidget] sendMessage error:', e);
       try {
-      const body: Record<string, any> = { user_input: userInput, session_id: sessionId, username: user?.realName || user?.username || '', original_input: text || (files.length > 0 ? '查看附件' : '') };
-        if (files.length > 0) {
-          const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
-          if (imgUrls.length > 0) body.images = imgUrls;
-          body.attachments = buildAttachments(files);
-        }
-        const resp = await (await fetch(config.ai.baseUrl + '/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })).json();
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            updated[updated.length - 1] = { ...last, content: resp.content || resp.message || last.content, reasoning: resp.reasoning || last.reasoning, recommendations: resp.recommendations };
-          } else {
-            updated.push({ role: 'assistant', content: resp.content || resp.message || '感谢您的提问。我们的专业顾问会尽快为您解答。', reasoning: resp.reasoning, recommendations: resp.recommendations, timestamp: new Date() });
-          }
-          return updated;
-        });
-        if (resp.recommendations?.action === 'showForm') {
-          setShowLeadForm(true);
-        }
+        await retryChatRequest(user, userInput, sessionId, text, files, ctx);
       } catch (e2) {
         console.error('[ChatWidget] retry also failed:', e2);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            last.content = '抱歉，我暂时无法回答您的问题。您可以：\n• 稍后再试\n• 点击"预约演示"与顾问直接沟通\n• 填写需求表单，我们会主动联系您';
-          } else {
-            updated.push({ role: 'assistant', content: '抱歉，我暂时无法回答您的问题。您可以：\n• 稍后再试\n• 点击"预约演示"与顾问直接沟通\n• 填写需求表单，我们会主动联系您', timestamp: new Date() });
-          }
-          return updated;
-        });
+        ctx.setMessages(prev => pushAssistantFallback(prev));
       }
     } finally {
       setLoading(false);
@@ -338,7 +362,7 @@ export default function ChatWidget() {
 
     setUploading(true);
     try {
-      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const id = Date.now().toString(36) + secureRandomString(4);
       let fileType: 'image' | 'audio' | 'file' = 'file';
       if (file.type.startsWith('image/')) fileType = 'image';
       else if (file.type.startsWith('audio/')) fileType = 'audio';

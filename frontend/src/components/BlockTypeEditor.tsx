@@ -51,6 +51,30 @@ function El({ errors, errorKey, children, className = '' }: { errors: Record<str
   );
 }
 
+function ListCellInput({ value, rowIndex, col, onUpdate }: { value: string; rowIndex: number; col: string; onUpdate: (i: number, field: string, val: string) => void }) {
+  return (
+    <input value={value} onChange={(e) => onUpdate(rowIndex, col, e.target.value)} placeholder={`请输入${col}`} maxLength={200} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+  );
+}
+
+function ModuleIconPicker({ value, onSelect }: { value: string; onSelect: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {ICON_OPTIONS.filter((o) => o.value).map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onSelect(opt.value === value ? '' : opt.value)}
+          className={`p-1.5 rounded border transition-colors ${value === opt.value ? 'border-black bg-gray-100' : 'border-gray-200 hover:border-gray-400'}`}
+          title={opt.label}
+        >
+          <IconPreview name={opt.value} className="w-4 h-4 text-gray-600" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export { El, ICON_OPTIONS, IconPreview };
 
 interface BlockTypeEditorProps {
@@ -203,7 +227,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
                   <td className="px-2 py-1.5 text-xs text-gray-400 text-center border-b border-gray-200 font-mono">{i + 1}</td>
                   {columns.map((col, ci) => (
                     <td key={ci} className="px-2 py-1.5 border-b border-gray-200 border-r border-gray-200">
-                      <input value={row[col] || ''} onChange={(e) => updateRow(i, col, e.target.value)} placeholder={`请输入${col}`} maxLength={200} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+                      <ListCellInput value={row[col] || ''} rowIndex={i} col={col} onUpdate={updateRow} />
                     </td>
                   ))}
                   <td className="px-2 py-1.5 border-b border-gray-200" />
@@ -274,19 +298,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
                 </El>
                 <El errors={errors}>
                   <label className="block text-xs text-gray-500 mb-0.5">图标</label>
-                  <div className="flex flex-wrap gap-1">
-                    {ICON_OPTIONS.filter((o) => o.value).map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => updateItem(i, 'icon', opt.value === mod.icon ? '' : opt.value)}
-                        className={`p-1.5 rounded border transition-colors ${mod.icon === opt.value ? 'border-black bg-gray-100' : 'border-gray-200 hover:border-gray-400'}`}
-                        title={opt.label}
-                      >
-                        <IconPreview name={opt.value} className="w-4 h-4 text-gray-600" />
-                      </button>
-                    ))}
-                  </div>
+                  <ModuleIconPicker value={mod.icon} onSelect={(v) => updateItem(i, 'icon', v)} />
                 </El>
                 <El errors={errors} errorKey={`mod_desc_${i}`}>
                   <label className="block text-xs text-gray-500 mb-0.5">模块描述</label>

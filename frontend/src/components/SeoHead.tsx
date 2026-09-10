@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import api from '@/lib/api';
 import type { SeoConfig } from '@/types';
-import { SeoProps, SITE_URL, SITE_NAME, DEFAULT_OG_IMAGE, getCanonicalUrl, BreadcrumbItem, generateBreadcrumbSchema } from '@/lib/seo';
+import { SeoProps, SITE_URL, SITE_NAME, DEFAULT_OG_IMAGE, getCanonicalUrl, BreadcrumbItem, generateBreadcrumbSchema, safeJsonLd } from '@/lib/seo';
 
 interface SeoHeadProps extends SeoProps {
   path: string;
@@ -125,7 +125,7 @@ export default function SeoHead({
         <script
           key={`schema-${index}`}
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(schema) }}
         />
       ))}
     </>

@@ -741,6 +741,7 @@ export interface KnowledgeSearchRequest {
   kb_id?: number;
   top_k?: number;
   threshold?: number;
+  max_threshold?: number;
 }
 
 export interface KnowledgeSearchOut {

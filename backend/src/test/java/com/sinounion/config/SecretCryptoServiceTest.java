@@ -4,9 +4,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import javax.crypto.Cipher;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
+import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
@@ -30,7 +33,9 @@ class SecretCryptoServiceTest {
     private String encryptWithPublic(String plain) throws Exception {
         byte[] der = Base64.getDecoder().decode(service.publicKeyBase64());
         Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(der)));
+        // 与前端 WebCrypto（RSA-OAEP / SHA-256）保持一致：MGF1 也必须是 SHA-256
+        cipher.init(Cipher.ENCRYPT_MODE, KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(der)),
+            new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT));
         return "rsa:v1:" + Base64.getEncoder().encodeToString(
             cipher.doFinal(plain.getBytes(StandardCharsets.UTF_8)));
     }

@@ -4,6 +4,7 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONUtil;
 import com.sinounion.entity.*;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -17,7 +18,10 @@ import java.util.regex.Pattern;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class KnowledgeSyncService {
+
+    private final AiRequestSigner aiRequestSigner;
 
     @Value("${AI_SERVICE_URL}")
     private String aiServiceUrl;
@@ -178,7 +182,9 @@ public class KnowledgeSyncService {
     public void deleteContent(String sourceType, Long sourceId) {
         try {
             String url = aiServiceUrl + "/ai/knowledge/sync-document/" + sourceType + "/" + sourceId;
-            HttpResponse response = HttpRequest.delete(url).timeout(5000).execute();
+            HttpRequest request = HttpRequest.delete(url).timeout(5000);
+            aiRequestSigner.sign(request);
+            HttpResponse response = request.execute();
             log.debug("Knowledge delete: sourceType={}, sourceId={}, status={}", sourceType, sourceId, response.getStatus());
         } catch (Exception e) {
             log.warn("Knowledge delete failed: sourceType={}, sourceId={}, error={}", sourceType, sourceId, e.getMessage());
@@ -207,10 +213,11 @@ public class KnowledgeSyncService {
             }
 
             String json = JSONUtil.toJsonStr(body);
-            HttpResponse response = HttpRequest.post(url)
+            HttpRequest request = HttpRequest.post(url)
                     .body(json, "application/json")
-                    .timeout(30000)
-                    .execute();
+                    .timeout(30000);
+            aiRequestSigner.sign(request);
+            HttpResponse response = request.execute();
             log.debug("Knowledge sync: sourceType={}, sourceId={}, status={}", sourceType, sourceId, response.getStatus());
         } catch (Exception e) {
             log.warn("Knowledge sync failed: sourceType={}, sourceId={}, error={}", sourceType, sourceId, e.getMessage());

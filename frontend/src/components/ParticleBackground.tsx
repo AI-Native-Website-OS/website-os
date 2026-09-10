@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { secureRandom } from '@/lib/utils';
 
 interface Particle {
   x: number;
@@ -33,12 +34,12 @@ export default function ParticleBackground() {
       resize();
       const count = Math.min(Math.floor(window.innerWidth * 0.04), 40);
       particles = Array.from({ length: count }, () => ({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: (Math.random() - 0.5) * 0.4,
-        size: Math.random() * 2 + 1,
-        opacity: Math.random() * 0.25 + 0.08,
+        x: secureRandom() * canvas.width,
+        y: secureRandom() * canvas.height,
+        vx: (secureRandom() - 0.5) * 0.4,
+        vy: (secureRandom() - 0.5) * 0.4,
+        size: secureRandom() * 2 + 1,
+        opacity: secureRandom() * 0.25 + 0.08,
       }));
     };
 

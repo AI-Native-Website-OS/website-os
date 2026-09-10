@@ -25,6 +25,7 @@ public class SeoGenerateService {
 
     private final SeoSyncService seoSyncService;
     private final GeoSyncService geoSyncService;
+    private final AiRequestSigner aiRequestSigner;
 
     @javax.annotation.PostConstruct
     public void init() {
@@ -49,9 +50,10 @@ public class SeoGenerateService {
     /** 通知 AI 顾问清除内容目录缓存，使 SEO/GEO 词库变更立即生效（失败仅告警）。 */
     public void notifyAiCatalogReload() {
         try {
-            HttpResponse response = HttpRequest.post(aiServiceUrl + "/ai/catalog/reload")
-                    .timeout(15000)
-                    .execute();
+            HttpRequest request = HttpRequest.post(aiServiceUrl + "/ai/catalog/reload")
+                    .timeout(15000);
+            aiRequestSigner.sign(request);
+            HttpResponse response = request.execute();
             if (response.getStatus() != 200) {
                 log.warn("AI catalog reload HTTP {}: {}", response.getStatus(), response.body());
             }

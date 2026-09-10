@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
-import { getImageUrl } from '@/lib/utils';
+import { getImageUrl, shuffleArray } from '@/lib/utils';
 import { detailUrl } from '@/lib/moduleConfig';
 
 interface CarouselItem {
@@ -19,28 +19,29 @@ interface CarouselItem {
 
 const INTERVAL = 5000;
 
+function fetchModule(moduleKey: string, type: 'product' | 'solution' | 'case' | 'article') {
+  return api.get(`/content/${moduleKey}`, { params: { page: 1, size: 6 } }).then(r => {
+    const list: any[] = r.data?.records || [];
+    return list.slice(0, 3).map((p: any) => ({
+      type, id: p.id, title: p.title, slug: p.slug,
+      summary: p.summary, coverImage: p.coverImage,
+      href: detailUrl(moduleKey, p.slug),
+    }));
+  }).catch(() => []);
+}
+
 export default function ContentCarousel() {
   const [items, setItems] = useState<CarouselItem[]>([]);
   const [current, setCurrent] = useState(0);
 
   useEffect(() => {
-    const fetchModule = (moduleKey: string, type: 'product' | 'solution' | 'case' | 'article') =>
-      api.get(`/content/${moduleKey}`, { params: { page: 1, size: 6 } }).then(r => {
-        const list: any[] = r.data?.records || [];
-        return list.slice(0, 3).map((p: any) => ({
-          type, id: p.id, title: p.title, slug: p.slug,
-          summary: p.summary, coverImage: p.coverImage,
-          href: detailUrl(moduleKey, p.slug),
-        }));
-      }).catch(() => []);
-
     Promise.all([
       fetchModule('products', 'product'),
       fetchModule('solutions', 'solution'),
       fetchModule('cases', 'case'),
       fetchModule('resources', 'article'),
     ]).then(results => {
-      const merged = results.flat().sort(() => Math.random() - 0.5).slice(0, 8);
+      const merged = shuffleArray(results.flat()).slice(0, 8);
       setItems(merged);
     });
   }, []);

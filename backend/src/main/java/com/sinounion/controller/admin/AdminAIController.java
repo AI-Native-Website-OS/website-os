@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -41,6 +42,7 @@ public class AdminAIController {
 
     @Operation(summary = "全局同步所有内容到知识库")
     @PostMapping("/sync-all")
+    @PreAuthorize("hasAuthority('ai:knowledge:edit')")
     public Result<Map<String, Object>> syncAll() {
         Map<String, Object> result = new HashMap<>();
         int total = 0, success = 0, fail = 0;
@@ -101,6 +103,7 @@ public class AdminAIController {
 
     @Operation(summary = "按类型同步内容（异步，返回taskId）")
     @PostMapping("/sync-type")
+    @PreAuthorize("hasAuthority('ai:knowledge:edit')")
     public Result<Map<String, Object>> syncByType(@RequestParam String type) {
         SyncProgress sp = progressTracker.create(type);
         Map<String, Object> result = new HashMap<>();
@@ -121,6 +124,7 @@ public class AdminAIController {
 
     @Operation(summary = "查询同步进度")
     @GetMapping("/sync-progress/{taskId}")
+    @PreAuthorize("hasAuthority('ai:knowledge:view')")
     public Result<SyncProgress> getSyncProgress(@PathVariable String taskId) {
         SyncProgress sp = progressTracker.get(taskId);
         if (sp == null) {
@@ -131,6 +135,7 @@ public class AdminAIController {
 
     @Operation(summary = "清理已完成的同步任务")
     @PostMapping("/sync-progress/cleanup")
+    @PreAuthorize("hasAuthority('ai:knowledge:edit')")
     public Result<Void> cleanupProgress() {
         progressTracker.cleanup();
         return Result.success(null);
@@ -174,6 +179,8 @@ public class AdminAIController {
                         SystemConfig ac = systemConfigMapper.findByKey("about_page");
                         if (ac != null) { knowledgeSyncService.syncAboutPage(ac.getConfigValue()); sp.addSuccess(); sp.advance("关于整体配置"); }
                     } catch (Exception e) { sp.addFail(); log.error("Sync about page config failed: {}", e.getMessage()); }
+                    break;
+                default:
                     break;
             }
         }

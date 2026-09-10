@@ -1,3 +1,5 @@
+import { secureRandomString } from '@/lib/utils';
+
 export const DEFAULT_USER_RATE_LIMIT = 30;
 export const DEFAULT_GUEST_DAILY_LIMIT = 5;
 
@@ -14,8 +16,8 @@ export function getVisitorId(): string {
       'v_' +
       Date.now().toString(36) +
       '_' +
-      Math.random().toString(36).substring(2, 10) +
-      Math.random().toString(36).substring(2, 10);
+      secureRandomString(8) +
+      secureRandomString(8);
     localStorage.setItem(VISITOR_KEY, vid);
   }
   return vid;

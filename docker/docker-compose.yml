@@ -64,12 +64,17 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
       AI_SERVICE_URL: http://ai:8000
+      # AI 服务内部调用令牌（后端 → AI 服务），务必设置为强随机字符串
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-}
       FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL:-http://localhost:8080}
       UPLOAD_PATH: /app/uploads
       APP_FRONTEND_PUBLIC_DIR: /app/frontend-public
       APP_CONFIG_FILE_PATH: /app/app-config.json
       APP_TRUST_PROXY_IP_HEADER: "false"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # 上传大小限制（默认 8MB，如需大文件上传请显式覆盖，勿随意调大）
+      APP_MAX_FILE_SIZE: ${APP_MAX_FILE_SIZE:-50MB}
+      APP_MAX_REQUEST_SIZE: ${APP_MAX_REQUEST_SIZE:-100MB}
     volumes:
       - backend-uploads:/app/uploads
       - backend-public:/app/frontend-public
@@ -99,7 +104,13 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-sinoredis}
       REDIS_DB: 0
+      AI_HOST: ${AI_HOST:-0.0.0.0}
+      AI_PORT: ${AI_PORT:-8000}
       AI_SERVICE_URL: http://ai:8000
+      # AI 服务管理/破坏性接口鉴权：浏览器管理端校验 JWT（需与后端共享 JWT_SECRET），
+      # 服务间调用校验内部令牌
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-}
       BACKEND_BASE_URL: http://backend:8080
       AI_SERVICE_MEMORIES_DIR: /app/memories
       UPLOAD_PATH: /app/uploads

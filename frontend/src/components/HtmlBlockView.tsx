@@ -11,10 +11,16 @@ interface HtmlBlockViewProps {
  * 解决「自适应高度 iframe + vh 布局」的正反馈循环：
  * iframe 高度由内容高度决定，而 vh 又相对 iframe 自身高度解析 → 高度被不断拉高。
  * 改写后 vh 变为常量，循环打破，同时保持「首屏撑满」的视觉效果（相对真实页面视口）。
+ *
+ * 同时负责把内容实际尺寸通过 postMessage 上报给父页面：iframe 处于沙箱（无 allow-same-origin）
+ * 时父页面无法读取 contentDocument，只能依赖该消息完成自动高度/宽度测量。
  */
 export const VH_FIX_SCRIPT = `(function () {
-  var base = 900;
-  try { base = window.parent && window.parent.innerHeight ? window.parent.innerHeight : 900; } catch (e) {}
+  var base = (typeof window.__HTML_BLOCK_VIEWPORT_HEIGHT === 'number' && window.__HTML_BLOCK_VIEWPORT_HEIGHT > 0)
+    ? window.__HTML_BLOCK_VIEWPORT_HEIGHT : 900;
+  try {
+    if (base === 900 && window.parent && window.parent.innerHeight) base = window.parent.innerHeight;
+  } catch (e) {}
   var unit = base / 100;
   var toPx = function (v) {
     return v.replace(/(-?[\\d.]+)vh\\b/gi, function (_, n) { return parseFloat(n) * unit + 'px'; });
@@ -52,11 +58,38 @@ export const VH_FIX_SCRIPT = `(function () {
       }
     }).observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  var report = function () {
+    try {
+      var de = document.documentElement;
+      var body = document.body;
+      var h = Math.max(de ? de.scrollHeight : 0, body ? body.scrollHeight : 0);
+      var w = Math.max(de ? de.scrollWidth : 0, body ? body.scrollWidth : 0);
+      window.parent.postMessage({ type: 'html-block-size', height: h, width: w }, '*');
+    } catch (e) {}
+  };
+  report();
+  window.addEventListener('load', report);
+  window.addEventListener('resize', report);
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(report).observe(document.documentElement); } catch (e) {}
+  }
+  if (window.MutationObserver) {
+    try {
+      new MutationObserver(report).observe(document.documentElement, {
+        childList: true, subtree: true, attributes: true, characterData: true,
+      });
+    } catch (e) {}
+  }
+  setInterval(report, 800);
 })();`;
 
 /** 将 vh 修正脚本注入 html 文档（完整文档插入 </body> 前，片段则追加到末尾）。 */
-export function buildVhFixedDoc(html: string): string {
-  const script = `<script>${VH_FIX_SCRIPT}</script>`;
+export function buildVhFixedDoc(html: string, viewportHeight?: number): string {
+  const prelude = viewportHeight && viewportHeight > 0
+    ? `window.__HTML_BLOCK_VIEWPORT_HEIGHT=${Math.round(viewportHeight)};`
+    : '';
+  const script = `<script>${prelude}${VH_FIX_SCRIPT}</script>`;
   const lower = html.toLowerCase();
   if (lower.includes('</body>')) return html.replace(/<\/body>/i, `${script}</body>`);
   if (lower.includes('</html>')) return html.replace(/<\/html>/i, `${script}</html>`);
@@ -65,130 +98,89 @@ export function buildVhFixedDoc(html: string): string {
 
 /**
  * HTML 代码块渲染组件。
- * 将粘贴的 HTML 源码原样放入 iframe（srcDoc）渲染，不套站点样式、不过滤任何标签/属性/脚本，
- * 脚本以同源权限执行，效果与本地浏览器打开一致。
- * iframe 高度按内容自动撑开，仅作为页面内容区的一个区块展示。
- * 当内容宽度超过容器宽度时，按比例整体缩放以完整展示，不出现横向滚动条。
+ * 将粘贴的 HTML 源码放入 iframe（srcDoc）渲染，不套站点样式、不过滤标签/属性/脚本，
+ * 但通过 sandbox 隔离：脚本以不透明源（opaque origin）执行，无法访问同源 localStorage/Cookie，
+ * 从而无法读取父页面的登录态（JWT）。iframe 高度/宽度由注入脚本 postMessage 上报后自适应。
  * 前台渲染与后台编辑器「预览」共用本组件，保证所见即所得。
  */
 export function HtmlBlockView({ html }: HtmlBlockViewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const observerCleanupRef = useRef<(() => void) | null>(null);
   const docWidthRef = useRef<number | null>(null);
+  const [viewportHeight, setViewportHeight] = useState<number | undefined>(undefined);
   const [docWidth, setDocWidth] = useState<number | null>(null);
   const [docHeight, setDocHeight] = useState<number | null>(null);
   const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
-  const srcDoc = useMemo(() => buildVhFixedDoc(html), [html]);
+  const srcDoc = useMemo(() => buildVhFixedDoc(html, viewportHeight), [html, viewportHeight]);
 
-  const measure = useCallback(() => {
-    const node = iframeRef.current;
-    const wrap = wrapRef.current;
-    if (!node || !wrap) return;
-    const cw = wrap.clientWidth;
-    if (cw <= 0) return;
-    let doc: Document | null = null;
-    try {
-      doc = node.contentDocument;
-    } catch {
-      /* 跨域/沙箱限制时静默跳过 */
-    }
-    if (!doc || !doc.documentElement) return;
-    const de = doc.documentElement;
-    const sh = de.scrollHeight;
-    const sw = de.scrollWidth;
-
-    if (docWidthRef.current == null) {
-      // 自然渲染：按容器宽度布局，若内容未超宽则直接展示
-      if (sw <= cw + 2) {
-        setDocWidth(null);
-        setScale(1);
-        if (sh > 0) {
-          setDocHeight(sh);
-          setReady(true);
-        }
-      } else {
-        // 内容超宽：锁定设计宽度，切换 iframe 宽度后重测
-        docWidthRef.current = sw;
-        setDocWidth(sw);
-        requestAnimationFrame(measure);
-      }
-      return;
-    }
-
-    // 缩放渲染：内容按设计宽度布局后整体缩放至容器宽度
-    const design = docWidthRef.current;
-    if (sw > design + 2) {
-      docWidthRef.current = sw;
-      setDocWidth(sw);
-      requestAnimationFrame(measure);
-      return;
-    }
-    const s = cw / design;
-    if (s >= 1) {
-      // 容器已足够宽，退回自然渲染
-      docWidthRef.current = null;
-      setDocWidth(null);
-      setScale(1);
-      requestAnimationFrame(measure);
-      return;
-    }
-    setScale(s);
-    if (sh > 0) {
-      setDocHeight(sh);
-      setReady(true);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerHeight > 0) {
+      setViewportHeight(window.innerHeight);
     }
   }, []);
 
-  const attachObserver = useCallback(() => {
-    const node = iframeRef.current;
-    if (!node) return;
-    observerCleanupRef.current?.();
-    observerCleanupRef.current = null;
-    try {
-      const doc = node.contentDocument;
-      if (doc && doc.body) {
-        const mo = new MutationObserver(() => measure());
-        mo.observe(doc.body, { childList: true, subtree: true, attributes: true, characterData: true });
-        observerCleanupRef.current = () => mo.disconnect();
+  useEffect(() => {
+    docWidthRef.current = null;
+    setDocWidth(null);
+    setScale(1);
+    setDocHeight(null);
+    setReady(false);
+  }, [html]);
+
+  const applySize = useCallback((contentWidth: number, contentHeight: number) => {
+    const wrap = wrapRef.current;
+    if (!wrap || contentHeight <= 0) return;
+    const cw = wrap.clientWidth;
+    if (cw <= 0) return;
+    const design = docWidthRef.current;
+    if (design == null) {
+      if (contentWidth > cw + 2) {
+        docWidthRef.current = contentWidth;
+        setDocWidth(contentWidth);
+        setScale(Math.min(1, cw / contentWidth));
+      } else {
+        setDocWidth(null);
+        setScale(1);
       }
-    } catch {
-      /* ignore */
+    } else if (contentWidth > design + 2) {
+      docWidthRef.current = contentWidth;
+      setDocWidth(contentWidth);
+      setScale(Math.min(1, cw / contentWidth));
+    } else if (contentWidth <= cw + 2) {
+      docWidthRef.current = null;
+      setDocWidth(null);
+      setScale(1);
     }
-  }, [measure]);
+    setDocHeight(contentHeight);
+    setReady(true);
+  }, []);
 
   useEffect(() => {
-    const node = iframeRef.current;
-    if (!node) return;
-    const onLoad = () => {
-      measure();
-      attachObserver();
+    const onMessage = (e: MessageEvent) => {
+      const node = iframeRef.current;
+      if (!node || e.source !== node.contentWindow) return;
+      const d = e.data;
+      if (d && d.type === 'html-block-size') {
+        applySize(Number(d.width) || 0, Number(d.height) || 0);
+      }
     };
-    node.addEventListener('load', onLoad);
-    if (node.contentDocument && node.contentDocument.readyState === 'complete') {
-      measure();
-      attachObserver();
-    }
-    return () => {
-      node.removeEventListener('load', onLoad);
-      observerCleanupRef.current?.();
-      observerCleanupRef.current = null;
-    };
-  }, [measure, attachObserver]);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [applySize]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => measure());
+    const ro = new ResizeObserver(() => {
+      const design = docWidthRef.current;
+      if (design != null && wrap.clientWidth > 0) {
+        setScale(Math.min(1, wrap.clientWidth / design));
+      }
+    });
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [measure]);
-
-  useEffect(() => {
-    const timer = window.setInterval(measure, 800);
-    return () => window.clearInterval(timer);
-  }, [measure]);
+  }, []);
 
   return (
     <div
@@ -199,7 +191,7 @@ export function HtmlBlockView({ html }: HtmlBlockViewProps) {
       <iframe
         ref={iframeRef}
         srcDoc={srcDoc}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+        sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
         title="HTML 内容"
         className="border-0 bg-white"
         style={{

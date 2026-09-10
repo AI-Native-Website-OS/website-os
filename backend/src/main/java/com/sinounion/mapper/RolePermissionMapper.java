@@ -16,4 +16,7 @@ public interface RolePermissionMapper extends BaseMapper<RolePermission> {
 
     @Delete("DELETE FROM role_permissions WHERE role = #{role}")
     int deleteByRole(String role);
+
+    @Delete("DELETE FROM role_permissions WHERE permission_id = #{permissionId}")
+    int deleteByPermissionId(Long permissionId);
 }

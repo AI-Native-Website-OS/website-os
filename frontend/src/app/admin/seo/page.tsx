@@ -106,6 +106,45 @@ const GeoFileEditor = forwardRef<GeoFileEditorHandle, GeoFileEditorProps>(
   }
 );
 
+function SyncProgressPanel({ progress, t }: { progress: SyncProgress; t: (key: string) => string }) {
+  const running = progress.status !== 'completed' && progress.status !== 'error';
+  const statusLabel =
+    progress.status === 'error'
+      ? t('admin.ui.seo.syncError')
+      : progress.status === 'completed'
+        ? t('admin.ui.seo.syncDone')
+        : t('admin.ui.seo.syncingText');
+  const barColor = progress.status === 'error' ? 'bg-red-500' : progress.percent === 100 ? 'bg-green-500' : 'bg-black';
+  return (
+    <div className="w-full bg-gray-50 rounded-lg border border-gray-200 p-3 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          {running && (
+            <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+          )}
+          <span className="text-xs font-medium text-gray-700">{statusLabel}</span>
+        </div>
+        <span className="text-xs text-gray-500">
+          {t('admin.ui.seo.syncSuccessCount').replace('{success}', String(progress.success))}{progress.fail ? t('admin.ui.seo.syncFailCount').replace('{fail}', String(progress.fail)) : ''}
+          {progress.status === 'running' && progress.total > 0 && t('admin.ui.seo.syncProgress').replace('{current}', String(progress.current)).replace('{total}', String(progress.total))}
+        </span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+      {progress.currentItem && (
+        <p className="text-[10px] text-gray-400 mt-1.5 truncate">{t('admin.ui.seo.currentItem').replace('{item}', progress.currentItem)}</p>
+      )}
+      {progress.status === 'error' && progress.errorMessage && (
+        <p className="text-[10px] text-red-500 mt-1">{progress.errorMessage}</p>
+      )}
+    </div>
+  );
+}
+
 export default function AdminSeo() {
   const { t } = useI18n();
   const [tab, setTab] = useState<'config' | 'geo'>('config');
@@ -153,7 +192,7 @@ export default function AdminSeo() {
   const handleSaveAllGeoFiles = async () => {
     setGeoSaving(true);
     try {
-      await Promise.all(Object.values(geoFileRefs.current).map((ref) => ref?.save()));
+      await Promise.all(Object.values(geoFileRefs.current).map((ref) => (ref ? ref.save() : Promise.resolve())));
     } finally {
       setGeoSaving(false);
     }
@@ -362,36 +401,7 @@ export default function AdminSeo() {
             </button>
           </div>
 
-          {syncProgress && (
-            <div className="w-full bg-gray-50 rounded-lg border border-gray-200 p-3 mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  {syncProgress.status !== 'completed' && syncProgress.status !== 'error' && (
-                    <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                  )}
-                  <span className="text-xs font-medium text-gray-700">
-                    {syncProgress.status === 'error' ? t('admin.ui.seo.syncError') : syncProgress.status === 'completed' ? t('admin.ui.seo.syncDone') : t('admin.ui.seo.syncingText')}
-                  </span>
-                </div>
-                <span className="text-xs text-gray-500">
-                  {t('admin.ui.seo.syncSuccessCount').replace('{success}', String(syncProgress.success))}{syncProgress.fail ? t('admin.ui.seo.syncFailCount').replace('{fail}', String(syncProgress.fail)) : ''}
-                  {syncProgress.status === 'running' && syncProgress.total > 0 && t('admin.ui.seo.syncProgress').replace('{current}', String(syncProgress.current)).replace('{total}', String(syncProgress.total))}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${syncProgress.status === 'error' ? 'bg-red-500' : syncProgress.percent === 100 ? 'bg-green-500' : 'bg-black'}`}
-                  style={{ width: `${syncProgress.percent}%` }}
-                />
-              </div>
-              {syncProgress.currentItem && (
-                <p className="text-[10px] text-gray-400 mt-1.5 truncate">{t('admin.ui.seo.currentItem').replace('{item}', syncProgress.currentItem)}</p>
-              )}
-              {syncProgress.status === 'error' && syncProgress.errorMessage && (
-                <p className="text-[10px] text-red-500 mt-1">{syncProgress.errorMessage}</p>
-              )}
-            </div>
-          )}
+          {syncProgress && <SyncProgressPanel progress={syncProgress} t={t} />}
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {loading ? (

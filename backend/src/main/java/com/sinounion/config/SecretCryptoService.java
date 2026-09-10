@@ -10,6 +10,8 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +23,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -48,6 +51,7 @@ public class SecretCryptoService {
     private static final String RSA_ALGO = "RSA";
     private static final int GCM_TAG_BITS = 128;
     private static final int IV_LEN = 12;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Value("${config-crypto.aes-key:}")
     private String configuredAesKey;
@@ -212,7 +216,7 @@ public class SecretCryptoService {
         }
         try {
             byte[] iv = new byte[IV_LEN];
-            new SecureRandom().nextBytes(iv);
+            SECURE_RANDOM.nextBytes(iv);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
             byte[] ct = cipher.doFinal(plain.getBytes(StandardCharsets.UTF_8));
@@ -255,7 +259,8 @@ public class SecretCryptoService {
         try {
             byte[] data = Base64.getDecoder().decode(payload.substring(RSA_PREFIX.length()));
             Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-            cipher.init(Cipher.DECRYPT_MODE, rsaKeyPair.getPrivate());
+            cipher.init(Cipher.DECRYPT_MODE, rsaKeyPair.getPrivate(),
+                new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT));
             byte[] plain = cipher.doFinal(data);
             String text = new String(plain, StandardCharsets.UTF_8);
             if (text.length() > 4096) {
@@ -263,7 +268,7 @@ public class SecretCryptoService {
             }
             return text;
         } catch (Exception e) {
-            log.error("RSA 解密失败（key={}）", key);
+            log.error("RSA 解密失败（key={}, len={}）", key, payload.length(), e);
             throw new IllegalStateException("加密传输值解析失败，请刷新页面后重试", e);
         }
     }

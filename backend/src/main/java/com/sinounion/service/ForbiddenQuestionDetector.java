@@ -4,6 +4,7 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -13,7 +14,10 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ForbiddenQuestionDetector {
+
+    private final AiRequestSigner aiRequestSigner;
 
     @Value("${AI_SERVICE_URL}")
     private String aiServiceUrl;
@@ -47,10 +51,11 @@ public class ForbiddenQuestionDetector {
             Map<String, String> body = new HashMap<>();
             body.put("user_input", userInput);
 
-            HttpResponse response = HttpRequest.post(url)
+            HttpRequest request = HttpRequest.post(url)
                     .body(JSONUtil.toJsonStr(body), "application/json")
-                    .timeout(10000)
-                    .execute();
+                    .timeout(10000);
+            aiRequestSigner.sign(request);
+            HttpResponse response = request.execute();
 
             if (response.getStatus() == 200) {
                 JSONObject json = JSONUtil.parseObj(response.body());
@@ -77,9 +82,9 @@ public class ForbiddenQuestionDetector {
     public boolean computeExampleEmbedding(Long exampleId) {
         try {
             String url = aiServiceUrl + "/ai/forbidden/examples/" + exampleId + "/embed";
-            HttpResponse response = HttpRequest.post(url)
-                    .timeout(15000)
-                    .execute();
+            HttpRequest request = HttpRequest.post(url).timeout(15000);
+            aiRequestSigner.sign(request);
+            HttpResponse response = request.execute();
             if (response.getStatus() == 200) {
                 JSONObject json = JSONUtil.parseObj(response.body());
                 boolean ok = "ok".equals(json.getStr("status"));
@@ -105,9 +110,9 @@ public class ForbiddenQuestionDetector {
     public void refreshAllEmbeddings() {
         try {
             String url = aiServiceUrl + "/ai/forbidden/refresh-embeddings";
-            HttpResponse response = HttpRequest.post(url)
-                    .timeout(60000)
-                    .execute();
+            HttpRequest request = HttpRequest.post(url).timeout(60000);
+            aiRequestSigner.sign(request);
+            HttpResponse response = request.execute();
             if (response.getStatus() == 200) {
                 log.info("Forbidden example embeddings refreshed");
             } else {

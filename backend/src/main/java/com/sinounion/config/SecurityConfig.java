@@ -59,6 +59,9 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeRequests()
+                // 前台仅允许匿名提交线索：创建线索与访客行为建线索；
+                // 线索的查询/详情/状态/指派/跟进等管理能力在 /admin/leads 下并受权限保护。
+                .antMatchers(org.springframework.http.HttpMethod.POST, "/leads", "/leads/from-visitor").permitAll()
                 .antMatchers(
                     "/auth/login",
                     "/auth/register",
@@ -75,7 +78,6 @@ public class SecurityConfig {
                     "/ai/**",
                     "/about/**",
                     "/contacts",
-                    "/leads/**",
                     "/stats/**",
                     "/seo/**",
                     "/ai-facts/**",

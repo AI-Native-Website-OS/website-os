@@ -51,6 +51,12 @@ function inputCls(dark: boolean, extra = '') {
   return `${dark ? 'border-gray-600 bg-transparent text-gray-100 placeholder:text-gray-400' : 'border-gray-300'} w-full px-3 py-2 border rounded-lg text-sm ${extra}`;
 }
 
+function remapRowValues(row: AiWebsiteComparisonRow, keys: string[]): AiWebsiteComparisonRow {
+  const values: Record<string, string> = {};
+  keys.forEach(k => { values[k] = row.values[k] ?? '—'; });
+  return { ...row, values };
+}
+
 export default function AdminAiWebsitePage() {
   const { t } = useI18n();
   const { siteConfig } = useSiteConfig();
@@ -123,13 +129,16 @@ export default function AdminAiWebsitePage() {
     setConfig(prev => {
       const versions = (prev.versions || []).filter((_, i) => i !== idx);
       const keys = versions.map(v => v.key);
-      const comparisonRows = (prev.comparisonRows || []).map(row => {
-        const values: Record<string, string> = {};
-        keys.forEach(k => { values[k] = row.values[k] ?? '—'; });
-        return { ...row, values };
-      });
+      const comparisonRows = (prev.comparisonRows || []).map(row => remapRowValues(row, keys));
       return { ...prev, versions, comparisonRows };
     });
+  };
+
+  const updateRowFeature = (idx: number, feature: string) => {
+    setConfig(prev => ({
+      ...prev,
+      comparisonRows: (prev.comparisonRows || []).map((r, i) => i === idx ? { ...r, feature } : r),
+    }));
   };
 
   const updateRow = (idx: number, feature: string, versionKey: string, value: string) => {
@@ -380,10 +389,7 @@ export default function AdminAiWebsitePage() {
                       <td className="py-2 px-3">
                         <input
                           value={row.feature}
-                          onChange={e => setConfig(prev => ({
-                            ...prev,
-                            comparisonRows: (prev.comparisonRows || []).map((r, i) => i === idx ? { ...r, feature: e.target.value } : r),
-                          }))}
+                          onChange={e => updateRowFeature(idx, e.target.value)}
                           className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
                         />
                       </td>

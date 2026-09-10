@@ -20,6 +20,8 @@ from models import AiSession, AiMessage, AiTokenUsage
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+MEMORY_MD = "MEMORY.md"
+
 
 def _warmup_threshold(level: int, max_interval: int) -> int:
     """记忆提取 warmup 阈值：1→2→4→8→… 翻倍，封顶 max_interval（参考 TencentDB pipeline.enableWarmup）。"""
@@ -37,11 +39,11 @@ class Config:
         def _int(key: str, default: int = 0) -> int:
             raw = os.getenv(key)
             try: return int(raw)
-            except: return default
+            except (ValueError, TypeError): return default
         def _float(key: str, default: float = 0.0) -> float:
             raw = os.getenv(key)
             try: return float(raw)
-            except: return default
+            except (ValueError, TypeError): return default
         def _str(key: str, default: str = "") -> str:
             return os.getenv(key) or default
         def _split_stop(raw):
@@ -156,6 +158,21 @@ class Config:
         "reranker_top_k": "RERANK_TOP_K",
     }
 
+    @staticmethod
+    def _coerce_config_value(attr: str, raw: str, int_fields: set, float_fields: set, bool_fields: set) -> tuple:
+        """将 system_configs 原始字符串按属性类型转换；类型非法时返回 (False, None) 表示跳过。"""
+        if attr == "llm_stop":
+            return True, [s.strip() for s in raw.split(",") if s.strip()] if raw else None
+        if attr in bool_fields:
+            return True, raw.strip().lower() == "true"
+        if attr in int_fields:
+            if raw.strip().isdigit():
+                return True, int(raw)
+            return False, None
+        if attr in float_fields:
+            return True, float(raw)
+        return True, raw
+
     def load_model_config_from_db(self, force: bool = False):
         """从 system_configs 表读取模型配置并覆盖环境变量值。
 
@@ -173,19 +190,11 @@ class Config:
             if raw is None:
                 continue
             try:
-                if attr == "llm_stop":
-                    setattr(self, attr, [s.strip() for s in raw.split(",") if s.strip()] if raw else None)
-                elif attr in bool_fields:
-                    setattr(self, attr, raw.strip().lower() == "true")
-                elif attr in int_fields:
-                    if raw.strip().isdigit():
-                        setattr(self, attr, int(raw))
-                elif attr in float_fields:
-                    setattr(self, attr, float(raw))
-                else:
-                    setattr(self, attr, raw)
+                should_set, value = self._coerce_config_value(attr, raw, int_fields, float_fields, bool_fields)
             except (ValueError, TypeError):
                 continue
+            if should_set:
+                setattr(self, attr, value)
 
 
 # 模型配置数据库读取缓存（短 TTL，避免高频 Config() 实例化重复查询）
@@ -251,7 +260,7 @@ def _db_model_config_values(force: bool = False) -> Dict[str, str]:
             try:
                 values[key] = _decrypt_db_value(raw)
             except Exception as e:
-                logger.error("解密配置 %s 失败，跳过该项（回退环境变量）：%s", key, e)
+                logger.exception("解密配置 %s 失败，跳过该项（回退环境变量）", key)
         _db_config_cache["values"] = values
         _db_config_cache["ts"] = now
         return values
@@ -294,7 +303,7 @@ class TokenTracker:
                             completion_tokens=completion_tokens,
                             total_tokens=total,
                             cost_usd=self._calc_cost(prompt_tokens, completion_tokens, model),
-                            timestamp=datetime.utcnow(),
+                            timestamp=datetime.now(datetime.timezone.utc).replace(tzinfo=None),
                         ))
                 except Exception:
                     pass
@@ -375,7 +384,7 @@ class MemoryManager:
     def _user_files(self) -> Dict[str, str]:
         """file_type → filename, 含 legacy MEMORY.md（兼容老数据）。"""
         files = dict(self.MEMORY_FILE_NAMES)
-        files["legacy"] = "MEMORY.md"
+        files["legacy"] = MEMORY_MD
         return files
 
     @staticmethod
@@ -383,10 +392,28 @@ class MemoryManager:
         safe = re.sub(r'[\\/:*?"<>|]', '_', str(name))
         return safe or "anonymous"
 
-    def _memory_path(self, username: str, role: str = "", filename: str = "MEMORY.md") -> Path:
+    def _safe_memory_filename(self, filename: str) -> str:
+        """记忆文件名白名单校验：仅允许预定义的记忆文件名，杜绝 ../ 等路径穿越。"""
+        base = os.path.basename(str(filename or "").replace("\\", "/")).strip()
+        allowed = set(self.MEMORY_FILE_NAMES.values()) | {MEMORY_MD}
+        if base not in allowed:
+            raise ValueError(f"invalid memory filename: {filename!r}")
+        return base
+
+    def _memory_path(self, username: str, role: str = "", filename: str = MEMORY_MD) -> Path:
         role, uname = self._parse_user(username, role)
         role_dir = self._sanitize(role) if role else "_"
-        return self.MEMORY_DIR / role_dir / self._sanitize(uname) / filename
+        safe_name = self._safe_memory_filename(filename)
+        path = self.MEMORY_DIR / role_dir / self._sanitize(uname) / safe_name
+        # 二次兜底：resolve 后必须仍位于 MEMORY_DIR 内
+        try:
+            resolved = path.resolve()
+            root = self.MEMORY_DIR.resolve()
+            if resolved != root and root not in resolved.parents:
+                raise ValueError(f"memory path escapes root: {filename!r}")
+        except (OSError, ValueError) as e:
+            raise ValueError(f"invalid memory path: {filename!r}") from e
+        return path
 
     def _list_user_paths(self) -> List[Dict]:
         """Return [{role, username, path}] for all user dirs under role dirs."""
@@ -536,7 +563,7 @@ class MemoryManager:
             if not path.exists():
                 path.write_text(header, "utf-8")
         # Also create legacy MEMORY.md for backward compatibility
-        legacy = user_dir / "MEMORY.md"
+        legacy = user_dir / MEMORY_MD
         if not legacy.exists():
             legacy.write_text(f"# {username} 的记忆\n> 角色: {display_role}\n> 自动生成的长期记忆文件\n\n", "utf-8")
 
@@ -551,7 +578,7 @@ class MemoryManager:
         return result
 
     def append_to_file(self, username: str, file_type: str, content: str, role: str = ""):
-        path = self._memory_path(username, role, self.MEMORY_FILE_NAMES.get(file_type, "MEMORY.md"))
+        path = self._memory_path(username, role, self.MEMORY_FILE_NAMES.get(file_type, MEMORY_MD))
         self._ensure_user_dir(username, role)
         if path.exists():
             with path.open("a", encoding="utf-8") as f:
@@ -571,15 +598,15 @@ class MemoryManager:
                 return role_dir.name
         return ""
 
-    def read_file(self, username: str, filename: str = "MEMORY.md", role: str = "") -> str:
+    def read_file(self, username: str, filename: str = MEMORY_MD, role: str = "") -> str:
         path = self._memory_path(username, role, filename)
         if path.exists():
             return path.read_text("utf-8")
         return ""
 
-    def write_file(self, username: str, content: str, filename: str = "MEMORY.md", role: str = ""):
-        user_dir = self._ensure_user_dir(username, role)
-        path = user_dir / filename
+    def write_file(self, username: str, content: str, filename: str = MEMORY_MD, role: str = ""):
+        self._ensure_user_dir(username, role)
+        path = self._memory_path(username, role, filename)
         path.write_text(content, "utf-8")
 
     # ── 分层记忆索引（参考 TencentDB Agent Memory L1 原子层）──────
@@ -676,7 +703,7 @@ class MemoryManager:
                     old_by_hash[e.get("hash")] = e["embedding"]
         missing = []
         for e in entries:
-            h = hashlib.md5((e["file_type"] + "\x00" + e["content"]).encode("utf-8")).hexdigest()
+            h = hashlib.md5((e["file_type"] + "\x00" + e["content"]).encode("utf-8"), usedforsecurity=False).hexdigest()
             e["hash"] = h
             e["embedding"] = old_by_hash.get(h)
             if not e.get("embedding"):
@@ -757,6 +784,37 @@ class MemoryManager:
             scores.append(s)
         return scores
 
+    def _query_embedding(self, query: str) -> Optional[List[float]]:
+        if not self._embedder_available():
+            return None
+        try:
+            return self._embedder.embed(query)
+        except Exception as exc:
+            logger.warning("memory query embedding failed: %s", exc)
+            return None
+
+    def _vector_scores(self, entries: List[Dict], query: str) -> List[float]:
+        vec_scores = [0.0] * len(entries)
+        query_emb = self._query_embedding(query)
+        if not query_emb:
+            return vec_scores
+        for i, e in enumerate(entries):
+            if e.get("embedding"):
+                vec_scores[i] = self._cosine(query_emb, e["embedding"])
+        return vec_scores
+
+    def _recall_item(self, entry: Dict, score: float, username: str, role: str, include_scores: bool) -> Dict:
+        item = {
+            "content": entry["content"],
+            "file_type": entry["file_type"],
+            "timestamp": entry.get("timestamp", 0),
+            "username": self._sanitize(username),
+            "role": role,
+        }
+        if include_scores:
+            item["score"] = round(score, 4)
+        return item
+
     def recall(self, username: str, query: str, role: str = "", top_k: Optional[int] = None,
                include_scores: bool = True) -> List[Dict]:
         """仅对当前用户做混合召回（关键词 + 向量，RRF 融合）。"""
@@ -766,17 +824,7 @@ class MemoryManager:
             return []
         query_tokens = self._tokenize(query)
         kw_scores = self._bm25_scores(entries, query_tokens)
-        vec_scores = [0.0] * len(entries)
-        query_emb = None
-        if self._embedder_available():
-            try:
-                query_emb = self._embedder.embed(query)
-            except Exception as exc:
-                logger.warning("memory query embedding failed: %s", exc)
-        if query_emb:
-            for i, e in enumerate(entries):
-                if e.get("embedding"):
-                    vec_scores[i] = self._cosine(query_emb, e["embedding"])
+        vec_scores = self._vector_scores(entries, query)
         k = 60
         rk_kw = {i: r + 1 for r, (i, _) in enumerate(sorted(enumerate(kw_scores), key=lambda x: -x[1]))}
         rk_vec = {i: r + 1 for r, (i, _) in enumerate(sorted(enumerate(vec_scores), key=lambda x: -x[1]))}
@@ -786,20 +834,7 @@ class MemoryManager:
             if s > 0:
                 fused.append((s, i))
         fused.sort(key=lambda x: (-x[0], -entries[x[1]].get("timestamp", 0)))
-        results = []
-        for s, i in fused[:top_k]:
-            e = entries[i]
-            item = {
-                "content": e["content"],
-                "file_type": e["file_type"],
-                "timestamp": e.get("timestamp", 0),
-                "username": self._sanitize(username),
-                "role": role,
-            }
-            if include_scores:
-                item["score"] = round(s, 4)
-            results.append(item)
-        return results
+        return [self._recall_item(entries[i], s, username, role, include_scores) for s, i in fused[:top_k]]
 
     # ── 提取去重（精确 hash + 向量相似度）───────────────────────
     def is_duplicate(self, username: str, role: str, file_type: str, content: str) -> bool:
@@ -827,32 +862,39 @@ class MemoryManager:
                 if l.strip() and not l.startswith("#") and not l.startswith(">")]
 
     @staticmethod
+    def _content_text(c) -> str:
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            parts = []
+            for p in c:
+                if isinstance(p, dict):
+                    parts.append(p.get("text", "") or "")
+                else:
+                    parts.append(str(p))
+            return " ".join(p for p in parts if p)
+        if c:
+            return str(c)
+        return ""
+
+    @staticmethod
     def _last_user_text(messages: List[Dict]) -> str:
         for m in reversed(messages):
             if not isinstance(m, dict) or m.get("role") != "user":
                 continue
             c = m.get("content")
-            if isinstance(c, str):
-                return c
-            if isinstance(c, list):
-                parts = []
-                for p in c:
-                    if isinstance(p, dict):
-                        parts.append(p.get("text", "") or "")
-                    else:
-                        parts.append(str(p))
-                return " ".join(p for p in parts if p)
+            if isinstance(c, (str, list)):
+                return MemoryManager._content_text(c)
             if c:
                 return str(c)
         return ""
 
-    def _build_memory_block(self, username: str, role: str, query: str, budget: int) -> List[str]:
-        files = self.read_all_user_files(username, role)
+    def _collect_memory_entries(self, username: str, role: str, query: str, budget: int, files: Dict[str, str]) -> List[tuple]:
         ordered = []  # (file_type, content)
         seen = set()
 
         def _push(ft: str, content: str):
-            h = hashlib.md5((ft + "\x00" + content).encode("utf-8")).hexdigest()
+            h = hashlib.md5((ft + "\x00" + content).encode("utf-8"), usedforsecurity=False).hexdigest()
             if h in seen:
                 return
             seen.add(h)
@@ -873,6 +915,10 @@ class MemoryManager:
             recent = sorted(self._load_entries(username, role), key=lambda e: e.get("timestamp", 0), reverse=True)
             for e in recent:
                 _push(e["file_type"], e["content"])
+        return ordered
+
+    @staticmethod
+    def _trim_to_budget(ordered: List[tuple], budget: int) -> List[str]:
         # 4. 按预算硬裁剪
         lines = []
         total = 0
@@ -883,6 +929,11 @@ class MemoryManager:
             lines.append(add)
             total += len(add) + 1
         return lines
+
+    def _build_memory_block(self, username: str, role: str, query: str, budget: int) -> List[str]:
+        files = self.read_all_user_files(username, role)
+        ordered = self._collect_memory_entries(username, role, query, budget, files)
+        return self._trim_to_budget(ordered, budget)
 
     def get_context(self, session_messages: List[Dict], username: str = "", role: str = "",
                     max_recent: int = 20, query: str = "") -> List[Dict]:
@@ -1180,41 +1231,48 @@ class AIClient:
             kwargs["stream"] = True
         return kwargs
 
+    def _prepare_vision(self, images: Optional[List[str]]) -> tuple:
+        if not images:
+            return False, None
+        return self._use_vl(images), images
+
+    def _vl_chat_completion(self, msgs: List[Dict], extra: Optional[Dict]):
+        kwargs = dict(
+            model=self.config.vl_model or self.config.llm_model,
+            messages=msgs,
+            max_tokens=self.config.vl_max_tokens,
+            temperature=self.config.vl_temperature,
+        )
+        self._log_request(kwargs, "VL chat",
+                          base_url=self.config.vl_base_url,
+                          api_key=self.config.vl_api_key)
+        return self._vl_client.chat.completions.create(**kwargs) if extra is None \
+            else self._vl_client.chat.completions.create(**kwargs, extra_body=extra)
+
+    def _chat_completion(self, msgs: List[Dict], extra: Optional[Dict],
+                         max_tokens: Optional[int], temperature: Optional[float]):
+        kwargs = self._build_kwargs(stream=False)
+        kwargs["messages"] = msgs
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        self._log_request(kwargs, "LLM chat")
+        return self.client.chat.completions.create(**kwargs) if extra is None \
+            else self.client.chat.completions.create(**kwargs, extra_body=extra)
+
     def chat(self, sp: str, history: List[Dict], user_input: str,
              images: Optional[List[str]] = None,
              max_tokens: Optional[int] = None,
              temperature: Optional[float] = None,
              chat_template_kwargs: Optional[Dict] = None) -> Dict:
-        direct_images = None
-        use_vl = False
-        if images:
-            if self._use_vl(images):
-                use_vl = True
-            direct_images = images
+        use_vl, direct_images = self._prepare_vision(images)
         msgs = self._build_messages(sp, history, user_input, direct_images)
         extra = {"chat_template_kwargs": chat_template_kwargs} if chat_template_kwargs else None
         if use_vl:
-            kwargs = dict(
-                model=self.config.vl_model or self.config.llm_model,
-                messages=msgs,
-                max_tokens=self.config.vl_max_tokens,
-                temperature=self.config.vl_temperature,
-            )
-            self._log_request(kwargs, "VL chat",
-                              base_url=self.config.vl_base_url,
-                              api_key=self.config.vl_api_key)
-            resp = self._vl_client.chat.completions.create(**kwargs) if extra is None \
-                else self._vl_client.chat.completions.create(**kwargs, extra_body=extra)
+            resp = self._vl_chat_completion(msgs, extra)
         else:
-            kwargs = self._build_kwargs(stream=False)
-            kwargs["messages"] = msgs
-            if max_tokens is not None:
-                kwargs["max_tokens"] = max_tokens
-            if temperature is not None:
-                kwargs["temperature"] = temperature
-            self._log_request(kwargs, "LLM chat")
-            resp = self.client.chat.completions.create(**kwargs) if extra is None \
-                else self.client.chat.completions.create(**kwargs, extra_body=extra)
+            resp = self._chat_completion(msgs, extra, max_tokens, temperature)
         content = resp.choices[0].message.content or ""
         reasoning = getattr(resp.choices[0].message, "reasoning", None) or getattr(resp.choices[0].message, "reasoning_content", None)
         content, reasoning = self._extract_thinking(content, reasoning)
@@ -1259,6 +1317,21 @@ class AIClient:
             return self.client.chat.completions.create(**kwargs) if extra is None \
                 else self.client.chat.completions.create(**kwargs, extra_body=extra)
 
+    @staticmethod
+    def _strip_thinking_tag(clean: str, parts: str, tag: str, close: str) -> tuple:
+        while True:
+            si = clean.find(tag)
+            if si == -1:
+                break
+            ei = clean.find(close, si + len(tag))
+            if ei == -1:
+                break
+            inner = clean[si + len(tag):ei].strip()
+            if inner:
+                parts = f"{parts}\n\n{inner}" if parts else inner
+            clean = clean[:si] + clean[ei + len(close):]
+        return clean, parts
+
     def _extract_thinking(self, content: str, reasoning: Optional[str] = None) -> tuple:
         """从正文中提取内联思考块（<thinking>...</thinking> 等），返回 (干净正文, 合并后的思考内容)。"""
         clean = content
@@ -1266,24 +1339,14 @@ class AIClient:
         for tag, close in [("<thinking>", "</thinking>"), ("<reasoning>", "</reasoning>"),
                            ("[thinking]", "[/thinking]"), ("[reasoning]", "[/reasoning]"),
                            ("[think]", "[/think]")]:
-            while True:
-                si = clean.find(tag)
-                if si == -1:
-                    break
-                ei = clean.find(close, si + len(tag))
-                if ei == -1:
-                    break
-                inner = clean[si + len(tag):ei].strip()
-                if inner:
-                    parts = f"{parts}\n\n{inner}" if parts else inner
-                clean = clean[:si] + clean[ei + len(close):]
+            clean, parts = self._strip_thinking_tag(clean, parts, tag, close)
         return clean, (parts or None)
 
     def get_models(self) -> List[str]:
         try:
             return [m.id for m in self.client.models.list()]
         except Exception as e:
-            logger.error("获取模型列表失败: %s", e)
+            logger.exception("获取模型列表失败")
             return []
 
 
@@ -1363,10 +1426,10 @@ class ChatGPT:
     def list_memory_files(self) -> List[Dict]:
         return self.memory.list_files()
 
-    def read_memory_file(self, username: str, filename: str = "MEMORY.md", role: str = "") -> str:
+    def read_memory_file(self, username: str, filename: str = MEMORY_MD, role: str = "") -> str:
         return self.memory.read_file(username, filename, role)
 
-    def write_memory_file(self, username: str, content: str, filename: str = "MEMORY.md", role: str = ""):
+    def write_memory_file(self, username: str, content: str, filename: str = MEMORY_MD, role: str = ""):
         self.memory.write_file(username, content, filename, role)
 
     def init_user_memory(self, username: str, role: str = ""):
@@ -1453,27 +1516,16 @@ class ChatGPT:
             return bool(self.config.llm_thinking_enabled)
         return use_thinking
 
-    def chat(self, user_input: str, images: Optional[List[str]] = None,
-             attachments: Optional[List[Dict]] = None,
-             system_prompt: Optional[str] = None, stream: Optional[bool] = None,
-             on_chunk: Optional[Callable[[str], None]] = None,
-             on_reasoning: Optional[Callable[[str], None]] = None,
-             username: Optional[str] = None,
-             session_id: Optional[str] = None,
-             original_input: Optional[str] = None,
-             use_knowledge: Optional[bool] = None,
-             use_thinking: Optional[bool] = None,
-             stop_event: Optional["threading.Event"] = None) -> Dict:
+    def _resolve_session(self, session_id: Optional[str]) -> Session:
         if session_id:
             session = self.sessions.switch(session_id)
         else:
             session = self.current_session()
         if not session:
             session = self.sessions.create()
+        return session
 
-        sp = system_prompt or session.system_prompt or self.config.system_prompt
-
-        # ── 并行执行 RAG, 意图识别, 违禁检测 ──
+    def _run_intent_tasks(self, user_input: str, sp: str, use_knowledge: Optional[bool]) -> tuple:
         from intent_recognizer import get_intent_recognizer
         from forbidden_detector import get_detector
 
@@ -1497,26 +1549,29 @@ class ChatGPT:
         rag_sp = futures["rag"].result() if "rag" in futures else sp
         recommendations = futures["intent"].result() or {}
         forbidden = futures["forbidden"].result()
-        sp = rag_sp
+        return irec, rag_sp, recommendations, forbidden
 
-        # ── 注入跳转链接来源 ──
-        # 知识库启用与否由后台「知识库管理」页的开关控制（rag_enabled / kb_ids），
-        # 关闭时 _inject_rag_context 静默返回原文，不再注入「知识库未开启」提示
-        if recommendations.get("intent") == "view_content":
-            matches = recommendations.get("matches") or []
-            catalog_ctx = irec.format_catalog_context(matches=matches if matches else None)
-            if catalog_ctx:
-                sp += catalog_ctx
+    @staticmethod
+    def _apply_catalog_context(irec, recommendations: Dict, sp: str) -> str:
+        if recommendations.get("intent") != "view_content":
+            return sp
+        matches = recommendations.get("matches") or []
+        catalog_ctx = irec.format_catalog_context(matches=matches if matches else None)
+        if catalog_ctx:
+            sp += catalog_ctx
+        return sp
 
-        # Resolve user role from existing memory files
-        if session and session.username:
-            role = session.role or ""
-            if not role or not self.memory._memory_path(session.username, role, "profile.md").exists():
-                found = self.memory.find_user_role(session.username)
-                if found:
-                    session.role = found
+    def _resolve_session_role(self, session: Session):
+        if not (session and session.username):
+            return
+        role = session.role or ""
+        if not role or not self.memory._memory_path(session.username, role, "profile.md").exists():
+            found = self.memory.find_user_role(session.username)
+            if found:
+                session.role = found
 
-        sid = session.session_id if session else ""
+    def _apply_lead_context(self, irec, recommendations: Dict, username: Optional[str],
+                            session: Session, sid: str, sp: str, user_input: str) -> str:
         if recommendations.get("action") == "showForm":
             mode = recommendations.get("actionData", {}).get("mode", "demo")
             has_user = bool(username) or bool(session and session.username)
@@ -1534,21 +1589,97 @@ class ChatGPT:
                 "mode": self._pending_leads.pop(sid),
                 "requirement": user_input,
             }
+        return sp
 
-        if forbidden and forbidden.get("blocked"):
-            refusal = forbidden.get("answer") or "抱歉，这部分属于系统内部信息，我无法提供。如有业务相关问题，我很乐意继续帮助您。"
-            if on_chunk:
-                on_chunk(refusal)
-            result = {"content": refusal, "reasoning": None,
-                      "prompt_tokens": 0, "completion_tokens": 0,
-                      "total_tokens": 0, "model": self.config.llm_model,
-                      "finish_reason": "banned",
-                      "recommendations": recommendations}
-            session.messages.append({"role": "user", "content": user_input, "attachments": attachments, "images": images, "display_content": original_input})
-            session.messages.append({"role": "assistant", "content": refusal, "reasoning": None})
-            session.updated_at = time.time()
-            self.sessions.save(session)
-            return result
+    def _handle_forbidden(self, forbidden: Optional[Dict], on_chunk: Optional[Callable],
+                          session: Session, user_input: str, images, attachments, original_input,
+                          recommendations: Dict) -> Optional[Dict]:
+        if not (forbidden and forbidden.get("blocked")):
+            return None
+        refusal = forbidden.get("answer") or "抱歉，这部分属于系统内部信息，我无法提供。如有业务相关问题，我很乐意继续帮助您。"
+        if on_chunk:
+            on_chunk(refusal)
+        result = {"content": refusal, "reasoning": None,
+                  "prompt_tokens": 0, "completion_tokens": 0,
+                  "total_tokens": 0, "model": self.config.llm_model,
+                  "finish_reason": "banned",
+                  "recommendations": recommendations}
+        session.messages.append({"role": "user", "content": user_input, "attachments": attachments, "images": images, "display_content": original_input})
+        session.messages.append({"role": "assistant", "content": refusal, "reasoning": None})
+        session.updated_at = time.time()
+        self.sessions.save(session)
+        return result
+
+    def _save_exchange(self, session: Session, user_input: str, attachments, images, original_input, result: Dict):
+        session.messages.append({"role": "user", "content": user_input, "attachments": attachments, "images": images, "display_content": original_input})
+        session.messages.append({"role": "assistant", "content": result["content"], "reasoning": result.get("reasoning")})
+        session.updated_at = time.time()
+        self.sessions.save(session)
+
+    @staticmethod
+    def _has_memory_content(memories: Dict[str, str]) -> bool:
+        return any(
+            any(l.strip() and not l.startswith("#") and not l.startswith(">")
+                for l in content.splitlines())
+            for content in memories.values()
+        )
+
+    def _memory_extract_check(self, sid: str, count: int, has_content: bool) -> bool:
+        # warmup 策略（参考 TencentDB Agent Memory）：阈值 1→2→4→8→… 翻倍递增
+        if self.config.memory_warmup_enabled:
+            level = self._memory_extract_level.get(sid, 0)
+            return count >= _warmup_threshold(level, self.config.memory_extract_max_interval)
+        return count >= self._memory_extract_interval or (count == 1 and not has_content)
+
+    def _maybe_extract_memory(self, session: Session, user_input: str, result: Dict):
+        if not session.username:
+            return
+        sid = session.session_id
+        role = session.role or self.memory.find_user_role(session.username)
+        if not role:
+            role = "_"
+        has_content = self._has_memory_content(self.memory.read_all_user_files(session.username, role))
+        count = self._memory_msg_count.get(sid, 0) + 1
+        self._memory_msg_count[sid] = count
+        should_extract = self._memory_extract_check(sid, count, has_content)
+        if should_extract and role != "_":
+            self._memory_msg_count[sid] = 0
+            if self.config.memory_warmup_enabled:
+                self._memory_extract_level[sid] = self._memory_extract_level.get(sid, 0) + 1
+            import threading as _t
+            _t.Thread(target=self._extract_and_update_memory,
+                      args=(session.username, role, user_input, result.get("content", "")),
+                      daemon=True).start()
+
+    def chat(self, user_input: str, images: Optional[List[str]] = None,
+             attachments: Optional[List[Dict]] = None,
+             system_prompt: Optional[str] = None, stream: Optional[bool] = None,
+             on_chunk: Optional[Callable[[str], None]] = None,
+             on_reasoning: Optional[Callable[[str], None]] = None,
+             username: Optional[str] = None,
+             session_id: Optional[str] = None,
+             original_input: Optional[str] = None,
+             use_knowledge: Optional[bool] = None,
+             use_thinking: Optional[bool] = None,
+             stop_event: Optional["threading.Event"] = None) -> Dict:
+        session = self._resolve_session(session_id)
+        sp = system_prompt or session.system_prompt or self.config.system_prompt
+
+        # ── 并行执行 RAG, 意图识别, 违禁检测 ──
+        irec, sp, recommendations, forbidden = self._run_intent_tasks(user_input, sp, use_knowledge)
+
+        # ── 注入跳转链接来源 ──
+        sp = self._apply_catalog_context(irec, recommendations, sp)
+
+        # Resolve user role from existing memory files
+        self._resolve_session_role(session)
+
+        sid = session.session_id if session else ""
+        sp = self._apply_lead_context(irec, recommendations, username, session, sid, sp, user_input)
+
+        forbidden_result = self._handle_forbidden(forbidden, on_chunk, session, user_input, images, attachments, original_input, recommendations)
+        if forbidden_result is not None:
+            return forbidden_result
 
         ctx = self.memory.get_context(session.messages, username=session.username or "", role=session.role or "", query=user_input)
         # 思考过程默认由后台「模型参数配置」的 LLM_THINKING_ENABLED 控制；未显式传入时取配置值
@@ -1562,45 +1693,65 @@ class ChatGPT:
 
         result["recommendations"] = recommendations
 
-        session.messages.append({"role": "user", "content": user_input, "attachments": attachments, "images": images, "display_content": original_input})
-        session.messages.append({"role": "assistant", "content": result["content"], "reasoning": result.get("reasoning")})
-        session.updated_at = time.time()
-        self.sessions.save(session)
+        self._save_exchange(session, user_input, attachments, images, original_input, result)
 
         self.memory.add("user", user_input, session.session_id, session.username, session.role)
         self.memory.add("assistant", result["content"], session.session_id, session.username, session.role)
 
         # Trigger memory extraction (first message immediately if files empty, then every N messages)
-        if session.username:
-            sid = session.session_id
-            role = session.role or self.memory.find_user_role(session.username)
-            if not role:
-                role = "_"
-            # Check if memory files already have content
-            memories = self.memory.read_all_user_files(session.username, role)
-            has_content = any(
-                any(l.strip() and not l.startswith("#") and not l.startswith(">")
-                    for l in content.splitlines())
-                for content in memories.values()
-            )
-            count = self._memory_msg_count.get(sid, 0) + 1
-            self._memory_msg_count[sid] = count
-            # warmup 策略（参考 TencentDB Agent Memory）：阈值 1→2→4→8→… 翻倍递增
-            if self.config.memory_warmup_enabled:
-                level = self._memory_extract_level.get(sid, 0)
-                should_extract = count >= _warmup_threshold(level, self.config.memory_extract_max_interval)
-            else:
-                should_extract = count >= self._memory_extract_interval or (count == 1 and not has_content)
-            if should_extract and role != "_":
-                self._memory_msg_count[sid] = 0
-                if self.config.memory_warmup_enabled:
-                    self._memory_extract_level[sid] = self._memory_extract_level.get(sid, 0) + 1
-                import threading as _t
-                _t.Thread(target=self._extract_and_update_memory,
-                          args=(session.username, role, user_input, result.get("content", "")),
-                          daemon=True).start()
+        self._maybe_extract_memory(session, user_input, result)
 
         return result
+
+    @staticmethod
+    def _should_stop(stop_event: Optional["threading.Event"]) -> bool:
+        return stop_event is not None and stop_event.is_set()
+
+    @staticmethod
+    def _handle_reasoning_chunk(rd: str, full: str, thinking: Optional[str], use_thinking: bool,
+                                on_chunk: Optional[Callable], on_reasoning: Optional[Callable]) -> tuple:
+        if use_thinking is False:
+            # 思考已关闭时，若模型/网关未真正禁用思考，可能把全部输出放入
+            # reasoning_content 而正文为空。此时将思考内容当作正文逐块流式
+            # 输出（保留打字机效果），同时避免最终空白响应。
+            full += rd
+            if on_chunk:
+                on_chunk(rd)
+            return full, thinking
+        thinking = (thinking or "") + rd
+        if on_reasoning:
+            on_reasoning(rd)
+        return full, thinking
+
+    @staticmethod
+    def _apply_chunk(chunk, state: Dict, use_thinking: bool,
+                     on_chunk: Optional[Callable], on_reasoning: Optional[Callable]):
+        if chunk.usage:
+            state["pt"] = chunk.usage.prompt_tokens or 0
+            state["ct"] = chunk.usage.completion_tokens or 0
+        if not chunk.choices:
+            return
+        delta = chunk.choices[0].delta
+        rd = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+        if rd:
+            state["full"], state["thinking"] = ChatGPT._handle_reasoning_chunk(
+                rd, state["full"], state["thinking"], use_thinking, on_chunk, on_reasoning)
+            return
+        cd = delta.content or ""
+        if cd:
+            state["full"] += cd
+            if on_chunk:
+                on_chunk(cd)
+
+    def _consume_stream(self, stream, use_thinking: bool,
+                        on_chunk: Optional[Callable], on_reasoning: Optional[Callable],
+                        stop_event: Optional["threading.Event"]) -> tuple:
+        state = {"full": "", "thinking": None, "pt": 0, "ct": 0}
+        for chunk in stream:
+            if self._should_stop(stop_event):
+                return state["full"], state["thinking"], state["pt"], state["ct"], True
+            self._apply_chunk(chunk, state, use_thinking, on_chunk, on_reasoning)
+        return state["full"], state["thinking"], state["pt"], state["ct"], False
 
     def _do_stream(self, session: Session, sp: str, ctx: List[Dict],
                    user_input: str, images: Optional[List[str]],
@@ -1608,45 +1759,12 @@ class ChatGPT:
                    on_reasoning: Optional[Callable[[str], None]] = None,
                    stop_event: Optional["threading.Event"] = None,
                    use_thinking: Optional[bool] = True) -> Dict:
-        full, thinking, pt, ct, model = "", None, 0, 0, self.config.llm_model
+        model = self.config.llm_model
         stream = self.client.chat_stream(
             sp, ctx, user_input, images,
             chat_template_kwargs={"enable_thinking": False} if use_thinking is False else None,
         )
-
-        stopped = False
-        for chunk in stream:
-            if stop_event is not None and stop_event.is_set():
-                stopped = True
-                break
-            if chunk.usage:
-                pt = chunk.usage.prompt_tokens or 0
-                ct = chunk.usage.completion_tokens or 0
-
-            if not chunk.choices:
-                continue
-
-            delta = chunk.choices[0].delta
-            rd = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
-            if rd:
-                if use_thinking is False:
-                    # 思考已关闭时，若模型/网关未真正禁用思考，可能把全部输出放入
-                    # reasoning_content 而正文为空。此时将思考内容当作正文逐块流式
-                    # 输出（保留打字机效果），同时避免最终空白响应。
-                    full += rd
-                    if on_chunk:
-                        on_chunk(rd)
-                else:
-                    thinking = (thinking or "") + rd
-                    if on_reasoning:
-                        on_reasoning(rd)
-                continue
-
-            cd = delta.content or ""
-            if cd:
-                full += cd
-                if on_chunk:
-                    on_chunk(cd)
+        full, thinking, pt, ct, stopped = self._consume_stream(stream, use_thinking, on_chunk, on_reasoning, stop_event)
 
         if use_thinking is False:
             # 思考已关闭：正文（含回退的推理内容）即最终答案，不再做思考块二次抽取/丢弃
@@ -1661,18 +1779,34 @@ class ChatGPT:
                 "finish_reason": "stopped" if stopped else "stop"}
 
     # ── 记忆提取（AI分析对话，更新6个记忆文件）─────────────
+    def _build_memory_summary(self, memories: Dict[str, str]) -> str:
+        current_summary = ""
+        for ft in self.memory.MEMORY_FILE_TYPES:
+            c = memories.get(ft, "").strip()
+            if not c:
+                continue
+            lines = [l for l in c.splitlines() if l.strip() and not l.startswith("#") and not l.startswith(">")]
+            if lines:
+                current_summary += f"[{ft}]\n" + "\n".join(lines[-5:]) + "\n\n"
+        return current_summary
+
+    def _apply_memory_updates(self, updates: Dict, username: str, role: str, now: str):
+        for file_type, new_content in updates.items():
+            if not (new_content and new_content.strip()):
+                continue
+            new_content = new_content.strip()
+            if self.memory.is_duplicate(username, role, file_type, new_content):
+                logger.debug("memory dedup skipped: [%s] %s", file_type, new_content[:40])
+                continue
+            line = f"- [{now}] {new_content}"
+            self.memory.append_to_file(username, file_type, line, role)
+
     def _extract_and_update_memory(self, username: str, role: str, user_input: str, assistant_response: str):
         if not username:
             return
         try:
             memories = self.memory.read_all_user_files(username, role)
-            current_summary = ""
-            for ft in self.memory.MEMORY_FILE_TYPES:
-                c = memories.get(ft, "").strip()
-                if c:
-                    lines = [l for l in c.splitlines() if l.strip() and not l.startswith("#") and not l.startswith(">")]
-                    if lines:
-                        current_summary += f"[{ft}]\n" + "\n".join(lines[-5:]) + "\n\n"
+            current_summary = self._build_memory_summary(memories)
 
             extraction_prompt = f"""分析以下对话，提取需要记录到用户记忆的新信息。
 
@@ -1704,14 +1838,7 @@ timeline: 事件及时间
             if json_match:
                 updates = json.loads(json_match.group())
                 now = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M")
-                for file_type, new_content in updates.items():
-                    if new_content and new_content.strip():
-                        new_content = new_content.strip()
-                        if self.memory.is_duplicate(username, role, file_type, new_content):
-                            logger.debug("memory dedup skipped: [%s] %s", file_type, new_content[:40])
-                            continue
-                        line = f"- [{now}] {new_content}"
-                        self.memory.append_to_file(username, file_type, line, role)
+                self._apply_memory_updates(updates, username, role, now)
         except Exception as e:
             logger.warning(f"Memory extraction failed: {e}")
 
@@ -1732,4 +1859,6 @@ timeline: 事件及时间
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    host = os.getenv("AI_HOST", "127.0.0.1")
+    port = int(os.getenv("AI_PORT", "8000"))
+    uvicorn.run("api:app", host=host, port=port, reload=True)

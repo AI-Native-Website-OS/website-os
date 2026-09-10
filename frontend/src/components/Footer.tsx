@@ -15,6 +15,31 @@ interface FooterColumn {
   items: { name: string; href: string }[];
 }
 
+async function fetchFooterColumn(m: any): Promise<FooterColumn> {
+  const listRes: any = await api.get(`/content/${m.moduleKey}`, { params: { page: 1, size: 50 } }).catch(() => ({ data: { records: [] } }));
+  const records = (listRes.data?.records || []) as any[];
+
+  let items: { name: string; href: string }[] = [];
+  if (m.moduleType === 1) {
+    const catRes: any = await api.get(`/content/${m.moduleKey}/categories`).catch(() => ({ data: [] }));
+    const cats = (catRes.data || []) as any[];
+    const catMap: Record<string, string> = {};
+    cats.filter((c: any) => c.name && c.slug).forEach((c: any) => { catMap[c.name] = c.slug; });
+    const groupNames = [...new Set(records.map((r: any) => r.groupName?.trim()).filter(Boolean))];
+    items = groupNames.map((name: string) => ({
+      name,
+      href: categoryUrl(m.moduleKey, catMap[name] || name),
+    }));
+  } else {
+    items = records.slice(0, 50).map((r: any) => ({
+      name: r.title,
+      href: detailUrl(m.moduleKey, r.slug),
+    }));
+  }
+
+  return { key: m.moduleKey, name: m.moduleName, items };
+}
+
 export default function Footer() {
   const [columns, setColumns] = useState<FooterColumn[]>([]);
   const [footer, setFooter] = useState<FooterConfig | null>(null);
@@ -22,52 +47,39 @@ export default function Footer() {
   const { siteConfig } = useSiteConfig();
 
   useEffect(() => {
-    (async () => {
-      const [coreModRes, footerRes] = await Promise.all([
-        api.get('/core-modules').catch(() => ({ data: [] })),
-        api.get('/home/footer').catch(() => ({ data: null })),
-      ]);
+    const handleModulesChanged = () => {
+      (async () => {
+        const [coreModRes, footerRes] = await Promise.all([
+          api.get('/core-modules').catch(() => ({ data: [] })),
+          api.get('/home/footer').catch(() => ({ data: null })),
+        ]);
 
-      const activeModules = ((coreModRes.data || []).filter((m: any) => m.status === 1) || []) as any[];
-      const moduleColumns: FooterColumn[] = [];
+        const activeModules = ((coreModRes.data || []).filter((m: any) => m.status === 1) || []) as any[];
 
-      const fetchPromises = activeModules.map(async (m: any) => {
-        const listRes: any = await api.get(`/content/${m.moduleKey}`, { params: { page: 1, size: 50 } }).catch(() => ({ data: { records: [] } }));
-        const records = (listRes.data?.records || []) as any[];
+        const fetchPromises = activeModules.map(fetchFooterColumn);
 
-        let items: { name: string; href: string }[] = [];
-        if (m.moduleType === 1) {
-          const catRes: any = await api.get(`/content/${m.moduleKey}/categories`).catch(() => ({ data: [] }));
-          const cats = (catRes.data || []) as any[];
-          const catMap: Record<string, string> = {};
-          cats.filter((c: any) => c.name && c.slug).forEach((c: any) => { catMap[c.name] = c.slug; });
-          const groupNames = [...new Set(records.map((r: any) => r.groupName?.trim()).filter(Boolean))];
-          items = groupNames.map((name: string) => ({
-            name,
-            href: categoryUrl(m.moduleKey, catMap[name] || name),
-          }));
-        } else {
-          items = records.slice(0, 50).map((r: any) => ({
-            name: r.title,
-            href: detailUrl(m.moduleKey, r.slug),
-          }));
-        }
+        const results = await Promise.all(fetchPromises);
+        const allColumns: FooterColumn[] = [];
 
-        return { key: m.moduleKey, name: m.moduleName, items };
-      });
+        results.forEach((col) => {
+          if (col.items.length > 0 && col.items.length <= 5) {
+            allColumns.push(col);
+          }
+        });
 
-      const results = await Promise.all(fetchPromises);
-      results.forEach((col) => { if (col.items.length > 0) moduleColumns.push(col); });
+        allColumns.push({
+          key: 'faqs',
+          name: t('common.footer.faq'),
+          items: [{ name: t('common.footer.faq'), href: '/faqs' }],
+        });
 
-      moduleColumns.push({
-        key: 'faqs',
-        name: t('common.footer.faq'),
-        items: [{ name: t('common.footer.faq'), href: '/faqs' }],
-      });
-
-      setColumns(moduleColumns);
-      setFooter((footerRes.data || {}) as FooterConfig);
-    })();
+        setColumns(allColumns.slice(0, 5));
+        setFooter((footerRes.data || {}) as FooterConfig);
+      })();
+    };
+    handleModulesChanged();
+    window.addEventListener('core-modules-changed', handleModulesChanged);
+    return () => window.removeEventListener('core-modules-changed', handleModulesChanged);
   }, []);
 
   const year = new Date().getFullYear();

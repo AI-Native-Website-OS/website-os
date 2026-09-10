@@ -2,7 +2,6 @@ package com.sinounion.config;
 
 import com.sinounion.util.ModelConfigKeys;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -15,10 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,15 +25,6 @@ import java.util.Map;
 public class DatabaseInitializer {
 
     private final JdbcTemplate jdbcTemplate;
-
-    @Value("${SPRING_DATASOURCE_URL}")
-    private String datasourceUrl;
-
-    @Value("${SPRING_DATASOURCE_USERNAME}")
-    private String datasourceUsername;
-
-    @Value("${SPRING_DATASOURCE_PASSWORD}")
-    private String datasourcePassword;
 
     private boolean vectorAvailable;
 
@@ -83,6 +69,8 @@ public class DatabaseInitializer {
 
             migrateMissingColumns();
 
+            ensureSuperAdminPermissions();
+
             seedModelConfigFromEnv();
 
             for (String stmt : commentStatements) {
@@ -107,22 +95,19 @@ public class DatabaseInitializer {
         }
     }
 
-    private void ensureDatabase() {
-        String targetDb = datasourceUrl.replaceFirst(".*/([^/?]+).*", "$1");
-        String pgUrl = datasourceUrl.replaceFirst("/[^/?]+(\\?.*)?$", "/postgres$1");
-
-        try (Connection conn = DriverManager.getConnection(pgUrl, datasourceUsername, datasourcePassword);
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
-                "SELECT 1 FROM pg_database WHERE datname = '" + targetDb + "'");
-            if (!rs.next()) {
-                stmt.executeUpdate("CREATE DATABASE \"" + targetDb + "\"");
-                log.info("Created database: {}", targetDb);
-            } else {
-                log.info("Database {} already exists", targetDb);
+    /**
+     * 确保超级管理员角色拥有全部权限映射（幂等）。
+     * 用于修复旧库缺失权限映射导致的 403，以及后续新增权限点自动同步给 SUPER_ADMIN。
+     */
+    private void ensureSuperAdminPermissions() {
+        try {
+            if (!tableExists("permissions") || !tableExists("role_permissions")) {
+                return;
             }
+            jdbcTemplate.update(
+                "INSERT INTO role_permissions (role, permission_id) SELECT 'SUPER_ADMIN', id FROM permissions ON CONFLICT (role, permission_id) DO NOTHING");
         } catch (Exception e) {
-            log.warn("Could not verify/create database (may already exist or lack permissions): {}", e.getMessage());
+            log.warn("Failed to ensure SUPER_ADMIN permissions: {}", e.getMessage());
         }
     }
 

@@ -1,9 +1,7 @@
 package com.sinounion.controller;
 
-import com.sinounion.common.PageResult;
 import com.sinounion.common.Result;
 import com.sinounion.entity.Lead;
-import com.sinounion.entity.LeadActivity;
 import com.sinounion.entity.User;
 import com.sinounion.mapper.UserMapper;
 import com.sinounion.service.LeadService;
@@ -18,9 +16,13 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
-import java.util.List;
 
-@Tag(name = "线索管理", description = "线索相关接口")
+/**
+ * 前台公开线索接口：仅保留访客提交线索所需的最小写入能力。
+ * 线索的查询、状态更新、指派、跟进记录等管理操作统一由 {@link com.sinounion.controller.admin.AdminLeadController}
+ * 在 /admin/leads 下提供并做权限校验，避免匿名用户读写全部线索。
+ */
+@Tag(name = "线索管理", description = "前台线索提交接口")
 @RestController
 @RequestMapping("/leads")
 @RequiredArgsConstructor
@@ -67,59 +69,6 @@ public class LeadController {
             }
         }
         return Result.success(leadService.createLead(lead));
-    }
-
-    @Operation(summary = "获取线索列表")
-    @GetMapping
-    public Result<PageResult<Lead>> getLeads(
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String sortBy,
-            @RequestParam(required = false) String sortOrder,
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate,
-            @RequestParam(required = false) String name,
-            @RequestParam(required = false) String company,
-            @RequestParam(required = false) String phone,
-            @RequestParam(required = false) String sourcePage,
-            @RequestParam(required = false) String ipAddress,
-            @RequestParam(required = false) String location) {
-        return Result.success(PageResult.of(leadService.getLeads(page, size, status, keyword, sortBy, sortOrder, startDate, endDate, name, company, phone, sourcePage, ipAddress, location)));
-    }
-
-    @Operation(summary = "获取线索详情")
-    @GetMapping("/{id}")
-    public Result<Lead> getLead(@PathVariable Long id) {
-        return Result.success(leadService.getLeadById(id));
-    }
-
-    @Operation(summary = "更新线索状态")
-    @PutMapping("/{id}/status")
-    public Result<?> updateLeadStatus(@PathVariable Long id, @RequestParam String status) {
-        leadService.updateLeadStatus(id, status);
-        return Result.success("更新成功");
-    }
-
-    @Operation(summary = "分配线索")
-    @PutMapping("/{id}/assign")
-    public Result<?> assignLead(@PathVariable Long id, @RequestParam Long userId) {
-        leadService.assignLead(id, userId);
-        return Result.success("分配成功");
-    }
-
-    @Operation(summary = "获取线索跟进记录")
-    @GetMapping("/{id}/activities")
-    public Result<List<LeadActivity>> getLeadActivities(@PathVariable Long id) {
-        return Result.success(leadService.getLeadActivities(id));
-    }
-
-    @Operation(summary = "添加线索跟进记录")
-    @PostMapping("/{id}/activities")
-    public Result<?> addLeadActivity(@PathVariable Long id, @Valid @RequestBody LeadActivity activity) {
-        leadService.addLeadActivity(id, activity);
-        return Result.success("添加成功");
     }
 
     @Operation(summary = "从访客行为创建线索")

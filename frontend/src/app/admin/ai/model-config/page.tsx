@@ -88,6 +88,155 @@ function isAiKey(key: string) {
   return AI_KEY_PREFIXES.some(p => key.startsWith(p));
 }
 
+function getInputValue(isSecret: boolean, typed: boolean, val: string, secretConfigured: boolean): string {
+  if (!isSecret) return val;
+  if (typed) return val;
+  if (secretConfigured) return SECRET_MASK;
+  return '';
+}
+
+function getInputPlaceholder(field: FieldDef, isSecret: boolean, secretConfigured: boolean, t: (k: string) => string): string | undefined {
+  if (isSecret && secretConfigured) return t('admin.ui.modelConfig.secretConfiguredHint');
+  return field.placeholderKey ? t(field.placeholderKey) : field.placeholder;
+}
+
+function BooleanField({ field, val, onChange, t }: {
+  field: FieldDef;
+  val: string;
+  onChange: (key: string, value: string) => void;
+  t: (k: string) => string;
+}) {
+  const on = val === 'true';
+  return (
+    <div className="flex items-center gap-3 mt-1">
+      <button type="button"
+        onClick={() => onChange(field.key, on ? 'false' : 'true')}
+        className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${on ? 'bg-black' : 'bg-gray-300'}`}>
+        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${on ? 'translate-x-5' : ''}`} />
+      </button>
+      <span className="text-sm text-gray-600">{on ? t('admin.ui.modelConfig.boolOn') : t('admin.ui.modelConfig.boolOff')}</span>
+    </div>
+  );
+}
+
+function SliderField({ field, val, onChange }: {
+  field: FieldDef;
+  val: string;
+  onChange: (key: string, value: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 mt-1">
+      <input type="range"
+        min={field.min} max={field.max} step={field.step || '1'}
+        value={val || field.min || 0}
+        onChange={e => onChange(field.key, e.target.value)}
+        className="flex-1 h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-black" />
+      <input type="number"
+        value={val}
+        onChange={e => onChange(field.key, e.target.value)}
+        min={field.min} max={field.max} step={field.step || '1'}
+        className="w-20 px-2.5 py-1.5 text-sm text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black" />
+    </div>
+  );
+}
+
+function TextField({ field, inputValue, inputPlaceholder, showKey, onChange, onToggleShow }: {
+  field: FieldDef;
+  inputValue: string;
+  inputPlaceholder?: string;
+  showKey: boolean;
+  onChange: (key: string, value: string) => void;
+  onToggleShow: (key: string) => void;
+}) {
+  return (
+    <div className="relative mt-1">
+      <input
+        type={field.type === 'password' && !showKey ? 'password' : 'text'}
+        value={inputValue}
+        onChange={e => onChange(field.key, e.target.value)}
+        placeholder={inputPlaceholder}
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        autoComplete="off"
+        className="w-full max-w-md px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors"
+      />
+      {field.type === 'password' && (
+        <button type="button" onClick={() => onToggleShow(field.key)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors">
+          {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FieldControl({ field, val, inputValue, inputPlaceholder, showKey, onChange, onToggleShow, t }: {
+  field: FieldDef;
+  val: string;
+  inputValue: string;
+  inputPlaceholder?: string;
+  showKey: boolean;
+  onChange: (key: string, value: string) => void;
+  onToggleShow: (key: string) => void;
+  t: (k: string) => string;
+}) {
+  if (field.type === 'boolean') return <BooleanField field={field} val={val} onChange={onChange} t={t} />;
+  if (field.type === 'slider') return <SliderField field={field} val={val} onChange={onChange} />;
+  return <TextField field={field} inputValue={inputValue} inputPlaceholder={inputPlaceholder} showKey={showKey} onChange={onChange} onToggleShow={onToggleShow} />;
+}
+
+function ConfigField({ field, getDisplayValue, isChanged, valueMap, showKey, onChange, onToggleShow, onRevert, t }: {
+  field: FieldDef;
+  getDisplayValue: (key: string) => string;
+  isChanged: (key: string) => boolean;
+  valueMap: Record<string, string>;
+  showKey: boolean;
+  onChange: (key: string, value: string) => void;
+  onToggleShow: (key: string) => void;
+  onRevert: (key: string) => void;
+  t: (k: string) => string;
+}) {
+  const val = getDisplayValue(field.key);
+  const changed = isChanged(field.key);
+  const isSecret = isSecretKey(field.key);
+  const secretConfigured = isSecret && valueMap[field.key] === SECRET_MASK;
+  const typed = isSecret && changed;
+  const inputValue = getInputValue(isSecret, typed, val, secretConfigured);
+  const inputPlaceholder = getInputPlaceholder(field, isSecret, secretConfigured, t);
+  return (
+    <div key={field.key}
+      className={`rounded-xl border transition-all ${changed ? 'border-amber-200 bg-amber-50/40 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+      <div className="p-4">
+        <div className="flex items-start gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <label className="text-sm font-medium text-gray-900">{t(field.labelKey)}</label>
+              {changed && (
+                <span className="text-[11px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-medium">
+                  {t('admin.ui.modelConfig.changed')}
+                </span>
+              )}
+              <span className="text-[11px] text-gray-400 font-mono ml-auto">{field.key}</span>
+            </div>
+            {field.descriptionKey && (
+              <p className="text-xs text-gray-400 mb-2.5">{t(field.descriptionKey)}</p>
+            )}
+            <FieldControl field={field} val={val} inputValue={inputValue} inputPlaceholder={inputPlaceholder} showKey={showKey} onChange={onChange} onToggleShow={onToggleShow} t={t} />
+          </div>
+          {changed && (
+            <button onClick={() => onRevert(field.key)}
+              className="flex-shrink-0 p-1.5 text-gray-400 hover:text-black rounded-lg hover:bg-gray-100 transition-colors"
+              title={t('admin.ui.modelConfig.revertTitle')}>
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminModelConfigPage() {
   const { t } = useI18n();
   const [allItems, setAllItems] = useState<Array<{ key: string; value: string }>>([]);
@@ -151,6 +300,10 @@ export default function AdminModelConfigPage() {
 
   const handleRevert = (key: string) => {
     setPending(prev => { const n = { ...prev }; delete n[key]; return n; });
+  };
+
+  const toggleShowKey = (key: string) => {
+    setShowKeys(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleRevertAll = () => setPending({});
@@ -328,102 +481,22 @@ export default function AdminModelConfigPage() {
         <div className="text-center py-12 text-gray-400 text-sm">
           {search ? t('admin.ui.modelConfig.noMatch') : t('admin.ui.modelConfig.groupEmpty')}
         </div>
-      ) : (
+) : (
         <div className="space-y-3">
-          {tabFields.map(field => {
-            const val = getDisplayValue(field.key);
-            const changed = isChanged(field.key);
-            const isSecret = isSecretKey(field.key);
-            const secretConfigured = isSecret && valueMap[field.key] === SECRET_MASK;
-            const typed = isSecret && changed;
-            const inputValue = isSecret ? (typed ? val : '') : val;
-            const inputPlaceholder = isSecret
-              ? (secretConfigured
-                  ? t('admin.ui.modelConfig.secretConfiguredHint')
-                  : (field.placeholderKey ? t(field.placeholderKey) : field.placeholder))
-              : (field.placeholderKey ? t(field.placeholderKey) : field.placeholder);
-            return (
-              <div key={field.key}
-                className={`rounded-xl border transition-all ${
-                  changed
-                    ? 'border-amber-200 bg-amber-50/40 shadow-sm'
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}>
-                <div className="p-4">
-                  <div className="flex items-start gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <label className="text-sm font-medium text-gray-900">{t(field.labelKey)}</label>
-                        {changed && (
-                          <span className="text-[11px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-medium">
-                            {t('admin.ui.modelConfig.changed')}
-                          </span>
-                        )}
-                        <span className="text-[11px] text-gray-400 font-mono ml-auto">{field.key}</span>
-                      </div>
-                      {field.descriptionKey && (
-                        <p className="text-xs text-gray-400 mb-2.5">{t(field.descriptionKey)}</p>
-                      )}
-                      {field.type === 'boolean' ? (
-                        <div className="flex items-center gap-3 mt-1">
-                          <button type="button"
-                            onClick={() => handleChange(field.key, val === 'true' ? 'false' : 'true')}
-                            className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
-                              val === 'true' ? 'bg-black' : 'bg-gray-300'
-                            }`}>
-                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${
-                              val === 'true' ? 'translate-x-5' : ''
-                            }`} />
-                          </button>
-                          <span className="text-sm text-gray-600">{val === 'true' ? t('admin.ui.modelConfig.boolOn') : t('admin.ui.modelConfig.boolOff')}</span>
-                        </div>
-                      ) : field.type === 'slider' ? (
-                        <div className="flex items-center gap-3 mt-1">
-                          <input type="range"
-                            min={field.min} max={field.max} step={field.step || '1'}
-                            value={val || field.min || 0}
-                            onChange={e => handleChange(field.key, e.target.value)}
-                            className="flex-1 h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-black" />
-                          <input type="number"
-                            value={val}
-                            onChange={e => handleChange(field.key, e.target.value)}
-                            min={field.min} max={field.max} step={field.step || '1'}
-                            className="w-20 px-2.5 py-1.5 text-sm text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black" />
-                        </div>
-                      ) : (
-                        <div className="relative mt-1">
-                          <input
-                            type={field.type === 'password' && !showKeys[field.key] ? 'password' : 'text'}
-                            value={inputValue}
-                            onChange={e => handleChange(field.key, e.target.value)}
-                            placeholder={inputPlaceholder}
-min={field.min}
-                            max={field.max}
-                            step={field.step}
-                            autoComplete="off"
-                            className="w-full max-w-md px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors"
-                          />
-                          {field.type === 'password' && (
-                            <button type="button" onClick={() => setShowKeys(prev => ({ ...prev, [field.key]: !prev[field.key] }))}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                              {showKeys[field.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {changed && (
-                      <button onClick={() => handleRevert(field.key)}
-                        className="flex-shrink-0 p-1.5 text-gray-400 hover:text-black rounded-lg hover:bg-gray-100 transition-colors"
-                        title={t('admin.ui.modelConfig.revertTitle')}>
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {tabFields.map(field => (
+            <ConfigField
+              key={field.key}
+              field={field}
+              getDisplayValue={getDisplayValue}
+              isChanged={isChanged}
+              valueMap={valueMap}
+              showKey={!!showKeys[field.key]}
+              onChange={handleChange}
+              onToggleShow={toggleShowKey}
+              onRevert={handleRevert}
+              t={t}
+            />
+          ))}
         </div>
       )}
 

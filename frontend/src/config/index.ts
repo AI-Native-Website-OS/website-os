@@ -1,5 +1,10 @@
+// AI 服务地址：优先使用构建期环境变量 NEXT_PUBLIC_AI_API_BASE_URL（如 http://<host>:8000/ai）；
+// 未设置时保留默认行为：localhost 环境直连 http://localhost:8000/ai，其它环境走 nginx 反代相对路径 /ai。
+const configuredAiBaseUrl = process.env.NEXT_PUBLIC_AI_API_BASE_URL;
 let aiBaseUrl = '/ai';
-if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+if (configuredAiBaseUrl) {
+  aiBaseUrl = configuredAiBaseUrl.replace(/\/+$/, '');
+} else if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
   aiBaseUrl = 'http://localhost:8000/ai';
 }
 

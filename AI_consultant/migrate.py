@@ -8,7 +8,7 @@ import json
 import time
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from db import _engine, get_db
 from models import Base, auto_upgrade, AiSession, AiMessage, AiTokenUsage, AiLongTermMemory
@@ -98,9 +98,9 @@ def migrate_token_usage(token_file: str = "logs/token_usage.json"):
     with get_db() as db:
         for e in entries:
             try:
-                ts = datetime.fromisoformat(e["timestamp"]) if isinstance(e.get("timestamp"), str) else datetime.utcnow()
+                ts = datetime.fromisoformat(e["timestamp"]) if isinstance(e.get("timestamp"), str) else datetime.now(timezone.utc).replace(tzinfo=None)
             except Exception:
-                ts = datetime.utcnow()
+                ts = datetime.now(timezone.utc).replace(tzinfo=None)
             db.add(AiTokenUsage(
                 session_id=e.get("session_id"),
                 model=e.get("model", ""),

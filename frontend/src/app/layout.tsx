@@ -4,6 +4,7 @@ import { AuthProvider } from '@/hooks/useAuth';
 import ScrollToTop from '@/components/ScrollToTop';
 import SiteFavicon from '@/components/SiteFavicon';
 import { I18nProvider } from '@/i18n/I18nProvider';
+import { safeJsonLd } from '@/lib/seo';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -138,7 +139,7 @@ export default function RootLayout({
         ].join('') }} />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
         />
       </head>
       <body className="bg-white text-black antialiased" suppressHydrationWarning>

@@ -49,12 +49,14 @@ class RateLimiter:
         self._mem_guest_day: Dict[str, str] = {}
 
     # ── 限流参数读取 ─────────────────────────────────────────────
-    def get_limits(self) -> Dict[str, int]:
-        """返回 {user_limit, guest_limit}。优先级：DB > 环境变量 > 默认值。"""
-        now = time.time()
-        if self._limits_cache and (now - self._limits_cache_time) < self._limits_cache_ttl:
-            return self._limits_cache
+    @staticmethod
+    def _env_positive_int(name: str) -> Optional[int]:
+        raw = os.getenv(name)
+        if raw and raw.strip().isdigit() and int(raw) > 0:
+            return int(raw)
+        return None
 
+    def _load_db_limits(self) -> Tuple[int, int, bool, bool]:
         user_limit = DEFAULT_USER_RATE_LIMIT
         guest_limit = DEFAULT_GUEST_DAILY_LIMIT
         db_user = False
@@ -79,15 +81,23 @@ class RateLimiter:
                         db_guest = True
         except Exception as e:
             logger.warning("读取限流配置失败，使用回退值: %s", e)
+        return user_limit, guest_limit, db_user, db_guest
 
+    def get_limits(self) -> Dict[str, int]:
+        """返回 {user_limit, guest_limit}。优先级：DB > 环境变量 > 默认值。"""
+        now = time.time()
+        if self._limits_cache and (now - self._limits_cache_time) < self._limits_cache_ttl:
+            return self._limits_cache
+
+        user_limit, guest_limit, db_user, db_guest = self._load_db_limits()
         if not db_user:
-            raw = os.getenv(ENV_USER_LIMIT)
-            if raw and raw.strip().isdigit() and int(raw) > 0:
-                user_limit = int(raw)
+            env_user = self._env_positive_int(ENV_USER_LIMIT)
+            if env_user is not None:
+                user_limit = env_user
         if not db_guest:
-            raw = os.getenv(ENV_GUEST_LIMIT)
-            if raw and raw.strip().isdigit() and int(raw) > 0:
-                guest_limit = int(raw)
+            env_guest = self._env_positive_int(ENV_GUEST_LIMIT)
+            if env_guest is not None:
+                guest_limit = env_guest
 
         self._limits_cache = {"user_limit": user_limit, "guest_limit": guest_limit}
         self._limits_cache_time = now

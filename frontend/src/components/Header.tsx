@@ -54,6 +54,135 @@ interface OpenLink {
   option: OpenIconOption;
 }
 
+async function loadHeaderData() {
+  const coreModRes: any = await api.get('/core-modules').catch(() => ({ data: [] }));
+  const activeModules = (coreModRes.data || []).filter((m: any) => m.status === 1) as any[];
+
+  const fetchBuiltin = async (moduleKey: string) => {
+    const listRes: any = await api.get(`/content/${moduleKey}`, { params: { page: 1, size: 50 } }).catch(() => ({ data: { records: [] } }));
+    const catRes: any = await api.get(`/content/${moduleKey}/categories`).catch(() => ({ data: [] }));
+    return {
+      records: (listRes.data?.records || []) as any[],
+      categories: (catRes.data || []) as any[],
+    };
+  };
+
+  const [prodData, solData, caseData, resData] = await Promise.all([
+    fetchBuiltin('products'),
+    fetchBuiltin('solutions'),
+    fetchBuiltin('cases'),
+    fetchBuiltin('resources'),
+  ]);
+  const products = prodData.records;
+  const productLines = prodData.categories;
+  const solutions = solData.records;
+  const industries = solData.categories;
+  const cases = caseData.records;
+  const categories = resData.categories;
+  const resources = resData.records;
+
+  const buildGroups = (moduleKey: string, records: any[], cats: any[], fallbackField: string) => {
+    const groups: Record<string, NavGroupItem[]> = {};
+    const catSlugMap: Record<number, string> = {};
+    const catSlugByName: Record<string, string> = {};
+    const catIdToName: Record<number, string> = {};
+    cats.forEach((c: any) => {
+      catIdToName[c.id] = c.name;
+      if (c.slug) {
+        catSlugMap[c.id] = c.slug;
+        catSlugByName[c.name?.trim()] = c.slug;
+      }
+    });
+    const catOrder = cats.map((c: any) => c.name?.trim()).filter(Boolean);
+    records.forEach((it: any) => {
+      let line = '';
+      if (it.categoryId != null && catIdToName[it.categoryId]) line = catIdToName[it.categoryId];
+      else line = it.groupName?.trim() || it[fallbackField]?.trim() || '其他';
+      if (!groups[line]) groups[line] = [];
+      const catSlug = (it.categoryId != null && catSlugMap[it.categoryId]) || catSlugByName[line] || line;
+      groups[line].push({ name: it.title, href: catSlug ? nestedDetailUrl(moduleKey, catSlug, it.slug) : detailUrl(moduleKey, it.slug), description: it.summary || '' });
+    });
+    cats.forEach((c: any) => {
+      const name = c.name?.trim();
+      if (name && !groups[name]) groups[name] = [];
+    });
+    return Object.entries(groups)
+      .sort(([a], [b]) => {
+        const ai = catOrder.indexOf(a);
+        const bi = catOrder.indexOf(b);
+        if (ai >= 0 && bi >= 0) return ai - bi;
+        if (ai >= 0) return -1;
+        if (bi >= 0) return 1;
+        return 0;
+      })
+      .map(([line, items]) => ({ line, slug: catSlugByName[line] || line, items }));
+  };
+
+  const productGroups = buildGroups('products', products, productLines, '');
+  const solutionGroups = buildGroups('solutions', solutions, industries, '');
+  const resourceGroups = buildGroups('resources', resources, categories, '');
+
+  const navItems: NavItem[] = activeModules.map((m: any) => ({
+    name: m.moduleName,
+    href: moduleHref(m),
+    key: m.moduleKey,
+    children: [],
+    moduleType: m.moduleType,
+  }));
+  const casesNav = navItems.find(n => n.key === 'cases');
+  if (casesNav) {
+    casesNav.children = cases.slice(0, 10).map((c: any) => ({
+      name: c.title, href: detailUrl('cases', c.slug), description: c.summary || c.groupName || '',
+    }));
+  }
+
+  const genericMods = activeModules.filter((m: any) => !BUILTIN_KEYS.includes(m.moduleKey));
+  const genericGroupsRes: Record<string, NavGroup[]> = {};
+  const genericItemsRes: Record<string, NavChild[]> = {};
+  await Promise.all(genericMods.map(async (m: any) => {
+    const key = m.moduleKey;
+    const listRes: any = await api.get(`/content/${key}`, { params: { page: 1, size: 50 } }).catch(() => ({ data: { records: [] } }));
+    const records = (listRes.data?.records || []) as any[];
+    if (m.moduleType === 2) {
+      genericItemsRes[key] = records.slice(0, 10).map((it: any) => ({
+        name: it.title, href: detailUrl(key, it.slug), description: it.summary || '',
+      }));
+      return;
+    }
+    const groupsRes: any = await api.get(`/content/${key}/categories`).catch(() => ({ data: [] }));
+    const groups = (groupsRes.data || []) as any[];
+    const nameToSlug: Record<string, string> = {};
+    const idToSlug: Record<string, string> = {};
+    const idToName: Record<string, string> = {};
+    groups.forEach((g: any) => {
+      if (g.name) nameToSlug[g.name] = g.slug || g.name;
+      if (g.id) { idToSlug[String(g.id)] = g.slug || String(g.id); idToName[String(g.id)] = g.name; }
+    });
+    const grouped: Record<string, NavGroupItem[]> = {};
+    records.forEach((it: any) => {
+      const catId = it.categoryId != null ? String(it.categoryId) : '';
+      const line = (catId && idToName[catId]) || it.groupName || '其他';
+      const catSlug = (catId && idToSlug[catId]) || nameToSlug[line] || line;
+      if (!grouped[line]) grouped[line] = [];
+      grouped[line].push({ name: it.title, href: nestedDetailUrl(key, catSlug, it.slug), description: it.summary || '' });
+    });
+    groups.forEach((g: any) => { if (g.name && !grouped[g.name]) grouped[g.name] = []; });
+    genericGroupsRes[key] = Object.entries(grouped).map(([line, items]) => ({ line, slug: nameToSlug[line] || line, items }));
+  }));
+
+  return {
+    productGroups,
+    solutionGroups,
+    resourceGroups,
+    genericGroups: genericGroupsRes,
+    genericItems: genericItemsRes,
+    navigation: [
+      ...navItems,
+      { name: '关于我们', href: '/about', key: 'about' },
+    ] as NavItem[],
+  };
+}
+
 export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -112,6 +241,8 @@ export default function Header() {
     }
   };
 
+  const closeMobileMenu = () => setMobileMenuOpen(false);
+
   useEffect(() => {
     if (!hoverRect || !panelRef.current) return;
     const w = panelRef.current.offsetWidth;
@@ -161,131 +292,41 @@ export default function Header() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-    const coreModRes: any = await api.get('/core-modules').catch(() => ({ data: [] }));
-      const activeModules = (coreModRes.data || []).filter((m: any) => m.status === 1) as any[];
-
-      const fetchBuiltin = async (moduleKey: string) => {
-        const listRes: any = await api.get(`/content/${moduleKey}`, { params: { page: 1, size: 50 } }).catch(() => ({ data: { records: [] } }));
-        const catRes: any = await api.get(`/content/${moduleKey}/categories`).catch(() => ({ data: [] }));
-        return {
-          records: (listRes.data?.records || []) as any[],
-          categories: (catRes.data || []) as any[],
-        };
-      };
-
-      const [prodData, solData, caseData, resData] = await Promise.all([
-        fetchBuiltin('products'),
-        fetchBuiltin('solutions'),
-        fetchBuiltin('cases'),
-        fetchBuiltin('resources'),
-      ]);
-      const products = prodData.records;
-      const productLines = prodData.categories;
-      const solutions = solData.records;
-      const industries = solData.categories;
-      const cases = caseData.records;
-      const categories = resData.categories;
-      const resources = resData.records;
-
-      const buildGroups = (moduleKey: string, records: any[], cats: any[], fallbackField: string) => {
-        const groups: Record<string, NavGroupItem[]> = {};
-        const catSlugMap: Record<number, string> = {};
-        const catSlugByName: Record<string, string> = {};
-        const catIdToName: Record<number, string> = {};
-        cats.forEach((c: any) => {
-          catIdToName[c.id] = c.name;
-          if (c.slug) {
-            catSlugMap[c.id] = c.slug;
-            catSlugByName[c.name?.trim()] = c.slug;
-          }
-        });
-        const catOrder = cats.map((c: any) => c.name?.trim()).filter(Boolean);
-        records.forEach((it: any) => {
-          let line = '';
-          if (it.categoryId != null && catIdToName[it.categoryId]) line = catIdToName[it.categoryId];
-          else line = it.groupName?.trim() || it[fallbackField]?.trim() || '其他';
-          if (!groups[line]) groups[line] = [];
-          const catSlug = (it.categoryId != null && catSlugMap[it.categoryId]) || catSlugByName[line] || line;
-          groups[line].push({ name: it.title, href: catSlug ? nestedDetailUrl(moduleKey, catSlug, it.slug) : detailUrl(moduleKey, it.slug), description: it.summary || '' });
-        });
-        cats.forEach((c: any) => {
-          const name = c.name?.trim();
-          if (name && !groups[name]) groups[name] = [];
-        });
-        return Object.entries(groups)
-          .sort(([a], [b]) => {
-            const ai = catOrder.indexOf(a);
-            const bi = catOrder.indexOf(b);
-            if (ai >= 0 && bi >= 0) return ai - bi;
-            if (ai >= 0) return -1;
-            if (bi >= 0) return 1;
-            return 0;
-          })
-          .map(([line, items]) => ({ line, slug: catSlugByName[line] || line, items }));
-      };
-
-      setProductGroups(buildGroups('products', products, productLines, ''));
-      setSolutionGroups(buildGroups('solutions', solutions, industries, ''));
-      setResourceGroups(buildGroups('resources', resources, categories, ''));
-
-      const navItems: NavItem[] = activeModules.map((m: any) => ({
-        name: m.moduleName,
-        href: moduleHref(m),
-        key: m.moduleKey,
-        children: [],
-        moduleType: m.moduleType,
-      }));
-      const casesNav = navItems.find(n => n.key === 'cases');
-      if (casesNav) {
-        casesNav.children = cases.slice(0, 10).map((c: any) => ({
-          name: c.title, href: detailUrl('cases', c.slug), description: c.summary || c.groupName || '',
-        }));
-      }
-
-      const genericMods = activeModules.filter((m: any) => !BUILTIN_KEYS.includes(m.moduleKey));
-      const genericGroupsRes: Record<string, NavGroup[]> = {};
-      const genericItemsRes: Record<string, NavChild[]> = {};
-      await Promise.all(genericMods.map(async (m: any) => {
-        const key = m.moduleKey;
-        const listRes: any = await api.get(`/content/${key}`, { params: { page: 1, size: 50 } }).catch(() => ({ data: { records: [] } }));
-        const records = (listRes.data?.records || []) as any[];
-        if (m.moduleType === 2) {
-          genericItemsRes[key] = records.slice(0, 10).map((it: any) => ({
-            name: it.title, href: detailUrl(key, it.slug), description: it.summary || '',
-          }));
-          return;
-        }
-        const groupsRes: any = await api.get(`/content/${key}/categories`).catch(() => ({ data: [] }));
-        const groups = (groupsRes.data || []) as any[];
-        const nameToSlug: Record<string, string> = {};
-        const idToSlug: Record<string, string> = {};
-        const idToName: Record<string, string> = {};
-        groups.forEach((g: any) => {
-          if (g.name) nameToSlug[g.name] = g.slug || g.name;
-          if (g.id) { idToSlug[String(g.id)] = g.slug || String(g.id); idToName[String(g.id)] = g.name; }
-        });
-        const grouped: Record<string, NavGroupItem[]> = {};
-        records.forEach((it: any) => {
-          const catId = it.categoryId != null ? String(it.categoryId) : '';
-          const line = (catId && idToName[catId]) || it.groupName || '其他';
-          const catSlug = (catId && idToSlug[catId]) || nameToSlug[line] || line;
-          if (!grouped[line]) grouped[line] = [];
-          grouped[line].push({ name: it.title, href: nestedDetailUrl(key, catSlug, it.slug), description: it.summary || '' });
-        });
-        groups.forEach((g: any) => { if (g.name && !grouped[g.name]) grouped[g.name] = []; });
-        genericGroupsRes[key] = Object.entries(grouped).map(([line, items]) => ({ line, slug: nameToSlug[line] || line, items }));
-      }));
-
-      setGenericGroups(genericGroupsRes);
-      setGenericItems(genericItemsRes);
-
-      setNavigation([
-        ...navItems,
-        { name: '关于我们', href: '/about', key: 'about' },
-      ]);
-    })();
+    const handleModulesChanged = () => {
+      (async () => {
+        const data = await loadHeaderData();
+        setProductGroups(data.productGroups);
+        setSolutionGroups(data.solutionGroups);
+        setResourceGroups(data.resourceGroups);
+        setGenericGroups(data.genericGroups);
+        setGenericItems(data.genericItems);
+        setNavigation(data.navigation);
+      })();
+    };
+    handleModulesChanged();
+    window.addEventListener('core-modules-changed', handleModulesChanged);
+    return () => window.removeEventListener('core-modules-changed', handleModulesChanged);
   }, []);
+
+  function renderNavCardItem(item: NavGroupItem) {
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        title={item.name}
+        className="group/card block px-2 py-1.5 rounded-lg transition-all duration-200 hover:-translate-y-[3px] hover:shadow-sm hover:bg-gray-50/80"
+      >
+        <div className="text-xs font-medium text-gray-700 group-hover/card:text-gray-900 transition-colors duration-200 whitespace-nowrap overflow-hidden text-ellipsis">
+          {item.name}
+        </div>
+        {item.description && (
+          <div className="text-[10px] text-gray-400 leading-snug mt-0.5 line-clamp-1">
+            {item.description}
+          </div>
+        )}
+      </Link>
+    );
+  }
 
   function renderCardDropdown(groups: NavGroup[], emptyText: string, hrefPrefix: string, _queryKey: string, maxLines: number = 5) {
     const ITEMS_PER_COL = maxLines;
@@ -319,23 +360,7 @@ export default function Header() {
                       <div className="flex gap-1 mt-1">
                         {itemCols.map((col, ci) => (
                           <div key={ci} className="flex flex-col gap-[1px] flex-1 min-w-[90px]">
-                            {col.map((item) => (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                title={item.name}
-                                className="group/card block px-2 py-1.5 rounded-lg transition-all duration-200 hover:-translate-y-[3px] hover:shadow-sm hover:bg-gray-50/80"
-                              >
-                                <div className="text-xs font-medium text-gray-700 group-hover/card:text-gray-900 transition-colors duration-200 whitespace-nowrap overflow-hidden text-ellipsis">
-                                  {item.name}
-                                </div>
-                                {item.description && (
-                                  <div className="text-[10px] text-gray-400 leading-snug mt-0.5 line-clamp-1">
-                                    {item.description}
-                                  </div>
-                                )}
-                              </Link>
-                            ))}
+                            {col.map(renderNavCardItem)}
                           </div>
                         ))}
                       </div>
@@ -427,6 +452,72 @@ export default function Header() {
       return item.moduleType === 2
         ? renderFlatListDropdown(item.key, item.name, genericItems[item.key] || [], t('nav.noContent'))
         : renderCardDropdown(genericGroups[item.key] || [], t('nav.noContent'), item.key, 'group');
+    }
+    return null;
+  }
+
+  function renderMobileGroupList(moduleKey: string, groups: NavGroup[], headerIsLink: boolean, itemKeyField: 'name' | 'href') {
+    return (
+      <div className="ml-4 pb-2 space-y-2 border-l-2 border-gray-100 pl-3">
+        {groups.map((group) => (
+          <div key={group.line}>
+            {headerIsLink ? (
+              <Link
+                href={categoryUrl(moduleKey, group.slug)}
+                className="block py-1.5 text-sm font-semibold text-gray-700 hover:text-black transition-colors"
+                onClick={closeMobileMenu}
+              >
+                {group.line}
+              </Link>
+            ) : (
+              <span className="block py-1.5 text-sm font-semibold text-gray-700">{group.line}</span>
+            )}
+            <div className="ml-3 space-y-0.5">
+              {group.items.map((p) => (
+                <Link
+                  key={itemKeyField === 'name' ? p.name : p.href}
+                  href={p.href}
+                  className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
+                  onClick={closeMobileMenu}
+                >
+                  {p.name}
+                </Link>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderMobileFlatList(items: NavChild[]) {
+    return (
+      <div className="ml-4 pb-2 space-y-2 border-l-2 border-gray-100 pl-3">
+        {items.length === 0 ? (
+          <div className="py-1.5 text-sm text-gray-400">{t('nav.noContent')}</div>
+        ) : (
+          items.map((it) => (
+            <Link
+              key={it.href}
+              href={it.href}
+              className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
+              onClick={closeMobileMenu}
+            >
+              {it.name}
+            </Link>
+          ))
+        )}
+      </div>
+    );
+  }
+
+  function renderMobileSubmenu(item: NavItem): React.ReactNode {
+    if (item.key === 'products') return renderMobileGroupList('products', productGroups, true, 'name');
+    if (item.key === 'solutions') return renderMobileGroupList('solutions', solutionGroups, true, 'name');
+    if (item.key === 'resources') return renderMobileGroupList('resources', resourceGroups, false, 'href');
+    if (item.key && !BUILTIN_KEYS.includes(item.key)) {
+      if (item.moduleType === 2) return renderMobileFlatList(genericItems[item.key] || []);
+      return renderMobileGroupList(item.key, genericGroups[item.key] || [], true, 'href');
     }
     return null;
   }
@@ -572,126 +663,11 @@ export default function Header() {
                 <Link
                   href={item.href}
                   className="block py-3 text-gray-600 hover:text-black transition-colors font-medium"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={closeMobileMenu}
                 >
                   {navLabel(item)}
                 </Link>
-                {item.key === 'products' ? (
-                  <div className="ml-4 pb-2 space-y-2 border-l-2 border-gray-100 pl-3">
-                    {productGroups.map((group) => (
-                      <div key={group.line}>
-                        <Link
-                          href={categoryUrl('products', group.slug)}
-                          className="block py-1.5 text-sm font-semibold text-gray-700 hover:text-black transition-colors"
-                          onClick={() => setMobileMenuOpen(false)}
-                        >
-                          {group.line}
-                        </Link>
-                        <div className="ml-3 space-y-0.5">
-                          {group.items.map((p) => (
-                            <Link
-                              key={p.name}
-                              href={p.href}
-                              className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
-                              onClick={() => setMobileMenuOpen(false)}
-                            >
-                              {p.name}
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : item.key === 'solutions' ? (
-                  <div className="ml-4 pb-2 space-y-2 border-l-2 border-gray-100 pl-3">
-                    {solutionGroups.map((group) => (
-                      <div key={group.line}>
-                        <Link
-                          href={categoryUrl('solutions', group.slug)}
-                          className="block py-1.5 text-sm font-semibold text-gray-700 hover:text-black transition-colors"
-                          onClick={() => setMobileMenuOpen(false)}
-                        >
-                          {group.line}
-                        </Link>
-                        <div className="ml-3 space-y-0.5">
-                          {group.items.map((s) => (
-                            <Link
-                              key={s.name}
-                              href={s.href}
-                              className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
-                              onClick={() => setMobileMenuOpen(false)}
-                            >
-                              {s.name}
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : item.key === 'resources' ? (
-                  <div className="ml-4 pb-2 space-y-2 border-l-2 border-gray-100 pl-3">
-                    {resourceGroups.map((group) => (
-                      <div key={group.line}>
-                        <span className="block py-1.5 text-sm font-semibold text-gray-700">{group.line}</span>
-                        <div className="ml-3 space-y-0.5">
-                          {group.items.map((r) => (
-                            <Link
-                              key={r.href}
-                              href={r.href}
-                              className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
-                              onClick={() => setMobileMenuOpen(false)}
-                            >
-                              {r.name}
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : item.key && !BUILTIN_KEYS.includes(item.key) ? (
-                  <div className="ml-4 pb-2 space-y-2 border-l-2 border-gray-100 pl-3">
-                    {item.moduleType === 2 ? (
-                      (genericItems[item.key] || []).length === 0 ? (
-                        <div className="py-1.5 text-sm text-gray-400">{t('nav.noContent')}</div>
-                      ) : (
-                        (genericItems[item.key] || []).map((it) => (
-                          <Link
-                            key={it.href}
-                            href={it.href}
-                            className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
-                            onClick={() => setMobileMenuOpen(false)}
-                          >
-                            {it.name}
-                          </Link>
-                        ))
-                      )
-                    ) : (
-                      (genericGroups[item.key] || []).map((group) => (
-                        <div key={group.line}>
-                          <Link
-                            href={categoryUrl(item.key!, group.slug)}
-                            className="block py-1.5 text-sm font-semibold text-gray-700 hover:text-black transition-colors"
-                            onClick={() => setMobileMenuOpen(false)}
-                          >
-                            {group.line}
-                          </Link>
-                          <div className="ml-3 space-y-0.5">
-                            {group.items.map((p) => (
-                              <Link
-                                key={p.href}
-                                href={p.href}
-                                className="block py-1 text-sm text-gray-500 hover:text-black transition-colors"
-                                onClick={() => setMobileMenuOpen(false)}
-                              >
-                                {p.name}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                ) : null}
+                {renderMobileSubmenu(item)}
               </div>
             ))}
             <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
@@ -726,13 +702,13 @@ export default function Header() {
                   <div className="flex items-center justify-center py-3 text-gray-600">
                     <Avatar username={user.realName || user.username || t('common.guest')} avatar={user.avatar} size={28} />
                   </div>
-                  {isAdmin && <Link href="/admin" className="block text-center py-3 text-gray-600 hover:text-black transition-colors" onClick={() => setMobileMenuOpen(false)}>{t('common.admin')}</Link>}
+                  {isAdmin && <Link href="/admin" className="block text-center py-3 text-gray-600 hover:text-black transition-colors" onClick={closeMobileMenu}>{t('common.admin')}</Link>}
                   <button onClick={() => { logout(); setMobileMenuOpen(false); }} className="w-full text-center py-3 text-gray-600 hover:text-black transition-colors">{t('common.logout')}</button>
                 </>
               ) : (
-                <Link href="/login" className="block text-center py-3 text-gray-600 hover:text-black transition-colors" onClick={() => setMobileMenuOpen(false)}>{t('common.login')}</Link>
+                <Link href="/login" className="block text-center py-3 text-gray-600 hover:text-black transition-colors" onClick={closeMobileMenu}>{t('common.login')}</Link>
               )}
-              <Link href="/about#contact" className="block text-center py-3 text-white bg-black rounded-full hover:bg-gray-800 transition-colors" onClick={() => setMobileMenuOpen(false)}>{t('common.contact')}</Link>
+              <Link href="/about#contact" className="block text-center py-3 text-white bg-black rounded-full hover:bg-gray-800 transition-colors" onClick={closeMobileMenu}>{t('common.contact')}</Link>
             </div>
           </div>
         )}

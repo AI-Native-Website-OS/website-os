@@ -21,7 +21,7 @@ import re
 import time
 import math
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from db import get_db
 from sqlalchemy import text
@@ -119,6 +119,97 @@ class IntentRecognizer:
             return False
         return bool(self._embedder.base_url and self._embedder.model)
 
+    @staticmethod
+    def _load_geo_word_banks(db) -> Tuple[Dict[int, List[str]], Dict[int, str], Dict[int, List[str]]]:
+        kw_map: Dict[int, List[str]] = {}
+        geo_map: Dict[int, str] = {}
+        faq_map: Dict[int, List[str]] = {}
+        for q, target in (
+            ("SELECT page_id, keyword, intent_note FROM seo_keywords "
+             "WHERE page_id IS NOT NULL AND keyword IS NOT NULL AND keyword != ''",
+             "kw"),
+            ("SELECT page_id, geo_summary FROM seo_configs "
+             "WHERE page_id IS NOT NULL AND geo_summary IS NOT NULL AND geo_summary != ''",
+             "geo"),
+            ("SELECT page_id, question FROM seo_faqs "
+             "WHERE page_id IS NOT NULL AND question IS NOT NULL AND question != ''",
+             "faq"),
+        ):
+            try:
+                erows = db.execute(text(q)).fetchall()
+            except Exception:
+                logger.warning("GEO word bank table unavailable, skipping enrichment query")
+                continue
+            for r in erows:
+                pid = r[0]
+                if pid is None:
+                    continue
+                if target == "kw":
+                    note = (f"（{r[2]}）" if r[2] else "")
+                    kw_map.setdefault(pid, []).append(f"{r[1]}{note}")
+                elif target == "geo":
+                    geo_map[pid] = r[1]
+                elif target == "faq":
+                    faq_map.setdefault(pid, []).append(r[1])
+        return kw_map, geo_map, faq_map
+
+    @staticmethod
+    def _load_module_names(db) -> Dict[str, str]:
+        mod_names: Dict[str, str] = {}
+        try:
+            for mr in db.execute(text(
+                "SELECT module_key, module_name FROM core_modules"
+            )).fetchall():
+                mod_names[mr[0]] = mr[1]
+        except Exception:
+            pass
+        return mod_names
+
+    @staticmethod
+    def _build_catalog(rows, kw_map, geo_map, faq_map, mod_names) -> List[Dict]:
+        module_map: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            pid, canonical, title, desc, s_kws, s_geo = r[0], r[1], r[2], r[3], r[4], r[5]
+            mod_key, slug, cat_slug = r[6], r[7], r[8]
+            keywords = list(kw_map.get(pid, []))
+            for k in (s_kws or "").split(","):
+                k = k.strip()
+                if k and k not in keywords:
+                    keywords.append(k)
+            geo = geo_map.get(pid) or (s_geo or "").strip()
+            faqs = faq_map.get(pid, [])
+            parts = [title or ""]
+            if desc:
+                parts.append(desc)
+            if keywords:
+                parts.append("关键词：" + "，".join(keywords))
+            if geo:
+                parts.append(geo)
+            if faqs:
+                parts.append("常见问题：" + "；".join(faqs))
+            mod_key_use = mod_key or "content"
+            mod = module_map.get(mod_key_use)
+            if mod is None:
+                mod = {
+                    "moduleKey": mod_key_use,
+                    "moduleName": mod_names.get(mod_key_use, mod_key_use),
+                    "moduleType": 0,
+                    "items": [],
+                }
+                module_map[mod_key_use] = mod
+            mod["items"].append({
+                "id": pid,
+                "title": title,
+                "slug": slug or "",
+                "categorySlug": cat_slug,
+                "keywords": keywords,
+                "geoSummary": geo,
+                "faqs": faqs,
+                "canonicalUrl": canonical.strip(),
+                "matchText": "。".join([p for p in parts if p]),
+            })
+        return list(module_map.values())
+
     def _load_catalog(self) -> List[Dict]:
         """Load recommendable content items (TTL cached).
 
@@ -142,36 +233,7 @@ class IntentRecognizer:
                 # Load GEO word bank data per content item (page_id = content id).
                 # The SEO/GEO tables may not exist on older deployments, so each
                 # enrichment query is guarded and the catalog still loads without them.
-                kw_map: Dict[int, List[str]] = {}
-                geo_map: Dict[int, str] = {}
-                faq_map: Dict[int, List[str]] = {}
-                for q, target in (
-                    ("SELECT page_id, keyword, intent_note FROM seo_keywords "
-                     "WHERE page_id IS NOT NULL AND keyword IS NOT NULL AND keyword != ''",
-                     "kw"),
-                    ("SELECT page_id, geo_summary FROM seo_configs "
-                     "WHERE page_id IS NOT NULL AND geo_summary IS NOT NULL AND geo_summary != ''",
-                     "geo"),
-                    ("SELECT page_id, question FROM seo_faqs "
-                     "WHERE page_id IS NOT NULL AND question IS NOT NULL AND question != ''",
-                     "faq"),
-                ):
-                    try:
-                        erows = db.execute(text(q)).fetchall()
-                    except Exception:
-                        logger.warning("GEO word bank table unavailable, skipping enrichment query")
-                        continue
-                    for r in erows:
-                        pid = r[0]
-                        if pid is None:
-                            continue
-                        if target == "kw":
-                            note = (f"（{r[2]}）" if r[2] else "")
-                            kw_map.setdefault(pid, []).append(f"{r[1]}{note}")
-                        elif target == "geo":
-                            geo_map[pid] = r[1]
-                        elif target == "faq":
-                            faq_map.setdefault(pid, []).append(r[1])
+                kw_map, geo_map, faq_map = self._load_geo_word_banks(db)
 
                 # Authoritative recommendation source: seo_configs rows (enabled=1)
                 # that reference live content items, grouped by module for display.
@@ -194,60 +256,8 @@ class IntentRecognizer:
 
                 # Module names for display. Modules may be soft-deleted while their
                 # content stays recommendable via seo_configs, so look up all.
-                mod_names: Dict[str, str] = {}
-                try:
-                    for mr in db.execute(text(
-                        "SELECT module_key, module_name FROM core_modules"
-                    )).fetchall():
-                        mod_names[mr[0]] = mr[1]
-                except Exception:
-                    pass
-
-                module_map: Dict[str, Dict[str, Any]] = {}
-
-                def _module(key: str) -> Dict[str, Any]:
-                    mod = module_map.get(key)
-                    if mod is None:
-                        mod = {
-                            "moduleKey": key,
-                            "moduleName": mod_names.get(key, key),
-                            "moduleType": 0,
-                            "items": [],
-                        }
-                        module_map[key] = mod
-                    return mod
-
-                for r in rows:
-                    pid, canonical, title, desc, s_kws, s_geo = r[0], r[1], r[2], r[3], r[4], r[5]
-                    mod_key, slug, cat_slug = r[6], r[7], r[8]
-                    keywords = list(kw_map.get(pid, []))
-                    for k in (s_kws or "").split(","):
-                        k = k.strip()
-                        if k and k not in keywords:
-                            keywords.append(k)
-                    geo = geo_map.get(pid) or (s_geo or "").strip()
-                    faqs = faq_map.get(pid, [])
-                    parts = [title or ""]
-                    if desc:
-                        parts.append(desc)
-                    if keywords:
-                        parts.append("关键词：" + "，".join(keywords))
-                    if geo:
-                        parts.append(geo)
-                    if faqs:
-                        parts.append("常见问题：" + "；".join(faqs))
-                    _module(mod_key or "content")["items"].append({
-                        "id": pid,
-                        "title": title,
-                        "slug": slug or "",
-                        "categorySlug": cat_slug,
-                        "keywords": keywords,
-                        "geoSummary": geo,
-                        "faqs": faqs,
-                        "canonicalUrl": canonical.strip(),
-                        "matchText": "。".join([p for p in parts if p]),
-                    })
-                catalog = list(module_map.values())
+                mod_names = self._load_module_names(db)
+                catalog = self._build_catalog(rows, kw_map, geo_map, faq_map, mod_names)
         except Exception as e:
             logger.warning("Failed to load content catalog: %s", e)
 
@@ -255,6 +265,38 @@ class IntentRecognizer:
         self._catalog_loaded_at = now
         self._embeddings = None  # invalidate embeddings
         return catalog
+
+    @staticmethod
+    def _page_entry(r) -> Optional[Dict]:
+        url = (r[0] or "").strip()
+        title = (r[1] or "").strip()
+        if not url or not title:
+            return None
+        ptype = (r[2] or "").strip() or "__pages__"
+        geo = (r[3] or "").strip()
+        desc = (r[4] or "").strip()
+        kws = (r[5] or "").strip()
+        parts = [title]
+        if desc:
+            parts.append(desc)
+        if kws:
+            parts.append("关键词：" + kws)
+        if geo:
+            parts.append(geo)
+        return {
+            "moduleKey": ptype,
+            "moduleName": "官网页面",
+            "id": None,
+            "title": title,
+            "slug": "",
+            "categorySlug": None,
+            "keywords": [k.strip() for k in kws.split(",") if k.strip()],
+            "geoSummary": geo,
+            "faqs": [],
+            "canonicalUrl": url,
+            "isPage": True,
+            "matchText": "。".join([p for p in parts if p]),
+        }
 
     def _load_pages(self) -> List[Dict]:
         """Load static pages (home/about/faq) & module-list pages from SEO/GEO config.
@@ -276,35 +318,9 @@ class IntentRecognizer:
                     "AND title IS NOT NULL AND title != '' ORDER BY id"
                 )).fetchall()
                 for r in rows:
-                    url = (r[0] or "").strip()
-                    title = (r[1] or "").strip()
-                    if not url or not title:
-                        continue
-                    ptype = (r[2] or "").strip() or "__pages__"
-                    geo = (r[3] or "").strip()
-                    desc = (r[4] or "").strip()
-                    kws = (r[5] or "").strip()
-                    parts = [title]
-                    if desc:
-                        parts.append(desc)
-                    if kws:
-                        parts.append("关键词：" + kws)
-                    if geo:
-                        parts.append(geo)
-                    pages.append({
-                        "moduleKey": ptype,
-                        "moduleName": "官网页面",
-                        "id": None,
-                        "title": title,
-                        "slug": "",
-                        "categorySlug": None,
-                        "keywords": [k.strip() for k in kws.split(",") if k.strip()],
-                        "geoSummary": geo,
-                        "faqs": [],
-                        "canonicalUrl": url,
-                        "isPage": True,
-                        "matchText": "。".join([p for p in parts if p]),
-                    })
+                    entry = self._page_entry(r)
+                    if entry is not None:
+                        pages.append(entry)
         except Exception as e:
             logger.warning("Failed to load SEO/GEO static pages: %s", e)
         self._pages = pages
@@ -342,6 +358,44 @@ class IntentRecognizer:
                 return True
         return False
 
+    @staticmethod
+    def _score_items(query_emb, items, embeddings, top_n) -> List:
+        scored = []
+        for item, emb in zip(items, embeddings):
+            sim = _cosine_sim(query_emb, emb)
+            scored.append((item, sim))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [s for s in scored if s[1] >= _EMBED_THRESHOLD][:top_n * 3]
+
+    def _embed_query(self, user_input: str) -> Optional[List[float]]:
+        try:
+            return self._embedder.embed(user_input)
+        except Exception as e:
+            logger.warning("Query embedding failed: %s", e)
+            return None
+
+    def _rerank_scored(self, user_input: str, scored, top_n) -> Optional[List[Dict]]:
+        if not (self._reranker and self._reranker.enabled and len(scored) > 1):
+            return None
+        docs = [it["matchText"] for it, _ in scored]
+        try:
+            reranked = self._reranker.rerank(user_input, docs, top_n=top_n)
+            if not reranked:
+                return None
+            ordered = []
+            used = set()
+            for rr in reranked:
+                idx = rr.get("index")
+                if idx is not None and idx < len(scored) and idx not in used:
+                    item, _sim = scored[idx]
+                    ordered.append({**item, "similarity": rr.get("relevance_score", 0.0)})
+                    used.add(idx)
+            if ordered:
+                return ordered
+        except Exception as e:
+            logger.warning("Catalog rerank failed: %s", e)
+        return None
+
     def match_content(self, user_input: str, top_n: int = _MATCH_TOP_N) -> List[Dict]:
         """Semantically match user input to catalog items via embedding + rerank.
 
@@ -361,40 +415,18 @@ class IntentRecognizer:
         if not items:
             return []
 
-        try:
-            query_emb = self._embedder.embed(user_input)
-        except Exception as e:
-            logger.warning("Query embedding failed: %s", e)
+        query_emb = self._embed_query(user_input)
+        if query_emb is None:
             return []
 
-        scored = []
-        for item, emb in zip(items, embeddings):
-            sim = _cosine_sim(query_emb, emb)
-            scored.append((item, sim))
-        scored.sort(key=lambda x: x[1], reverse=True)
-        scored = [s for s in scored if s[1] >= _EMBED_THRESHOLD][:top_n * 3]
-
+        scored = self._score_items(query_emb, items, embeddings, top_n)
         if not scored:
             return []
 
         # Rerank top candidates for precision
-        if self._reranker and self._reranker.enabled and len(scored) > 1:
-            docs = [it["matchText"] for it, _ in scored]
-            try:
-                reranked = self._reranker.rerank(user_input, docs, top_n=top_n)
-                if reranked:
-                    ordered = []
-                    used = set()
-                    for rr in reranked:
-                        idx = rr.get("index")
-                        if idx is not None and idx < len(scored) and idx not in used:
-                            item, _sim = scored[idx]
-                            ordered.append({**item, "similarity": rr.get("relevance_score", 0.0)})
-                            used.add(idx)
-                    if ordered:
-                        return ordered
-            except Exception as e:
-                logger.warning("Catalog rerank failed: %s", e)
+        reranked = self._rerank_scored(user_input, scored, top_n)
+        if reranked is not None:
+            return reranked
 
         return [{**item, "similarity": round(sim, 4)} for item, sim in scored[:top_n]]
 

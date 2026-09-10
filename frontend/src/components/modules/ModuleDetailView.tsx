@@ -29,6 +29,13 @@ const loginPromptStyles = {
   card: 'bg-white rounded-2xl p-8 max-w-md w-full shadow-xl',
 };
 
+const LIST_LABELS: Record<string, string> = {
+  products: '产品中心',
+  solutions: '解决方案',
+  cases: '客户案例',
+  resources: '资源中心',
+};
+
 function renderSections(sections: SectionEntry[], htmlFallback?: string) {
   const items = sections.map((s, i) => (
     <div key={i}>
@@ -154,9 +161,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
 
   const listPath = categorySlug ? categoryUrl(resolvedKey, categorySlug) : listUrl(resolvedKey);
   const currentUrl = categorySlug ? nestedDetailUrl(resolvedKey, categorySlug, slug) : detailUrl(resolvedKey, slug);
-  const listLabel = moduleMeta?.moduleName || (resolvedKey === 'products' ? '产品中心'
-    : resolvedKey === 'solutions' ? '解决方案'
-    : resolvedKey === 'cases' ? '客户案例' : resolvedKey === 'resources' ? '资源中心' : '内容中心');
+  const listLabel = moduleMeta?.moduleName || LIST_LABELS[resolvedKey] || '内容中心';
 
   const crumbs = [
     { name: '首页', url: '/' },

@@ -20,23 +20,42 @@ if (envPath) {
   const text = fs.readFileSync(envPath, 'utf8');
   for (const line of text.split('\n')) {
     const s = line.trim();
-    if (!s || s.startsWith('#')) continue;
+    if (!s || s.startsWith('#')) { continue; }
     const i = s.indexOf('=');
-    if (i <= 0) continue;
+    if (i <= 0) { continue; }
     const k = s.slice(0, i).trim();
     const v = s.slice(i + 1).trim();
-    if (k === 'FRONTEND_PORT') port = v;
-    else env[k] = v;
+    if (k === 'FRONTEND_PORT') { port = v; }
+    else { env[k] = v; }
   }
 }
 
-if (cmd === 'build') {
-  const r = spawnSync('next', ['build'], { stdio: 'inherit', shell: true, env });
+// 使用固定的绝对路径调用可执行文件，避免经 PATH 解析到可被篡改的命令（S4036）
+const node = process.execPath;
+const nextBin = require.resolve('next/dist/bin/next');
+
+function run(args) {
+  const r = spawnSync(node, args, { stdio: 'inherit', env });
   process.exit(r.status);
+}
+
+function resolveNpxCli() {
+  const nodeDir = path.dirname(node);
+  const candidates = [
+    path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npx-cli.js'),
+    path.join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npx-cli.js'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  throw new Error('未找到 npx-cli.js，请确认 Node/npm 安装完整');
+}
+
+if (cmd === 'build') {
+  run([nextBin, 'build']);
 } else if (cmd === 'start') {
   // 生产环境用 serve 托管静态文件（output: 'export' 生成 dist/）
-  const r = spawnSync('npx', ['serve', 'dist', '-c', 'serve.json', '-p', port, '--no-clipboard'], { stdio: 'inherit', shell: true, env });
-  process.exit(r.status);
+  run([resolveNpxCli(), 'serve', 'dist', '-c', 'serve.json', '-p', port, '--no-clipboard']);
 } else {
-  spawnSync('next', [cmd, '-p', port], { stdio: 'inherit', shell: true, env });
+  run([nextBin, cmd, '-p', port]);
 }

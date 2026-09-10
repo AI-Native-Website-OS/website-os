@@ -9,9 +9,10 @@ import logging
 import mimetypes
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
+from urllib.parse import urlparse
 from sqlalchemy import text as sa_text, select, delete as sa_delete
 
 from models import KnowledgeBase, KnowledgeDocument, KnowledgeChunk, Base
@@ -26,11 +27,21 @@ DEFAULT_CHUNK_SEPARATOR = "\n\n"
 MAX_CHUNKS_PER_DOC = 10000
 
 _HTTP_CLIENT: Optional[httpx.Client] = None
+_JSON_MEDIA_TYPE = "application/json"
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _or_default(value, fallback):
+    return value or fallback
+
 
 def _get_http_client() -> httpx.Client:
     global _HTTP_CLIENT
     if _HTTP_CLIENT is None:
-        _HTTP_CLIENT = httpx.Client(timeout=120, headers={"Content-Type": "application/json"})
+        _HTTP_CLIENT = httpx.Client(timeout=120, headers={"Content-Type": _JSON_MEDIA_TYPE})
     return _HTTP_CLIENT
 
 
@@ -64,7 +75,7 @@ class EmbeddingClient:
         return self.config.embedding_dimension or 1536
 
     def _cache_key(self, text: str) -> str:
-        h = hashlib.md5(text.encode("utf-8")).hexdigest()
+        h = hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()
         return f"emb:{self.model}:{h}"
 
     def _get_cached(self, text: str) -> Optional[List[float]]:
@@ -94,7 +105,7 @@ class EmbeddingClient:
         return self._post_embeddings(url, body)
 
     def _post_embeddings(self, url: str, body: dict) -> dict:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": _JSON_MEDIA_TYPE}
         has_key = bool(self.api_key)
         if has_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -227,7 +238,7 @@ class RerankerClient:
         if not self.enabled or not documents:
             return []
         url = f"{self.base_url}/rerank"
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": _JSON_MEDIA_TYPE}
         has_key = bool(self.api_key)
         if has_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -346,6 +357,93 @@ def _resolve_upload_dir(upload_path: str) -> str:
     return str(p)
 
 
+def _is_remote_url(value: str) -> bool:
+    """判断是否为 http/https 远端 URL（用 urlparse 避免硬编码明文协议字符串）。"""
+    return urlparse(value).scheme.lower() in ("http", "https")
+
+
+def _within_root(path: Path, root: Path) -> bool:
+    """path（已 resolve）必须位于 root（已 resolve）之内，防止路径穿越。"""
+    try:
+        resolved = path.resolve()
+        base = root.resolve()
+    except (OSError, ValueError):
+        return False
+    return resolved == base or base in resolved.parents
+
+
+def _local_media_path(u: str, upload_dir: str) -> Optional[str]:
+    """把媒体引用解析为上传根目录内的本地路径；越界（含绝对路径/../）一律拒绝。"""
+    if _is_remote_url(u):
+        return None
+    root = Path(upload_dir)
+    if u.startswith("/files/"):
+        rel = u[len("/files/"):]
+        candidate = root / rel.replace("/", os.sep)
+    elif u.startswith("/uploads/"):
+        rel = u[len("/uploads/"):]
+        candidate = root / rel.replace("/", os.sep)
+    elif os.path.isabs(u):
+        # 绝对路径仅在位于上传根目录内时才允许，避免读取任意文件
+        candidate = Path(u)
+    else:
+        candidate = root / u.replace("/", os.sep)
+    if not _within_root(candidate, root):
+        logger.warning("blocked local media path outside upload dir: %s", u)
+        return None
+    return str(candidate)
+
+
+def _read_local_file(path: Optional[str]) -> Optional[bytes]:
+    if not (path and os.path.isfile(path)):
+        return None
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception as e:
+        logger.warning("read media file failed %s: %s", path, e)
+        return None
+
+
+def _allowed_media_hosts(backend_base_url: str) -> set:
+    """允许抓取远端媒体的主机白名单：默认仅后端自身，可用 AI_MEDIA_ALLOWED_HOSTS 追加。"""
+    hosts = set()
+    raw = os.getenv("AI_MEDIA_ALLOWED_HOSTS", "")
+    for h in raw.split(","):
+        h = h.strip().lower()
+        if h:
+            hosts.add(h)
+    if backend_base_url:
+        try:
+            host = (urlparse(backend_base_url).hostname or "").lower()
+            if host:
+                hosts.add(host)
+        except ValueError:
+            pass
+    return hosts
+
+
+def _fetch_remote_media(u: str, backend_base_url: str) -> Optional[bytes]:
+    if _is_remote_url(u):
+        target = u
+    else:
+        target = (backend_base_url or "").rstrip("/") + u
+    if not _is_remote_url(target):
+        return None
+    host = (urlparse(target).hostname or "").lower()
+    if host not in _allowed_media_hosts(backend_base_url):
+        logger.warning("blocked remote media fetch to disallowed host: %s", host)
+        return None
+    try:
+        # 禁止跟随重定向，避免白名单主机 302 到内网/云元数据造成 SSRF
+        resp = _get_http_client().get(target, timeout=30, follow_redirects=False)
+        if resp.status_code == 200:
+            return resp.content
+    except Exception as e:
+        logger.warning("media file http fallback failed for %s: %s", u, e)
+    return None
+
+
 def resolve_media_file(url_or_path: str, upload_path: str = "", backend_base_url: str = "") -> Optional[bytes]:
     """把图片/文档的 URL（/files/...、/uploads/...、http(s)://...、本地路径）解析为文件字节。
 
@@ -357,35 +455,10 @@ def resolve_media_file(url_or_path: str, upload_path: str = "", backend_base_url
     if not u:
         return None
 
-    upload_dir = _resolve_upload_dir(upload_path)
-    local = None
-    if u.startswith("/files/"):
-        local = os.path.join(upload_dir, u[len("/files/"):].replace("/", os.sep))
-    elif u.startswith("/uploads/"):
-        local = os.path.join(upload_dir, u[len("/uploads/"):].replace("/", os.sep))
-    elif u.startswith(("http://", "https://")):
-        local = None
-    else:
-        local = u if os.path.isabs(u) else os.path.join(upload_dir, u.replace("/", os.sep))
-
-    if local and os.path.isfile(local):
-        try:
-            with open(local, "rb") as f:
-                return f.read()
-        except Exception as e:
-            logger.warning("read media file failed %s: %s", local, e)
-
-    # HTTP 兜底
-    try:
-        target = u if u.startswith(("http://", "https://")) else ((backend_base_url or "").rstrip("/") + u)
-        if target.startswith(("http://", "https://")):
-            client = _get_http_client()
-            resp = client.get(target, timeout=30)
-            if resp.status_code == 200:
-                return resp.content
-    except Exception as e:
-        logger.warning("media file http fallback failed for %s: %s", u, e)
-    return None
+    data = _read_local_file(_local_media_path(u, _resolve_upload_dir(upload_path)))
+    if data is not None:
+        return data
+    return _fetch_remote_media(u, backend_base_url)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -641,19 +714,19 @@ class KnowledgeEngine:
         return {
             "id": kb.id,
             "name": kb.name,
-            "description": kb.description or "",
+            "description": _or_default(kb.description, ""),
             "status": kb.status,
-            "chunk_size": kb.chunk_size or DEFAULT_CHUNK_SIZE,
-            "chunk_overlap": kb.chunk_overlap or DEFAULT_CHUNK_OVERLAP,
-            "chunk_separator": kb.chunk_separator or DEFAULT_CHUNK_SEPARATOR,
+            "chunk_size": _or_default(kb.chunk_size, DEFAULT_CHUNK_SIZE),
+            "chunk_overlap": _or_default(kb.chunk_overlap, DEFAULT_CHUNK_OVERLAP),
+            "chunk_separator": _or_default(kb.chunk_separator, DEFAULT_CHUNK_SEPARATOR),
             "text_preprocessing_rules": rules if isinstance(rules, list) else [],
-            "embedding_model": kb.embedding_model or "",
-            "embedding_dimension": kb.embedding_dimension or 0,
-            "top_k": kb.top_k or 6,
-            "threshold_min": kb.threshold_min or 0.5,
-            "threshold_max": kb.threshold_max or 0.7,
-            "reranker_model": kb.reranker_model or "",
-            "reranker_enabled": kb.reranker_enabled or False,
+            "embedding_model": _or_default(kb.embedding_model, ""),
+            "embedding_dimension": _or_default(kb.embedding_dimension, 0),
+            "top_k": _or_default(kb.top_k, 6),
+            "threshold_min": _or_default(kb.threshold_min, 0.5),
+            "threshold_max": _or_default(kb.threshold_max, 0.7),
+            "reranker_model": _or_default(kb.reranker_model, ""),
+            "reranker_enabled": _or_default(kb.reranker_enabled, False),
             "created_at": kb.created_at.isoformat() if kb.created_at else "",
             "updated_at": kb.updated_at.isoformat() if kb.updated_at else "",
         }
@@ -732,114 +805,130 @@ class KnowledgeEngine:
         }
 
     # ── 文档处理管线（分块 → 嵌入 → 存储）────────────────
+    def _doc_text_chunks(self, doc: KnowledgeDocument, chunk_size: int, chunk_overlap: int,
+                         separators: List[str]) -> List[str]:
+        if not doc.file_path:
+            return []
+        upload_path = getattr(self.config, "upload_path", "")
+        backend_base_url = getattr(self.config, "backend_base_url", "")
+        file_bytes = resolve_media_file(doc.file_path, upload_path, backend_base_url)
+        if not file_bytes:
+            return []
+        fname = doc.file_name or os.path.basename(doc.file_path or "")
+        file_text = extract_text_from_file(file_bytes, fname)
+        if not file_text.strip():
+            return []
+        return chunk_text(file_text, max_chars=chunk_size, overlap=chunk_overlap, separators=separators)
+
+    def _image_items(self, doc: KnowledgeDocument) -> List:
+        if not doc.images:
+            return []
+        items = []
+        for img in doc.images if isinstance(doc.images, list) else []:
+            if not isinstance(img, dict):
+                continue
+            url = str(img.get("url") or "")
+            caption = str(img.get("caption") or "")
+            if not url:
+                continue
+            items.append((url, caption))
+        return items
+
+    def _embed_image_items(self, image_items: List, upload_path: str, backend_base_url: str) -> List:
+        records = []
+        for url, caption in image_items:
+            try:
+                file_bytes = resolve_media_file(url, upload_path, backend_base_url)
+                if not file_bytes:
+                    logger.warning("skip image, file not found: %s", url)
+                    continue
+                ext = os.path.splitext(url.split("/")[-1])[1].lower()
+                mime = mimetypes.guess_type("x" + ext)[0] or "image/jpeg"
+                image_b64 = base64.b64encode(file_bytes).decode("ascii")
+                description = self.vl_captioner.caption(image_b64, mime) if self.vl_captioner.available else ""
+                if not description:
+                    description = caption or f"图片路径：{url}"
+                emb = self.embedder.embed_image(image_b64, description)
+                chunk_content = f"图片描述：{description}\n图片路径：{url}"
+                records.append((chunk_content, emb, "image"))
+            except Exception as e:
+                logger.warning("image vectorize failed for %s: %s", url, e)
+        return records
+
+    def _collect_records(self, doc: KnowledgeDocument) -> List:
+        kb_config = self._get_kb_config(doc.knowledge_base_id)
+        upload_path = getattr(self.config, "upload_path", "")
+        backend_base_url = getattr(self.config, "backend_base_url", "")
+        content = doc.content
+        rules = kb_config.get("text_preprocessing_rules", [])
+        if rules:
+            content = preprocess_text(content, rules)
+        sep = parse_chunk_separator(kb_config.get("chunk_separator", DEFAULT_CHUNK_SEPARATOR))
+        chunk_size = kb_config.get("chunk_size", DEFAULT_CHUNK_SIZE)
+        chunk_overlap = kb_config.get("chunk_overlap", DEFAULT_CHUNK_OVERLAP)
+        separators = [sep, "\n", "。", "！", "？", ". ", "! ", "? ", "，", ", ", " "]
+        text_chunks = chunk_text(content, max_chars=chunk_size, overlap=chunk_overlap, separators=separators)
+        doc_chunks = self._doc_text_chunks(doc, chunk_size, chunk_overlap, separators)
+        image_items = self._image_items(doc)
+
+        records = []
+        if text_chunks:
+            text_embeddings = self.embedder.embed_batch(text_chunks)
+            for chunk, emb in zip(text_chunks, text_embeddings):
+                records.append((chunk, emb, "text"))
+        if doc_chunks:
+            doc_embeddings = self.embedder.embed_batch(doc_chunks)
+            for chunk, emb in zip(doc_chunks, doc_embeddings):
+                records.append((chunk, emb, "doc"))
+        records.extend(self._embed_image_items(image_items, upload_path, backend_base_url))
+        return records
+
+    def _store_chunks(self, doc: KnowledgeDocument, records: List):
+        dim = self.embedder.dimension
+        with get_db() as db:
+            db.execute(
+                sa_delete(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id)
+            )
+            for i, (chunk, emb, media_type) in enumerate(records):
+                tokens = estimate_tokens(chunk)
+                emb_str = "[" + ",".join(str(v) for v in emb[:dim]) + "]"
+                db.execute(sa_text("""
+                    INSERT INTO knowledge_chunks
+                        (document_id, knowledge_base_id, content, media_type, chunk_index, tokens, embedding, created_at)
+                    VALUES (:doc_id, :kb_id, :content, :media_type, :idx, :tokens, CAST(:embedding AS vector), :now)
+                """), {
+                    "doc_id": doc.id,
+                    "kb_id": doc.knowledge_base_id,
+                    "content": chunk,
+                    "media_type": media_type,
+                    "idx": i,
+                    "tokens": tokens,
+                    "embedding": emb_str,
+                    "now": _utcnow(),
+                })
+
+            db.execute(
+                sa_text("UPDATE knowledge_documents SET status = 1, chunk_count = :cnt, updated_at = :now WHERE id = :id"),
+                {"cnt": len(records), "id": doc.id, "now": _utcnow()},
+            )
+
     def process_document(self, doc_id: int) -> Dict:
         doc = self.get_document(doc_id)
         if not doc:
             return {"status": "error", "message": "Document not found"}
 
         try:
-            kb_config = self._get_kb_config(doc.knowledge_base_id)
-            upload_path = getattr(self.config, "upload_path", "")
-            backend_base_url = getattr(self.config, "backend_base_url", "")
-
-            # 1. 正文文本分块
-            content = doc.content
-            rules = kb_config.get("text_preprocessing_rules", [])
-            if rules:
-                content = preprocess_text(content, rules)
-            sep = parse_chunk_separator(kb_config.get("chunk_separator", DEFAULT_CHUNK_SEPARATOR))
-            chunk_size = kb_config.get("chunk_size", DEFAULT_CHUNK_SIZE)
-            chunk_overlap = kb_config.get("chunk_overlap", DEFAULT_CHUNK_OVERLAP)
-            separators = [sep, "\n", "。", "！", "？", ". ", "! ", "? ", "，", ", ", " "]
-            text_chunks = chunk_text(content, max_chars=chunk_size, overlap=chunk_overlap, separators=separators)
-
-            records = []  # (content, embedding, media_type)
-
-            # 2. 附件文档正文提取 + 向量化
-            doc_chunks = []
-            if doc.file_path:
-                file_bytes = resolve_media_file(doc.file_path, upload_path, backend_base_url)
-                if file_bytes:
-                    fname = doc.file_name or os.path.basename(doc.file_path or "")
-                    file_text = extract_text_from_file(file_bytes, fname)
-                    if file_text.strip():
-                        doc_chunks = chunk_text(file_text, max_chars=chunk_size, overlap=chunk_overlap, separators=separators)
-
-            # 3. 图片向量化（VL 描述优先，未配置 VL 用页面上下文描述）
-            image_items = []
-            if doc.images:
-                for img in doc.images if isinstance(doc.images, list) else []:
-                    if not isinstance(img, dict):
-                        continue
-                    url = str(img.get("url") or "")
-                    caption = str(img.get("caption") or "")
-                    if not url:
-                        continue
-                    image_items.append((url, caption))
-
-            if text_chunks:
-                text_embeddings = self.embedder.embed_batch(text_chunks)
-                for i, (chunk, emb) in enumerate(zip(text_chunks, text_embeddings)):
-                    records.append((chunk, emb, "text"))
-            if doc_chunks:
-                doc_embeddings = self.embedder.embed_batch(doc_chunks)
-                for chunk, emb in zip(doc_chunks, doc_embeddings):
-                    records.append((chunk, emb, "doc"))
-
-            for url, caption in image_items:
-                try:
-                    file_bytes = resolve_media_file(url, upload_path, backend_base_url)
-                    if not file_bytes:
-                        logger.warning("skip image, file not found: %s", url)
-                        continue
-                    ext = os.path.splitext(url.split("/")[-1])[1].lower()
-                    mime = mimetypes.guess_type("x" + ext)[0] or "image/jpeg"
-                    image_b64 = base64.b64encode(file_bytes).decode("ascii")
-                    description = self.vl_captioner.caption(image_b64, mime) if self.vl_captioner.available else ""
-                    if not description:
-                        description = caption or f"图片路径：{url}"
-                    emb = self.embedder.embed_image(image_b64, description)
-                    chunk_content = f"图片描述：{description}\n图片路径：{url}"
-                    records.append((chunk_content, emb, "image"))
-                except Exception as e:
-                    logger.warning("image vectorize failed for %s: %s", url, e)
+            records = self._collect_records(doc)
 
             if not records:
                 doc.status = 3  # error
                 return {"status": "error", "message": "Empty content after chunking"}
 
-            dim = self.embedder.dimension
-            with get_db() as db:
-                db.execute(
-                    sa_delete(KnowledgeChunk).where(KnowledgeChunk.document_id == doc_id)
-                )
-                for i, (chunk, emb, media_type) in enumerate(records):
-                    tokens = estimate_tokens(chunk)
-                    emb_str = "[" + ",".join(str(v) for v in emb[:dim]) + "]"
-                    db.execute(sa_text("""
-                        INSERT INTO knowledge_chunks
-                            (document_id, knowledge_base_id, content, media_type, chunk_index, tokens, embedding, created_at)
-                        VALUES (:doc_id, :kb_id, :content, :media_type, :idx, :tokens, CAST(:embedding AS vector), :now)
-                    """), {
-                        "doc_id": doc.id,
-                        "kb_id": doc.knowledge_base_id,
-                        "content": chunk,
-                        "media_type": media_type,
-                        "idx": i,
-                        "tokens": tokens,
-                        "embedding": emb_str,
-                        "now": datetime.utcnow(),
-                    })
-
-                db.execute(
-                    sa_text("UPDATE knowledge_documents SET status = 1, chunk_count = :cnt, updated_at = :now WHERE id = :id"),
-                    {"cnt": len(records), "id": doc.id, "now": datetime.utcnow()},
-                )
-
+            self._store_chunks(doc, records)
             return {"status": "ok", "chunks": len(records), "document_id": doc.id}
 
         except Exception as e:
-            logger.error("process_document error: %s", e)
+            logger.exception("process_document error")
             with get_db() as db:
                 db.execute(
                     sa_text("UPDATE knowledge_documents SET status = 3 WHERE id = :id"),
@@ -853,7 +942,7 @@ class KnowledgeEngine:
         kb_config = self._get_kb_config(kb_id)
         top_k = top_k if top_k is not None else kb_config.get("top_k", 6)
         threshold = threshold if threshold is not None else kb_config.get("threshold_min", 0.5)
-        max_threshold = max_threshold if max_threshold is not None else kb_config.get("threshold_max", 0.7)
+        max_threshold = max_threshold if max_threshold is not None else 1.0
         query_emb = self.embedder.embed(query)
         dim = self.embedder.dimension
         emb_str = "[" + ",".join(str(v) for v in query_emb[:dim]) + "]"
@@ -956,46 +1045,53 @@ class KnowledgeEngine:
             return results
 
     # ── RAG 上下文构建 ────────────────────────────────────────
-    def build_rag_context(self, query: str, kb_ids: Optional[List[int]] = None,
-                          top_k: Optional[int] = None, threshold: Optional[float] = None,
-                          max_threshold: Optional[float] = None,
-                          use_reranker: Optional[bool] = None) -> str:
+    def _gather_rag_results(self, query: str, kb_ids: Optional[List[int]],
+                            top_k: Optional[int], threshold: Optional[float],
+                            max_threshold: Optional[float]) -> List[Dict]:
         if kb_ids:
             results = []
             for kb_id in kb_ids:
                 results.extend(self.search(kb_id, query, top_k, threshold, max_threshold))
             results.sort(key=lambda x: x["similarity"], reverse=True)
-            results = results[:top_k or 6]
-        else:
-            results = self.search_all_kbs(query, top_k or 6, threshold or 0.0, max_threshold or 1.0)
+            return results[:top_k or 6]
+        return self.search_all_kbs(query, top_k or 6, threshold or 0.0, max_threshold or 1.0)
 
-        if not results:
-            return ""
-
-        # 重排
+    def _maybe_rerank_results(self, query: str, results: List[Dict], top_k: Optional[int],
+                              use_reranker: Optional[bool]) -> List[Dict]:
         do_rerank = use_reranker if use_reranker is not None else self.reranker.enabled
-        if do_rerank and len(results) > 1:
-            docs = [r["content"] for r in results]
-            reranked = self.reranker.rerank(query, docs, top_n=top_k or 6)
-            if reranked:
-                reranked_results = []
-                seen = set()
-                for rr in reranked:
-                    idx = rr.get("index")
-                    if idx is not None and idx < len(results) and idx not in seen:
-                        r = dict(results[idx])
-                        r["similarity"] = rr.get("relevance_score", r["similarity"])
-                        reranked_results.append(r)
-                        seen.add(idx)
-                if reranked_results:
-                    results = reranked_results
+        if not (do_rerank and len(results) > 1):
+            return results
+        docs = [r["content"] for r in results]
+        reranked = self.reranker.rerank(query, docs, top_n=top_k or 6)
+        if not reranked:
+            return results
+        reranked_results = []
+        seen = set()
+        for rr in reranked:
+            idx = rr.get("index")
+            if idx is not None and idx < len(results) and idx not in seen:
+                r = dict(results[idx])
+                r["similarity"] = rr.get("relevance_score", r["similarity"])
+                reranked_results.append(r)
+                seen.add(idx)
+        return reranked_results or results
 
+    def _format_rag_context(self, results: List[Dict]) -> str:
         parts = []
         for r in results:
             source = r.get("doc_title", "") or f"Doc#{r['document_id']}"
             parts.append(f"[来源: {source} (相似度: {r['similarity']:.2f})]\n{r['content']}")
-
         return "\n\n---\n\n".join(parts)
+
+    def build_rag_context(self, query: str, kb_ids: Optional[List[int]] = None,
+                          top_k: Optional[int] = None, threshold: Optional[float] = None,
+                          max_threshold: Optional[float] = None,
+                          use_reranker: Optional[bool] = None) -> str:
+        results = self._gather_rag_results(query, kb_ids, top_k, threshold, max_threshold)
+        if not results:
+            return ""
+        results = self._maybe_rerank_results(query, results, top_k, use_reranker)
+        return self._format_rag_context(results)
 
     # ── 通过 source_type/source_id 来同步文档（upsert）───
     def sync_document(self, kb_id: int, source_type: str, source_id: int,
@@ -1051,27 +1147,19 @@ class KnowledgeEngine:
             return True
 
     # ── 重嵌入所有块 ─────────────────────────────────────────
-    def reembed_all(self, kb_id: Optional[int] = None) -> Dict:
+    def _load_chunks_for_reembed(self, kb_id: Optional[int]):
         with get_db() as db:
             query = select(KnowledgeChunk)
             if kb_id:
                 query = query.where(KnowledgeChunk.knowledge_base_id == kb_id)
-            chunks = db.execute(query).scalars().all()
+            return db.execute(query).scalars().all()
 
-        if not chunks:
-            return {"status": "ok", "reembedded": 0}
-
-        upload_path = getattr(self.config, "upload_path", "")
-        backend_base_url = getattr(self.config, "backend_base_url", "")
-        dim = self.embedder.dimension
-        count = 0
-
-        # 文本/doc 块批量文本重嵌入
+    def _reembed_text_chunks(self, chunks) -> Dict:
         text_chunks = [c for c in chunks if (c.media_type or "text") in ("text", "doc")]
         text_embeddings = self.embedder.embed_batch([c.content for c in text_chunks]) if text_chunks else []
-        text_map = {c.id: emb for c, emb in zip(text_chunks, text_embeddings)}
+        return {c.id: emb for c, emb in zip(text_chunks, text_embeddings)}
 
-        # 图片块：按存储的图片路径重新解析文件做多模态重嵌入
+    def _reembed_image_chunks(self, chunks, upload_path: str, backend_base_url: str) -> Dict:
         img_map = {}
         for c in chunks:
             if (c.media_type or "text") != "image":
@@ -1084,11 +1172,13 @@ class KnowledgeEngine:
                     continue
                 description = (c.content or "").replace(f"图片路径：{url}", "").replace("图片描述：", "").strip()
                 image_b64 = base64.b64encode(file_bytes).decode("ascii")
-                emb = self.embedder.embed_image(image_b64, description)
-                img_map[c.id] = emb
+                img_map[c.id] = self.embedder.embed_image(image_b64, description)
             except Exception as e:
                 logger.warning("reembed image chunk %s failed: %s", c.id, e)
+        return img_map
 
+    def _update_chunk_embeddings(self, chunks, text_map: Dict, img_map: Dict, dim: int) -> int:
+        count = 0
         with get_db() as db:
             for c in chunks:
                 emb = text_map.get(c.id) or img_map.get(c.id)
@@ -1099,5 +1189,17 @@ class KnowledgeEngine:
                     UPDATE knowledge_chunks SET embedding = CAST(:emb AS vector) WHERE id = :id
                 """), {"emb": emb_str, "id": c.id})
                 count += 1
+        return count
 
+    def reembed_all(self, kb_id: Optional[int] = None) -> Dict:
+        chunks = self._load_chunks_for_reembed(kb_id)
+        if not chunks:
+            return {"status": "ok", "reembedded": 0}
+
+        upload_path = getattr(self.config, "upload_path", "")
+        backend_base_url = getattr(self.config, "backend_base_url", "")
+        dim = self.embedder.dimension
+        text_map = self._reembed_text_chunks(chunks)
+        img_map = self._reembed_image_chunks(chunks, upload_path, backend_base_url)
+        count = self._update_chunk_embeddings(chunks, text_map, img_map, dim)
         return {"status": "ok", "reembedded": count}

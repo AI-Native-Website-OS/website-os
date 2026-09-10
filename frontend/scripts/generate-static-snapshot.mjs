@@ -13,14 +13,14 @@ const OUT_PATH = resolve(__dirname, '../src/lib/static-snapshot.json');
 function buildApiUrl(path) {
   let base = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:8080';
   base = base.replace(/\/+$/, '');
-  if (!base.endsWith('/api')) base += '/api';
+  if (!base.endsWith('/api')) { base += '/api'; }
   return `${base}${path}`;
 }
 
 async function fetchJson(path) {
   const url = buildApiUrl(path);
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  if (!res.ok) { throw new Error(`HTTP ${res.status} for ${url}`); }
   return await res.json();
 }
 

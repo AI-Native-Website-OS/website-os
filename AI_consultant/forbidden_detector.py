@@ -214,93 +214,111 @@ class ForbiddenDetector:
 
     # ── 检测入口 ────────────────────────────────────────────
 
-    def detect(self, user_input: str) -> Dict[str, Any]:
-        if not user_input or not user_input.strip():
-            return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
+    @staticmethod
+    def _not_blocked() -> Dict[str, Any]:
+        return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
 
-        topics = self._load_topics()
-        if not topics:
-            return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
+    @staticmethod
+    def _blocked(topic_name: str, similarity: float, answer: str) -> Dict[str, Any]:
+        return {
+            "blocked": True,
+            "matched_topic": topic_name,
+            "similarity": similarity,
+            "answer": answer,
+        }
 
-        # 1. 关键词预检（主题名 + 示例内容的子串匹配）
+    def _keyword_hit(self, user_input: str, topics: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         text_lower = user_input.lower()
         for t in topics:
             literals = [t["name"]] + [e["content"] for e in t["examples"]]
             for lit in literals:
                 if lit and len(lit) > 1 and lit.lower() in text_lower:
                     logger.info("Forbidden keyword hit: topic=%s literal=%s", t["name"], lit)
-                    return {
-                        "blocked": True,
-                        "matched_topic": t["name"],
-                        "similarity": 1.0,
-                        "answer": self.DEFAULT_ANSWER,
-                    }
+                    return self._blocked(t["name"], 1.0, self.DEFAULT_ANSWER)
+        return None
 
-        # 2. Embedding 召回候选（带向量的示例）
+    @staticmethod
+    def _collect_candidates(topics: List[Dict[str, Any]]) -> List:
         candidates = []
         for t in topics:
             for e in t["examples"]:
                 emb = e.get("embedding")
                 if emb:
                     candidates.append((t, e, emb))
-        if not candidates:
-            return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
+        return candidates
 
-        try:
-            query_emb = self.embedder.embed(user_input)
-        except Exception as e:
-            logger.warning("Query embedding for banned detection failed: %s", e)
-            return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
-        query_emb = query_emb[:self.embedder.dimension]
-
+    def _recall(self, query_emb, candidates: List) -> List:
         scored = []
         for t, e, emb in candidates:
             sim = self._cosine(query_emb, emb)
             scored.append((t, e, sim))
         scored.sort(key=lambda x: x[2], reverse=True)
-
         recall = [(t, e, s) for t, e, s in scored if s >= self.EMBED_RECALL_THRESHOLD][:self.EMBED_RECALL_TOP]
         if not recall and scored:
             recall = [scored[0]]
+        return recall
+
+    def _rerank(self, user_input: str, recall: List) -> Optional[tuple]:
+        if not (self.reranker and self.reranker.enabled and recall):
+            return None
+        try:
+            docs = [e["content"] for _, e, _ in recall]
+            rr = self.reranker.rerank(user_input, docs, top_n=1)
+            if rr and rr[0].get("relevance_score") is not None:
+                idx = rr[0].get("index")
+                if idx is not None and idx < len(recall):
+                    return (recall[idx][0], recall[idx][1], float(rr[0]["relevance_score"]))
+        except Exception as e:
+            logger.warning("Banned detection rerank failed: %s", e)
+        return None
+
+    def detect(self, user_input: str) -> Dict[str, Any]:
+        if not user_input or not user_input.strip():
+            return self._not_blocked()
+
+        topics = self._load_topics()
+        if not topics:
+            return self._not_blocked()
+
+        # 1. 关键词预检（主题名 + 示例内容的子串匹配）
+        hit = self._keyword_hit(user_input, topics)
+        if hit is not None:
+            return hit
+
+        # 2. Embedding 召回候选（带向量的示例）
+        candidates = self._collect_candidates(topics)
+        if not candidates:
+            return self._not_blocked()
+
+        try:
+            query_emb = self.embedder.embed(user_input)
+        except Exception as e:
+            logger.warning("Query embedding for banned detection failed: %s", e)
+            return self._not_blocked()
+        query_emb = query_emb[:self.embedder.dimension]
+
+        recall = self._recall(query_emb, candidates)
 
         # 3. Rerank 打分判定（Rerank 可用时以 Rerank 分数为准）
-        best = None
-        best_sim = recall[0][2] if recall else 0.0
-        if self.reranker and self.reranker.enabled and recall:
-            try:
-                docs = [e["content"] for _, e, _ in recall]
-                rr = self.reranker.rerank(user_input, docs, top_n=1)
-                if rr and rr[0].get("relevance_score") is not None:
-                    idx = rr[0].get("index")
-                    if idx is not None and idx < len(recall):
-                        best = (recall[idx][0], recall[idx][1])
-                        best_sim = float(rr[0]["relevance_score"])
-            except Exception as e:
-                logger.warning("Banned detection rerank failed: %s", e)
+        best = self._rerank(user_input, recall)
 
         # 4. 回退：取最高余弦相似度候选
         if best is None and recall:
-            best = (recall[0][0], recall[0][1])
-            best_sim = recall[0][2]
+            best = (recall[0][0], recall[0][1], recall[0][2])
 
         if best is None:
-            return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
+            return self._not_blocked()
 
-        topic, example = best
+        topic, example, best_sim = best
         threshold = topic.get("threshold")
         if not threshold or threshold <= 0:
             threshold = self._load_global_threshold()
 
         if best_sim >= threshold:
             logger.info("Forbidden detection BLOCKED: topic=%s example=%s sim=%s", topic["name"], example["content"], round(best_sim, 4))
-            return {
-                "blocked": True,
-                "matched_topic": topic["name"],
-                "similarity": round(best_sim, 4),
-                "answer": self.DEFAULT_ANSWER,
-            }
+            return self._blocked(topic["name"], round(best_sim, 4), self.DEFAULT_ANSWER)
 
-        return {"blocked": False, "matched_topic": None, "similarity": 0.0, "answer": ""}
+        return self._not_blocked()
 
 
 # singleton

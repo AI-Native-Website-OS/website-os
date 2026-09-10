@@ -14,6 +14,7 @@ import com.sinounion.entity.User;
 import com.sinounion.mapper.LeadMapper;
 import com.sinounion.mapper.PermissionMapper;
 import com.sinounion.mapper.UserMapper;
+import com.sinounion.service.AiRequestSigner;
 import com.sinounion.service.SmsService;
 import com.sinounion.service.UserService;
 import com.sinounion.utils.JwtUtils;
@@ -61,6 +62,7 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
     private final SmsService smsService;
+    private final AiRequestSigner aiRequestSigner;
 
     @Override
     public LoginVO login(LoginDTO dto) {
@@ -356,7 +358,9 @@ public class UserServiceImpl implements UserService {
             try {
                 String url = aiServiceUrl + "/ai/memory/init?username=" + java.net.URLEncoder.encode(username, "UTF-8") + "&role=" + java.net.URLEncoder.encode(role, "UTF-8");
                 log.info("Initializing memory: POST {}", url);
-                int status = HttpRequest.post(url).timeout(5000).execute().getStatus();
+                HttpRequest request = HttpRequest.post(url).timeout(5000);
+                aiRequestSigner.sign(request);
+                int status = request.execute().getStatus();
                 if (status == 200) {
                     log.info("Memory initialized via HTTP for {}/{}", role, username);
                     return;

@@ -111,6 +111,16 @@ function moduleKeyOf(href: string): string | null {
   return href.split('module=')[1] || null;
 }
 
+function splitModules(modules: CoreModule[]) {
+  const custom = modules.filter(
+    (m) => !BUILTIN_KEYS.includes(m.moduleKey) && m.status === 1
+  );
+  const enabledBuiltinKeys = modules
+    .filter((m) => BUILTIN_KEYS.includes(m.moduleKey) && m.status === 1)
+    .map((m) => m.moduleKey);
+  return { custom, enabledBuiltinKeys };
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
@@ -128,16 +138,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       adminApi.coreModules.all()
         .then((res: any) => {
           const modules: CoreModule[] = res.data || [];
-          setCustomModules(
-            modules.filter(
-              (m) => !BUILTIN_KEYS.includes(m.moduleKey) && m.status === 1
-            )
-          );
-          setEnabledBuiltinKeys(
-            modules
-              .filter((m) => BUILTIN_KEYS.includes(m.moduleKey) && m.status === 1)
-              .map((m) => m.moduleKey)
-          );
+          const { custom, enabledBuiltinKeys } = splitModules(modules);
+          setCustomModules(custom);
+          setEnabledBuiltinKeys(enabledBuiltinKeys);
         })
         .catch(() => {});
     };

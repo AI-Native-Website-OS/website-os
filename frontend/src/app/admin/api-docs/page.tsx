@@ -41,12 +41,18 @@ export default function ApiDocsPage() {
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js';
       script.async = true;
+      script.crossOrigin = 'anonymous';
+      script.integrity =
+        'sha384-wmyclcVGX/WhUkdkATwhaK1X1JtiNrr2EoYJ+diV3vj4v6OC5yCeSu+yW13SYJep';
       script.onload = loadSwaggerUi;
       document.head.appendChild(script);
 
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = 'https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css';
+      link.crossOrigin = 'anonymous';
+      link.integrity =
+        'sha384-wxLW6kwyHktdDGr6Pv1zgm/VGJh99lfUbzSn6HNHBENZlCN7W602k9VkGdxuFvPn';
       document.head.appendChild(link);
     }
 

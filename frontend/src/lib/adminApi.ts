@@ -40,6 +40,12 @@ export const adminApi = {
       api.get<any, ApiResponse<Permission[]>>(`/admin/permissions/role/${role}`),
     assign: (role: string, permissionIds: number[]) =>
       api.post<any, ApiResponse<void>>('/admin/permissions/assign', { role, permissionIds }),
+    create: (data: { code: string; name: string; module: string; description?: string }) =>
+      api.post<any, ApiResponse<Permission>>('/admin/permissions', data),
+    update: (id: number, data: { code?: string; name?: string; module?: string; description?: string }) =>
+      api.put<any, ApiResponse<Permission>>(`/admin/permissions/${id}`, data),
+    delete: (id: number) =>
+      api.delete<any, ApiResponse<void>>(`/admin/permissions/${id}`),
   },
 
   leads: {

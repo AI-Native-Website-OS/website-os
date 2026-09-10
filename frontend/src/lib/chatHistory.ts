@@ -1,9 +1,11 @@
+import { secureRandomString } from '@/lib/utils';
+
 export const MAX_CONTEXT_MESSAGES = 20;
 
 const SESSION_STORAGE_KEY = 'sn_chat_session_id';
 
 export function generateSessionId(): string {
-  return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  return 'session_' + Date.now() + '_' + secureRandomString(9);
 }
 
 export function getOrCreateSessionId(): string {

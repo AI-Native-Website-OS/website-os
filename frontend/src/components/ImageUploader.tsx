@@ -37,6 +37,25 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
     setPreviewUrl('');
   }, [file]);
 
+  const performUpload = async (f: File, ut: string) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', f);
+      form.append('type', ut);
+      if (subPath) form.append('subPath', subPath);
+      if (rules) form.append('validate', rules.exactSize?.height === 1080 ? 'cover' : 'image');
+      const res: any = await api.post('/upload', form);
+      if (res.code === 200) {
+        onChange?.(res.data?.url || res.url);
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -50,22 +69,7 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
       }
     }
     if (autoUpload && uploadType) {
-      setUploading(true);
-      try {
-        const form = new FormData();
-        form.append('file', f);
-        form.append('type', uploadType);
-        if (subPath) form.append('subPath', subPath);
-        if (rules) form.append('validate', rules.exactSize?.height === 1080 ? 'cover' : 'image');
-        const res: any = await api.post('/upload', form);
-        if (res.code === 200) {
-          onChange?.(res.data?.url || res.url);
-        }
-      } catch (err) {
-        console.error('Upload failed:', err);
-      } finally {
-        setUploading(false);
-      }
+      await performUpload(f, uploadType);
     } else {
       onFileSelect?.(f);
     }

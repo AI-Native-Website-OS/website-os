@@ -156,6 +156,20 @@ def _q1(db, sql: str, params=None):
 
 # ── 各页面渲染 ────────────────────────────────────────────────────
 
+def _append_seo_header(sb: list, cfg, default_title: str, default_desc: str = "") -> None:
+    if cfg:
+        sb.append(f"# {cfg[0] or default_title}\n")
+        if cfg[2] and str(cfg[2]).strip():
+            sb.append(f"> {cfg[2]}\n")
+        elif cfg[1]:
+            sb.append(f"> {cfg[1]}\n")
+        _append_keywords(sb, cfg[3])
+    else:
+        sb.append(f"# {default_title}\n")
+        if default_desc:
+            sb.append(f"> {default_desc}\n")
+
+
 def _render_home() -> str:
     base = _base_url()
     with get_db() as db:
@@ -191,26 +205,7 @@ def _render_home() -> str:
     return "\n".join(sb) + "\n"
 
 
-def _render_about() -> str:
-    base = _base_url()
-    with get_db() as db:
-        sections = _q(db, "SELECT section_type, title, subtitle, description, extra_data "
-                          "FROM about_sections WHERE status = 1 ORDER BY sort_order, id")
-        contacts = _q(db, "SELECT type, value FROM contacts ORDER BY sort_order, id")
-        cfg = _q1(db, "SELECT title, description, geo_summary, keywords FROM seo_configs "
-                      "WHERE page_type = 'about' AND enabled = 1 ORDER BY id LIMIT 1")
-
-    sb = [_llms_ctx()]
-    if cfg:
-        sb.append(f"# {cfg[0] or '关于我们'}\n")
-        if cfg[2] and str(cfg[2]).strip():
-            sb.append(f"> {cfg[2]}\n")
-        elif cfg[1]:
-            sb.append(f"> {cfg[1]}\n")
-        _append_keywords(sb, cfg[3])
-    else:
-        sb.append("# 关于我们\n")
-
+def _collect_about_sections(sections, contacts):
     desc_paras = []
     culture = []
     milestones = []
@@ -234,6 +229,22 @@ def _render_about() -> str:
             contact_items.append((title, subtitle or description, extra))
     for c in contacts:
         contact_items.append((c[0], c[1], ""))
+    return desc_paras, culture, milestones, contact_items
+
+
+def _render_about() -> str:
+    base = _base_url()
+    with get_db() as db:
+        sections = _q(db, "SELECT section_type, title, subtitle, description, extra_data "
+                          "FROM about_sections WHERE status = 1 ORDER BY sort_order, id")
+        contacts = _q(db, "SELECT type, value FROM contacts ORDER BY sort_order, id")
+        cfg = _q1(db, "SELECT title, description, geo_summary, keywords FROM seo_configs "
+                      "WHERE page_type = 'about' AND enabled = 1 ORDER BY id LIMIT 1")
+
+    sb = [_llms_ctx()]
+    _append_seo_header(sb, cfg, "关于我们")
+
+    desc_paras, culture, milestones, contact_items = _collect_about_sections(sections, contacts)
 
     if desc_paras:
         sb.append("\n".join(f"{p}\n" for p in desc_paras))
@@ -281,7 +292,7 @@ def _render_faqs() -> str:
     return "\n".join(sb) + "\n"
 
 
-def _render_list(module_key: str, category_slug: str = "") -> str:
+def _load_list_data(module_key: str, category_slug: str):
     base = _base_url()
     with get_db() as db:
         module = _q1(db, "SELECT module_key, module_name, module_title, module_description, module_type "
@@ -317,6 +328,28 @@ def _render_list(module_key: str, category_slug: str = "") -> str:
         cfg = _q1(db, "SELECT title, description, geo_summary, keywords FROM seo_configs "
                       "WHERE page_type = :k AND enabled = 1 ORDER BY id LIMIT 1", {"k": module_key})
 
+    return base, module, cats, items, cfg
+
+
+def _append_list_items(sb: list, base: str, module_key: str, module_type, items) -> None:
+    if not items:
+        sb.append("\n暂无内容。")
+        return
+    sb.append("\n## 内容\n")
+    for it in items:
+        title_i = it[0]
+        summary_i = it[2] or ""
+        if it[3] and module_type == 1:
+            link = _md_url(base, "/list/category/detail",
+                           f"moduleKey={module_key}&categorySlug={it[3]}&slug={it[1]}")
+        else:
+            link = _md_url(base, "/list/detail", f"moduleKey={module_key}&slug={it[1]}")
+        sb.append(f"- [{title_i}]({link})" + (f": {summary_i}" if summary_i else ""))
+
+
+def _render_list(module_key: str, category_slug: str = "") -> str:
+    base, module, cats, items, cfg = _load_list_data(module_key, category_slug)
+
     module_type = module[4]
     title_m = module[2] or module[1]
     desc_m = module[3] or ""
@@ -339,19 +372,7 @@ def _render_list(module_key: str, category_slug: str = "") -> str:
             link = _category_url(base, module_key, c[2])
             sb.append(f"- [{c[1]}]({link})" + (f": {c[3]}" if c[3] else ""))
 
-    if not items:
-        sb.append("\n暂无内容。")
-    else:
-        sb.append("\n## 内容\n")
-        for it in items:
-            title_i = it[0]
-            summary_i = it[2] or ""
-            if it[3] and module_type == 1:
-                link = _md_url(base, "/list/category/detail",
-                               f"moduleKey={module_key}&categorySlug={it[3]}&slug={it[1]}")
-            else:
-                link = _md_url(base, "/list/detail", f"moduleKey={module_key}&slug={it[1]}")
-            sb.append(f"- [{title_i}]({link})" + (f": {summary_i}" if summary_i else ""))
+    _append_list_items(sb, base, module_key, module_type, items)
     return "\n".join(sb) + "\n"
 
 
@@ -409,21 +430,24 @@ def md_faqs():
     return _render_faqs()
 
 
-@router.get("/md/list/category", response_class=PlainTextResponse)
+@router.get("/md/list/category", response_class=PlainTextResponse,
+            responses={400: {"description": "缺少 moduleKey 参数"}, 404: {"description": "模块或分类不存在"}})
 def md_list(moduleKey: str = Query(""), categorySlug: str = Query("")):
     if not moduleKey:
         raise HTTPException(status_code=400, detail="缺少 moduleKey 参数")
     return _render_list(moduleKey, categorySlug or "")
 
 
-@router.get("/md/list/detail", response_class=PlainTextResponse)
+@router.get("/md/list/detail", response_class=PlainTextResponse,
+            responses={400: {"description": "缺少 moduleKey 或 slug 参数"}, 404: {"description": "内容不存在"}})
 def md_detail(moduleKey: str = Query(""), slug: str = Query("")):
     if not moduleKey or not slug:
         raise HTTPException(status_code=400, detail="缺少 moduleKey 或 slug 参数")
     return _render_detail(moduleKey, slug)
 
 
-@router.get("/md/list/category/detail", response_class=PlainTextResponse)
+@router.get("/md/list/category/detail", response_class=PlainTextResponse,
+            responses={400: {"description": "缺少 moduleKey / categorySlug / slug 参数"}, 404: {"description": "内容不存在"}})
 def md_nested_detail(moduleKey: str = Query(""), categorySlug: str = Query(""), slug: str = Query("")):
     if not moduleKey or not categorySlug or not slug:
         raise HTTPException(status_code=400, detail="缺少 moduleKey / categorySlug / slug 参数")

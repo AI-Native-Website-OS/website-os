@@ -2,6 +2,8 @@ package com.sinounion.controller.admin;
 
 import com.sinounion.common.Result;
 import com.sinounion.dto.AssignRolePermissionsDTO;
+import com.sinounion.dto.CreatePermissionDTO;
+import com.sinounion.dto.UpdatePermissionDTO;
 import com.sinounion.entity.Permission;
 import com.sinounion.service.PermissionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +42,28 @@ public class AdminPermissionController {
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<Void> assignPermissions(@Valid @RequestBody AssignRolePermissionsDTO dto) {
         permissionService.assignPermissionsToRole(dto.getRole(), dto.getPermissionIds());
+        return Result.success(null);
+    }
+
+    @Operation(summary = "创建权限点")
+    @PostMapping
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Result<Permission> createPermission(@Valid @RequestBody CreatePermissionDTO dto) {
+        return Result.success(permissionService.createPermission(dto));
+    }
+
+    @Operation(summary = "更新权限点")
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Result<Permission> updatePermission(@PathVariable Long id, @Valid @RequestBody UpdatePermissionDTO dto) {
+        return Result.success(permissionService.updatePermission(id, dto));
+    }
+
+    @Operation(summary = "删除权限点")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Result<Void> deletePermission(@PathVariable Long id) {
+        permissionService.deletePermission(id);
         return Result.success(null);
     }
 }

@@ -119,77 +119,98 @@ export function getRecordSectionType(record?: { extraData?: string } | null): st
   return sections[0]?.sectionType || 'rich_text';
 }
 
-/** 按展示类型校验 data 字段，返回错误映射（不含标题/副标题等通用字段校验） */
-export function validateBlockTypeData(type: string, data: any): Record<string, string> {
+function validateListData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
-  switch (type) {
-    case 'list': {
-      const rows = data.rows || [];
-      const cols = (data.columns && data.columns.length > 0) ? data.columns : ['key', 'value'];
-      if (rows.length === 0 || rows.every((r: any) => cols.every((c: string) => !r[c]?.trim())))
-        errs.rows = '至少需要一条有效数据行';
-      break;
-    }
-    case 'module': {
-      const items = data.items || [];
-      if (items.length === 0 && (data.title || data.description)) {
-        if (!data.title?.trim()) errs.moduleTitle = '模块标题不能为空';
-        if (data.description?.length > 200) errs.moduleDesc = '最多200个字符';
-      } else {
-        if (items.length === 0) errs.moduleItems = '至少需要一个模块';
-        else {
-          items.forEach((mod: any, i: number) => {
-            if (!mod.title?.trim()) errs[`mod_title_${i}`] = `模块${i + 1}标题不能为空`;
-            if (mod.description?.length > 200) errs[`mod_desc_${i}`] = `模块${i + 1}最多200个字符`;
-          });
-        }
-      }
-      break;
-    }
-    case 'image_text': {
-      const groups = data.groups || [];
-      if (groups.length === 0) errs.imageText = '至少需要一组图文';
-      else {
-        groups.forEach((g: any, i: number) => {
-          if (!g.image) errs[`img_group_img_${i}`] = `第${i + 1}组图片不能为空`;
-          if (g.description?.length > 200) errs[`img_group_desc_${i}`] = `第${i + 1}组最多200个字符`;
-        });
-      }
-      break;
-    }
-    case 'timeline': {
-      const timeline = data.timeline || [];
-      if (timeline.length === 0) errs.timeline = '至少需要一个时间节点';
-      else {
-        timeline.forEach((node: any, i: number) => {
-          if (!node.date) errs[`tl_date_${i}`] = `第${i + 1}行日期不能为空`;
-          if (node.content?.length > 200) errs[`tl_content_${i}`] = `第${i + 1}行最多200个字符`;
-        });
-      }
-      break;
-    }
-    case 'rich_text': {
-      const html = data.content || '';
-      const stripped = html.replace(/<[^>]*>/g, '').trim();
-      if (!stripped) errs.richText = '富文本内容不能为空';
-      break;
-    }
-    case 'html': {
-      const html = data.html || '';
-      const stripped = html.replace(/<[^>]*>/g, '').trim();
-      if (!stripped) errs.html = 'HTML 代码不能为空';
-      break;
-    }
-    case 'carousel': {
-      const items = data.items || [];
-      if (items.length === 0) errs.carousel = '至少需要一个轮播项';
-      else {
-        items.forEach((item: any, i: number) => {
-          if (!item.image) errs[`car_img_${i}`] = `第${i + 1}项图片不能为空`;
-        });
-      }
-      break;
-    }
+  const rows = data.rows || [];
+  const cols = (data.columns && data.columns.length > 0) ? data.columns : ['key', 'value'];
+  if (rows.length === 0 || rows.every((r: any) => cols.every((c: string) => !r[c]?.trim())))
+    errs.rows = '至少需要一条有效数据行';
+  return errs;
+}
+
+function validateModuleData(data: any): Record<string, string> {
+  const errs: Record<string, string> = {};
+  const items = data.items || [];
+  if (items.length === 0 && (data.title || data.description)) {
+    if (!data.title?.trim()) errs.moduleTitle = '模块标题不能为空';
+    if (data.description?.length > 200) errs.moduleDesc = '最多200个字符';
+  } else if (items.length === 0) {
+    errs.moduleItems = '至少需要一个模块';
+  } else {
+    items.forEach((mod: any, i: number) => {
+      if (!mod.title?.trim()) errs[`mod_title_${i}`] = `模块${i + 1}标题不能为空`;
+      if (mod.description?.length > 200) errs[`mod_desc_${i}`] = `模块${i + 1}最多200个字符`;
+    });
   }
   return errs;
+}
+
+function validateImageTextData(data: any): Record<string, string> {
+  const errs: Record<string, string> = {};
+  const groups = data.groups || [];
+  if (groups.length === 0) errs.imageText = '至少需要一组图文';
+  else {
+    groups.forEach((g: any, i: number) => {
+      if (!g.image) errs[`img_group_img_${i}`] = `第${i + 1}组图片不能为空`;
+      if (g.description?.length > 200) errs[`img_group_desc_${i}`] = `第${i + 1}组最多200个字符`;
+    });
+  }
+  return errs;
+}
+
+function validateTimelineData(data: any): Record<string, string> {
+  const errs: Record<string, string> = {};
+  const timeline = data.timeline || [];
+  if (timeline.length === 0) errs.timeline = '至少需要一个时间节点';
+  else {
+    timeline.forEach((node: any, i: number) => {
+      if (!node.date) errs[`tl_date_${i}`] = `第${i + 1}行日期不能为空`;
+      if (node.content?.length > 200) errs[`tl_content_${i}`] = `第${i + 1}行最多200个字符`;
+    });
+  }
+  return errs;
+}
+
+function validateRichTextData(data: any): Record<string, string> {
+  const errs: Record<string, string> = {};
+  const html = data.content || '';
+  const stripped = html.replace(/<[^>]*>/g, '').trim();
+  if (!stripped) errs.richText = '富文本内容不能为空';
+  return errs;
+}
+
+function validateHtmlData(data: any): Record<string, string> {
+  const errs: Record<string, string> = {};
+  const html = data.html || '';
+  const stripped = html.replace(/<[^>]*>/g, '').trim();
+  if (!stripped) errs.html = 'HTML 代码不能为空';
+  return errs;
+}
+
+function validateCarouselData(data: any): Record<string, string> {
+  const errs: Record<string, string> = {};
+  const items = data.items || [];
+  if (items.length === 0) errs.carousel = '至少需要一个轮播项';
+  else {
+    items.forEach((item: any, i: number) => {
+      if (!item.image) errs[`car_img_${i}`] = `第${i + 1}项图片不能为空`;
+    });
+  }
+  return errs;
+}
+
+const BLOCK_DATA_VALIDATORS: Record<string, (data: any) => Record<string, string>> = {
+  list: validateListData,
+  module: validateModuleData,
+  image_text: validateImageTextData,
+  timeline: validateTimelineData,
+  rich_text: validateRichTextData,
+  html: validateHtmlData,
+  carousel: validateCarouselData,
+};
+
+/** 按展示类型校验 data 字段，返回错误映射（不含标题/副标题等通用字段校验） */
+export function validateBlockTypeData(type: string, data: any): Record<string, string> {
+  const validator = BLOCK_DATA_VALIDATORS[type];
+  return validator ? validator(data) : {};
 }

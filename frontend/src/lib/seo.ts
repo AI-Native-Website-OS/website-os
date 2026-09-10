@@ -28,6 +28,18 @@ export function getCanonicalUrl(path: string): string {
   return `${SITE_URL}${path}`;
 }
 
+/**
+ * 将结构化数据安全序列化为可注入 <script type="application/ld+json"> 的字符串。
+ * JSON.stringify 不会转义 "<"、">"、"&"，CMS 文本中的 "</script>" 可逃逸出 JSON 块执行脚本；
+ * 这里转义为等价的 \uXXXX，保证不破坏 JSON 语义的同时无法闭合 script 标签。
+ */
+export function safeJsonLd(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
 export function generateBreadcrumbSchema(items: BreadcrumbItem[]): object {
   return {
     '@context': 'https://schema.org',

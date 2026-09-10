@@ -26,7 +26,7 @@ import config from '@/config';
 
 import { useI18n } from '@/i18n/I18nProvider';
 
-import { formatDate, getImageUrl } from '@/lib/utils';
+import { formatDate, getImageUrl, shuffleArray, secureRandomString } from '@/lib/utils';
 
 import {
   getVisitorId, getGuestQuota, setGuestQuota, recordGuestUse, checkUserRateLimit,
@@ -119,7 +119,248 @@ const moduleRowLimit = (_m?: CoreModule): number => 4;
 // 首页区块斑马纹背景：按渲染位置奇偶交替
 const sectionBg = (i: number): string => (i % 2 === 0 ? 'bg-gray-50' : 'bg-white');
 
+const formTitles: Record<string, string> = {
+  'login-prompt': '温馨提示',
+  demo: '预约产品演示',
+  solution: '获取解决方案',
+};
 
+const formSubmitText: Record<string, string> = {
+  demo: '提交预约',
+  solution: '立即获取',
+};
+
+const buildUserInput = (text: string, files: ChatFile[]): string => {
+  const textFiles = files.filter(f => f.type === 'file' && f.textContent);
+  if (textFiles.length === 0) return text;
+  const parts = textFiles.map(f => `以下是我上传的文件${f.name}的内容：\n\`\`\`\n${f.textContent}\n\`\`\``);
+  return parts.join('\n\n') + `\n\n${text || '请分析这个文件'}`;
+};
+
+const buildChatBody = (user: any, userInput: string, sessionId: string, visitorId: string, text: string, files: ChatFile[]): Record<string, any> => {
+  const chatBody: Record<string, any> = {
+    user_input: userInput,
+    session_id: sessionId,
+    username: user?.realName || user?.username || '',
+    original_input: text || (files.length > 0 ? '查看附件' : ''),
+    visitor_id: visitorId || getVisitorId(),
+  };
+  if (files.length > 0) {
+    const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
+    if (imgUrls.length > 0) chatBody.images = imgUrls;
+    const fileAtts = files.filter(f => f.type === 'file').map(f => ({ type: 'file', name: f.name, ...(f.rawBase64 ? { base64: f.rawBase64 } : {}) }));
+    if (fileAtts.length > 0) chatBody.attachments = fileAtts;
+  }
+  return chatBody;
+};
+
+const isSendBlocked = (
+  user: any,
+  guestLocked: boolean,
+  aiLimits: { userLimit: number; guestLimit: number },
+  setGuestLocked: (v: boolean) => void,
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+): boolean => {
+  if (user) {
+    const rl = checkUserRateLimit(aiLimits.userLimit);
+    if (!rl.allowed) {
+      setMessages(prev => [...prev, { role: 'assistant', content: `请求过于频繁，请稍后再试（每分钟最多 ${aiLimits.userLimit} 次）。` }]);
+      return true;
+    }
+    return false;
+  }
+  if (guestLocked) return true;
+  if (getGuestQuota() >= aiLimits.guestLimit) {
+    setGuestLocked(true);
+    return true;
+  }
+  return false;
+};
+
+const pushAssistant = (prev: Message[], content: string): Message[] => [...prev, { role: 'assistant', content }];
+
+const appendReasoning = (prev: Message[], content: string): Message[] => {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    updated[updated.length - 1] = { ...last, reasoning: (last.reasoning || '') + content };
+  } else {
+    updated.push({ role: 'assistant', content: '', reasoning: content } as Message);
+  }
+  return updated;
+};
+
+const appendContent = (prev: Message[], content: string): Message[] => {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    updated[updated.length - 1] = { ...last, content: (last.content || '') + content };
+  } else {
+    updated.push({ role: 'assistant', content } as Message);
+  }
+  return updated;
+};
+
+const finalizeAssistant = (prev: Message[], parsed: any): Message[] => {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last && last.role === 'assistant') {
+    updated[updated.length - 1] = { ...last, content: parsed.content || last.content, reasoning: parsed.reasoning || last.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped };
+  } else {
+    updated.push({ role: 'assistant', content: parsed.content || '', reasoning: parsed.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped } as Message);
+  }
+  return updated;
+};
+
+const buildRequirementText = (mode: string): string => {
+  if (mode === 'demo') return '产品演示预约（AI对话提交）';
+  if (mode === 'solution') return '解决方案咨询（AI对话提交）';
+  return '案例咨询（AI对话提交）';
+};
+
+interface ChatStreamContext {
+  user: any;
+  aiLimits: { userLimit: number; guestLimit: number };
+  setGuestLocked: (v: boolean) => void;
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setFormMode: (m: string) => void;
+  setFormData: React.Dispatch<React.SetStateAction<{ name: string; company: string; phone: string; email: string; requirement: string }>>;
+  setShowForm: (v: boolean) => void;
+  submitLead: (mode: string, requirement?: string) => void;
+  markStopped: () => void;
+}
+
+const handleLimitEvent = (parsed: any, ctx: ChatStreamContext) => {
+  if (parsed.reason === 'guest_limit') {
+    setGuestQuota(ctx.aiLimits.guestLimit);
+    ctx.setGuestLocked(true);
+    ctx.setMessages(prev => pushAssistant(prev, parsed.message || '您今日的免费咨询次数已用完，请登录后继续使用AI顾问。'));
+  } else {
+    ctx.setMessages(prev => pushAssistant(prev, parsed.message || '请求过于频繁，请稍后再试。'));
+  }
+};
+
+const maybeRecordGuestUse = (ctx: ChatStreamContext, guestUsed: boolean): boolean => {
+  if (!ctx.user && !guestUsed) {
+    recordGuestUse();
+    return true;
+  }
+  return guestUsed;
+};
+
+const handleRecommendations = (parsed: any, ctx: ChatStreamContext) => {
+  if (parsed.recommendations?.action === 'showForm' && parsed.recommendations?.actionData?.mode) {
+    const { mode, requirement } = parsed.recommendations.actionData;
+    if (ctx.user) {
+      setTimeout(() => ctx.submitLead(mode, requirement), 500);
+    } else {
+      ctx.setFormMode(mode);
+      ctx.setFormData(prev => ({
+        ...prev,
+        requirement: requirement || buildRequirementText(mode),
+      }));
+      ctx.setShowForm(true);
+    }
+  }
+};
+
+const handleStreamEvent = (parsed: any, ctx: ChatStreamContext, guestUsed: boolean): { used: boolean; stop: boolean } => {
+  if (parsed.type === 'limit') {
+    handleLimitEvent(parsed, ctx);
+    return { used: guestUsed, stop: true };
+  }
+  if (parsed.type === 'error') {
+    ctx.setMessages(prev => pushAssistant(prev, '抱歉，AI顾问暂时无法回答。请稍后再试。'));
+    return { used: guestUsed, stop: true };
+  }
+  if (parsed.type === 'reasoning' && parsed.content) {
+    const used = maybeRecordGuestUse(ctx, guestUsed);
+    ctx.setMessages(prev => appendReasoning(prev, parsed.content));
+    return { used, stop: false };
+  }
+  if (parsed.type === 'content' && parsed.content) {
+    const used = maybeRecordGuestUse(ctx, guestUsed);
+    ctx.setMessages(prev => appendContent(prev, parsed.content));
+    return { used, stop: false };
+  }
+  if (parsed.type === 'done') {
+    const used = maybeRecordGuestUse(ctx, guestUsed);
+    ctx.setMessages(prev => finalizeAssistant(prev, parsed));
+    handleRecommendations(parsed, ctx);
+    return { used, stop: false };
+  }
+  return { used: guestUsed, stop: false };
+};
+
+const consumeStreamLines = (lines: string[], ctx: ChatStreamContext, guestUsed: boolean): boolean => {
+  for (const line of lines) {
+    if (!line.startsWith('data: ')) continue;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(line.substring(6));
+    } catch {
+      continue;
+    }
+    const res = handleStreamEvent(parsed, ctx, guestUsed);
+    guestUsed = res.used;
+    if (res.stop) break;
+  }
+  return guestUsed;
+};
+
+const processSseStream = async (body: ReadableStream<Uint8Array>, controller: AbortController, ctx: ChatStreamContext): Promise<void> => {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let guestUsed = false;
+  while (true) {
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch (e: any) {
+      if (e?.name === 'AbortError' || controller.signal.aborted) {
+        ctx.markStopped();
+      }
+      break;
+    }
+    const { done, value } = chunk;
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() || '';
+    guestUsed = consumeStreamLines(lines, ctx, guestUsed);
+  }
+};
+
+const handleJsonResponse = async (resp: Response, ctx: ChatStreamContext): Promise<void> => {
+  const json = await resp.json();
+  if (json.type === 'limit') {
+    if (json.reason === 'guest_limit') {
+      setGuestQuota(ctx.aiLimits.guestLimit);
+      ctx.setGuestLocked(true);
+      ctx.setMessages(prev => pushAssistant(prev, json.message || '您今日的免费咨询次数已用完，请登录后继续使用AI顾问。'));
+    } else {
+      ctx.setMessages(prev => pushAssistant(prev, json.message || '请求过于频繁，请稍后再试。'));
+    }
+    return;
+  }
+  if (!ctx.user) recordGuestUse();
+  const fullText = json.content || json.message || '感谢您的提问。我们的专业顾问会尽快为您解答。';
+  ctx.setMessages(prev => [...prev, { role: 'assistant' as const, content: fullText, reasoning: json.reasoning, recommendations: json.recommendations }]);
+  if (json.recommendations?.action === 'showForm' && json.recommendations?.actionData?.mode) {
+    const { mode, requirement } = json.recommendations.actionData;
+    if (ctx.user) {
+      setTimeout(() => ctx.submitLead(mode, requirement), 500);
+    } else {
+      ctx.setFormMode(mode);
+      ctx.setFormData(prev => ({
+        ...prev,
+        requirement: requirement || buildRequirementText(mode),
+      }));
+      ctx.setShowForm(true);
+    }
+  }
+};
 
 
 
@@ -288,7 +529,7 @@ export default function HomePage() {
 
       const all: ContentItem[] = r.data?.records || [];
 
-      const shuffled = [...all].sort(() => Math.random() - 0.5);
+      const shuffled = shuffleArray(all);
 
       setHomeCases(shuffled.slice(0, 6));
 
@@ -406,43 +647,13 @@ export default function HomePage() {
 
     if (chatLoading) return;
 
-    // ── 客户端限流拦截（后端仍为权威）────────────────────────
-    if (!user) {
-      if (guestLocked) {
-        return;
-      }
-      if (getGuestQuota() >= aiLimits.guestLimit) {
-        setGuestLocked(true);
-        return;
-      }
-    } else {
-      const rl = checkUserRateLimit(aiLimits.userLimit);
-      if (!rl.allowed) {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `请求过于频繁，请稍后再试（每分钟最多 ${aiLimits.userLimit} 次）。`,
-        }]);
-        return;
-      }
-    }
+    if (isSendBlocked(user, guestLocked, aiLimits, setGuestLocked, setMessages)) return;
 
     setInput('');
 
     setPendingFiles([]);
 
-    // Build user input with file content prepended
-
-    let userInput = text;
-
-    const textFiles = files.filter(f => f.type === 'file' && f.textContent);
-
-    if (textFiles.length > 0) {
-
-      const parts = textFiles.map(f => `以下是我上传的文件${f.name}的内容：\n\`\`\`\n${f.textContent}\n\`\`\``);
-
-      userInput = parts.join('\n\n') + `\n\n${text || '请分析这个文件'}`;
-
-    }
+    const userInput = buildUserInput(text, files);
 
     if (files.length > 0) {
 
@@ -486,21 +697,21 @@ export default function HomePage() {
 
     };
 
+    const ctx: ChatStreamContext = {
+      user,
+      aiLimits,
+      setGuestLocked,
+      setMessages,
+      setFormMode,
+      setFormData,
+      setShowForm,
+      submitLead,
+      markStopped,
+    };
+
     try {
 
-      const chatBody: Record<string, any> = { user_input: userInput, session_id: sessionId, username: user?.realName || user?.username || '', original_input: text || (files.length > 0 ? '查看附件' : ''), visitor_id: visitorId || getVisitorId() };
-
-      if (files.length > 0) {
-
-        const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
-
-        if (imgUrls.length > 0) chatBody.images = imgUrls;
-
-        const fileAtts = files.filter(f => f.type === 'file').map(f => ({ type: 'file', name: f.name, ...(f.rawBase64 ? { base64: f.rawBase64 } : {}) }));
-
-        if (fileAtts.length > 0) chatBody.attachments = fileAtts;
-
-      }
+      const chatBody = buildChatBody(user, userInput, sessionId, visitorId, text, files);
 
       const resp = await fetch(config.ai.baseUrl + '/chat', {
 
@@ -518,241 +729,11 @@ export default function HomePage() {
 
       if (ct.includes('text/event-stream') && resp.body) {
 
-        // SSE streaming — real-time chunk rendering
-
-        const reader = resp.body.getReader();
-
-        const decoder = new TextDecoder();
-
-        let buf = '';
-
-        let guestUsedThisRequest = false;
-
-        while (true) {
-
-          let chunk: ReadableStreamReadResult<Uint8Array>;
-
-          try {
-
-            chunk = await reader.read();
-
-          } catch (e: any) {
-
-            if (e?.name === 'AbortError' || controller.signal.aborted) {
-
-              markStopped();
-
-            }
-
-            break;
-
-          }
-
-          const { done, value } = chunk;
-
-          if (done) break;
-
-          buf += decoder.decode(value, { stream: true });
-
-          const lines = buf.split('\n');
-
-          buf = lines.pop() || '';
-
-          for (const line of lines) {
-
-            if (!line.startsWith('data: ')) continue;
-
-            try {
-
-              const parsed = JSON.parse(line.substring(6));
-
-              if (parsed.type === 'limit') {
-
-                if (parsed.reason === 'guest_limit') {
-
-                  setGuestQuota(aiLimits.guestLimit);
-
-                  setGuestLocked(true);
-
-                  setMessages(prev => [...prev, { role: 'assistant', content: parsed.message || '您今日的免费咨询次数已用完，请登录后继续使用AI顾问。' }]);
-
-                } else {
-
-                  setMessages(prev => [...prev, { role: 'assistant', content: parsed.message || '请求过于频繁，请稍后再试。' }]);
-
-                }
-
-                break;
-
-              } else if (parsed.type === 'error') {
-
-                setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，AI顾问暂时无法回答。请稍后再试。' }]);
-
-                break;
-
-              } else if (parsed.type === 'reasoning' && parsed.content) {
-
-                if (!user && !guestUsedThisRequest) { recordGuestUse(); guestUsedThisRequest = true; }
-
-                setMessages(prev => {
-
-                  const updated = [...prev];
-
-                  const last = updated[updated.length - 1];
-
-                  if (last && last.role === 'assistant') {
-
-                    updated[updated.length - 1] = { ...last, reasoning: (last.reasoning || '') + parsed.content };
-
-                  } else {
-
-                    updated.push({ role: 'assistant', content: '', reasoning: parsed.content } as any);
-
-                  }
-
-                  return updated;
-
-                });
-
-              } else if (parsed.type === 'content' && parsed.content) {
-
-                if (!user && !guestUsedThisRequest) { recordGuestUse(); guestUsedThisRequest = true; }
-
-                setMessages(prev => {
-
-                  const updated = [...prev];
-
-                  const last = updated[updated.length - 1];
-
-                  if (last && last.role === 'assistant') {
-
-                    updated[updated.length - 1] = { ...last, content: (last.content || '') + parsed.content };
-
-                  } else {
-
-                    updated.push({ role: 'assistant', content: parsed.content } as any);
-
-                  }
-
-                  return updated;
-
-                });
-
-              } else if (parsed.type === 'done') {
-
-                if (!user && !guestUsedThisRequest) { recordGuestUse(); guestUsedThisRequest = true; }
-
-                setMessages(prev => {
-
-                  const updated = [...prev];
-
-                  const last = updated[updated.length - 1];
-
-                  if (last && last.role === 'assistant') {
-
-                    updated[updated.length - 1] = { ...last, content: parsed.content || last.content, reasoning: parsed.reasoning || last.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped };
-
-                  } else {
-
-                    updated.push({ role: 'assistant', content: parsed.content || '', reasoning: parsed.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped } as any);
-
-                  }
-
-                  return updated;
-
-                });
-
-                if (parsed.recommendations?.action === 'showForm' && parsed.recommendations?.actionData?.mode) {
-
-                  const { mode, requirement } = parsed.recommendations.actionData;
-
-                  if (user) {
-
-                    setTimeout(() => submitLead(mode, requirement), 500);
-
-                  } else {
-
-                    setFormMode(mode as any);
-
-                    setFormData(prev => ({
-
-                      ...prev,
-
-                      requirement: requirement || (mode === 'demo' ? '产品演示预约（AI对话提交）' : mode === 'solution' ? '解决方案咨询（AI对话提交）' : '案例咨询（AI对话提交）'),
-
-                    }));
-
-                    setShowForm(true);
-
-                  }
-
-                }
-
-              }
-
-            } catch {}
-
-          }
-
-        }
+        await processSseStream(resp.body, controller, ctx);
 
       } else {
 
-        // Non-streaming JSON — full text at once
-
-        const json = await resp.json();
-
-        if (json.type === 'limit') {
-
-          if (json.reason === 'guest_limit') {
-
-            setGuestQuota(aiLimits.guestLimit);
-
-            setGuestLocked(true);
-
-            setMessages(prev => [...prev, { role: 'assistant' as const, content: json.message || '您今日的免费咨询次数已用完，请登录后继续使用AI顾问。' }]);
-
-          } else {
-
-            setMessages(prev => [...prev, { role: 'assistant' as const, content: json.message || '请求过于频繁，请稍后再试。' }]);
-
-          }
-
-          return;
-
-        }
-
-        if (!user) recordGuestUse();
-
-        const fullText = json.content || json.message || '感谢您的提问。我们的专业顾问会尽快为您解答。';
-
-        setMessages(prev => [...prev, { role: 'assistant' as const, content: fullText, reasoning: json.reasoning, recommendations: json.recommendations }]);
-
-        if (json.recommendations?.action === 'showForm' && json.recommendations?.actionData?.mode) {
-
-          const { mode, requirement } = json.recommendations.actionData;
-
-          if (user) {
-
-            setTimeout(() => submitLead(mode, requirement), 500);
-
-          } else {
-
-            setFormMode(mode as any);
-
-            setFormData(prev => ({
-
-              ...prev,
-
-              requirement: requirement || (mode === 'demo' ? '产品演示预约（AI对话提交）' : mode === 'solution' ? '解决方案咨询（AI对话提交）' : '案例咨询（AI对话提交）'),
-
-            }));
-
-            setShowForm(true);
-
-          }
-
-        }
+        await handleJsonResponse(resp, ctx);
 
       }
 
@@ -870,7 +851,7 @@ export default function HomePage() {
 
     try {
 
-      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const id = Date.now().toString(36) + secureRandomString(4);
 
       let fileType: 'image' | 'audio' | 'file' = 'file';
 
@@ -1497,7 +1478,7 @@ export default function HomePage() {
 
             <div className="flex justify-between items-center mb-5">
 
-              <h3 className="text-lg font-semibold">{formMode === 'login-prompt' ? '温馨提示' : formMode === 'demo' ? '预约产品演示' : '获取解决方案'}</h3>
+              <h3 className="text-lg font-semibold">{formTitles[formMode] || '获取解决方案'}</h3>
 
               <button onClick={() => setShowForm(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
 
@@ -1629,7 +1610,7 @@ export default function HomePage() {
 
                 <button type="submit" disabled={formLoading} className="w-full py-2.5 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
 
-                  {formLoading ? '提交中...' : formMode === 'demo' ? '提交预约' : '立即获取'}
+                  {formLoading ? '提交中...' : formSubmitText[formMode] || '立即获取'}
 
                 </button>
 

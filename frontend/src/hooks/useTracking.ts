@@ -9,6 +9,24 @@ const LEAD_TRIGGER_KEY = 'sn_lead_triggered';
 const PAGE_VIEW_KEY = 'sn_page_views';
 const PAGE_HISTORY_KEY = 'sn_page_history';
 
+const MODULE_PAGE_TYPES: Record<string, string> = {
+  products: 'product',
+  solutions: 'solution',
+  cases: 'case',
+  resources: 'resource',
+};
+
+const TOP_PAGE_TYPES: Record<string, string> = {
+  products: 'product',
+  solutions: 'solution',
+  cases: 'case',
+  articles: 'resource',
+  resources: 'resource',
+  'ai-facts': 'ai-facts',
+  about: 'about',
+  faqs: 'faq',
+};
+
 interface PageVisit {
   pageType: string;
   pageUrl: string;
@@ -100,26 +118,12 @@ export function useTracking(options: UseTrackingOptions = {}) {
   }, [visitorId, pathname]);
 
   const inferPageType = (url: string): string => {
-    if (url === '/' || url === '') return 'home';
     const parts = url.split('/').filter(Boolean);
     if (parts.length === 0) return 'home';
     if (parts[0] === 'list') {
-      if (parts.length < 2) return 'other';
-      const mod = parts[1];
-      if (mod === 'products') return 'product';
-      if (mod === 'solutions') return 'solution';
-      if (mod === 'cases') return 'case';
-      if (mod === 'resources') return 'resource';
-      return 'other';
+      return parts.length < 2 ? 'other' : (MODULE_PAGE_TYPES[parts[1]] || 'other');
     }
-    if (parts[0] === 'products') return 'product';
-    if (parts[0] === 'solutions') return 'solution';
-    if (parts[0] === 'cases') return 'case';
-    if (parts[0] === 'articles' || parts[0] === 'resources') return 'resource';
-    if (parts[0] === 'ai-facts') return 'ai-facts';
-    if (parts[0] === 'about') return 'about';
-    if (parts[0] === 'faqs') return 'faq';
-    return 'other';
+    return TOP_PAGE_TYPES[parts[0]] || 'other';
   };
 
   const recordPageView = useCallback(async (pageType: string, pageUrl: string, pageSlug?: string) => {

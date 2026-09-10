@@ -264,6 +264,39 @@ function getInitialColor(): string {
   return '#000000';
 }
 
+function applyBrandConfig(
+  configValue: string,
+  setBrand: React.Dispatch<React.SetStateAction<Record<string, any>>>,
+) {
+  const parsed = JSON.parse(configValue);
+  if (!parsed.openLinks && (parsed.githubUrl || parsed.giteeUrl || parsed.docsUrl || parsed.pilotUrl)) {
+    parsed.openLinks = [
+      { label: 'GitHub', url: parsed.githubUrl || '', icon: parsed.githubIcon || 'github', enabled: true },
+      { label: 'Gitee', url: parsed.giteeUrl || '', icon: parsed.giteeIcon || 'gitee', enabled: true },
+      { label: 'Docs', url: parsed.docsUrl || '', icon: parsed.docsIcon || 'book', enabled: true },
+      { label: 'Pilot', url: parsed.pilotUrl || '', icon: parsed.pilotIcon || 'rocket', enabled: true },
+    ];
+  }
+  setBrand((prev) => ({ ...prev, ...parsed }));
+}
+
+function applySmsConfig(
+  key: string,
+  value: string,
+  setSms: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+  setSmsSecretConfigured: React.Dispatch<React.SetStateAction<boolean>>,
+) {
+  if (key === 'sms_access_key_secret') {
+    if (value === SECRET_MASK) {
+      setSmsSecretConfigured(true);
+      return;
+    }
+    setSms((prev) => ({ ...prev, sms_access_key_secret: value || '' }));
+    return;
+  }
+  setSms((prev) => ({ ...prev, [key]: value }));
+}
+
 export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -324,7 +357,17 @@ export default function AdminSettings() {
       const configs: SystemConfig[] = res?.data || [];
       let color = localStorage.getItem('site_primary_color') || '#000000';
       configs.forEach((c: SystemConfig) => {
-        if (c.configKey === 'site_primary_color') color = c.configValue;
+        if (c.configKey === 'site_primary_color') { color = c.configValue; return; }
+        if (c.configKey === 'site_brand') {
+          try {
+            applyBrandConfig(c.configValue, setBrand);
+          } catch { /* ignore malformed */ }
+          return;
+        }
+        if (c.configKey.startsWith('sms_')) {
+          applySmsConfig(c.configKey, c.configValue, setSms, setSmsSecretConfigured);
+          return;
+        }
         if (c.configKey === 'theme_mode') setThemeMode(c.configValue as 'light' | 'dark' | 'auto');
         if (c.configKey === 'sidebar_collapsed') setSidebarCollapsed(c.configValue === 'true');
         if (c.configKey === 'animations_enabled') setAnimationsEnabled(c.configValue !== 'false');
@@ -335,31 +378,6 @@ export default function AdminSettings() {
         if (c.configKey === 'ai_guest_daily_limit') {
           const v = Number(c.configValue);
           if (v > 0) setAiGuestDailyLimit(v);
-        }
-        if (c.configKey === 'site_brand') {
-          try {
-            const parsed = JSON.parse(c.configValue);
-            if (!parsed.openLinks && (parsed.githubUrl || parsed.giteeUrl || parsed.docsUrl || parsed.pilotUrl)) {
-              parsed.openLinks = [
-                { label: 'GitHub', url: parsed.githubUrl || '', icon: parsed.githubIcon || 'github', enabled: true },
-                { label: 'Gitee', url: parsed.giteeUrl || '', icon: parsed.giteeIcon || 'gitee', enabled: true },
-                { label: 'Docs', url: parsed.docsUrl || '', icon: parsed.docsIcon || 'book', enabled: true },
-                { label: 'Pilot', url: parsed.pilotUrl || '', icon: parsed.pilotIcon || 'rocket', enabled: true },
-              ];
-            }
-            setBrand((prev) => ({ ...prev, ...parsed }));
-          } catch { /* ignore malformed */ }
-        }
-        if (c.configKey && c.configKey.startsWith('sms_')) {
-          if (c.configKey === 'sms_access_key_secret') {
-            if (c.configValue === SECRET_MASK) {
-              setSmsSecretConfigured(true);
-            } else {
-              setSms((prev) => ({ ...prev, sms_access_key_secret: c.configValue || '' }));
-            }
-          } else {
-            setSms((prev) => ({ ...prev, [c.configKey]: c.configValue }));
-          }
         }
       });
       setPrimaryColor(color);
@@ -433,6 +451,85 @@ export default function AdminSettings() {
     [t]
   );
 
+  const renderBrandLogo = useCallback(() => (
+    <div className="flex items-center gap-3">
+      <ImageUploader
+        value={brand.logo}
+        autoUpload
+        uploadType="image"
+        size="sm"
+        objectFit="contain"
+        onChange={(url) => setBrand((p) => ({ ...p, logo: url }))}
+      />
+    </div>
+  ), [brand.logo]);
+
+  const renderBrandFavicon = useCallback(() => (
+    <div className="flex items-center gap-3">
+      <ImageUploader
+        value={brand.favicon}
+        autoUpload
+        uploadType="image"
+        size="sm"
+        objectFit="contain"
+        onChange={(url) => setBrand((p) => ({ ...p, favicon: url }))}
+      />
+    </div>
+  ), [brand.favicon]);
+
+  const renderOpenLinks = useCallback(() => (
+    <OpenLinksManager
+      links={(brand.openLinks || []) as SiteOpenLink[]}
+      iconOptions={iconOptions}
+      onChange={(links) => setBrand((p) => ({ ...p, openLinks: links }))}
+    />
+  ), [brand.openLinks, iconOptions]);
+
+  const renderSmsAccessKeyId = useCallback(() => (
+    <Input value={sms.sms_access_key_id} onChange={(v) => setSms((p) => ({ ...p, sms_access_key_id: v }))} />
+  ), [sms.sms_access_key_id]);
+
+  const renderSmsAccessKeySecret = useCallback(() => (
+    <Input
+      type="password"
+      autoComplete="off"
+      value={smsSecretConfigured && !sms.sms_access_key_secret ? SECRET_MASK : sms.sms_access_key_secret}
+      onChange={(v) => setSms((p) => ({ ...p, sms_access_key_secret: v }))}
+      placeholder={smsSecretConfigured ? t('admin.ui.settings.smsSecretPlaceholder') : ''}
+    />
+  ), [smsSecretConfigured, sms.sms_access_key_secret, t]);
+
+  const renderSmsSignName = useCallback(() => (
+    <Input value={sms.sms_sign_name} onChange={(v) => setSms((p) => ({ ...p, sms_sign_name: v }))} />
+  ), [sms.sms_sign_name]);
+
+  const renderSmsTemplateCode = useCallback(() => (
+    <Input value={sms.sms_template_code} onChange={(v) => setSms((p) => ({ ...p, sms_template_code: v }))} />
+  ), [sms.sms_template_code]);
+
+  const renderThemeMode = useCallback(() => (
+    <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
+      {[
+        { value: 'light', label: t('admin.ui.settings.themeLight'), icon: Sun },
+        { value: 'dark', label: t('admin.ui.settings.themeDark'), icon: Moon },
+        { value: 'auto', label: t('admin.ui.settings.themeAuto'), icon: Monitor },
+      ].map(mode => (
+        <button
+          key={mode.value}
+          onClick={() => setThemeMode(mode.value as 'light' | 'dark' | 'auto')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            themeMode === mode.value
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <mode.icon className="w-3.5 h-3.5" />
+          {mode.label}
+        </button>
+      ))}
+    </div>
+  ), [themeMode, t]);
+
   const settingSections = useMemo(() => [
     {
       key: 'brand',
@@ -444,34 +541,12 @@ export default function AdminSettings() {
         {
           key: 'site_logo', label: t('admin.ui.settings.brandLogo'), icon: Globe,
           description: t('admin.ui.settings.brandLogoDesc'),
-          render: () => (
-            <div className="flex items-center gap-3">
-              <ImageUploader
-                value={brand.logo}
-                autoUpload
-                uploadType="image"
-                size="sm"
-                objectFit="contain"
-                onChange={(url) => setBrand((p) => ({ ...p, logo: url }))}
-              />
-            </div>
-          ),
+          render: renderBrandLogo,
         },
         {
           key: 'site_favicon', label: t('admin.ui.settings.brandFavicon'), icon: Globe,
           description: t('admin.ui.settings.brandFaviconDesc'),
-          render: () => (
-            <div className="flex items-center gap-3">
-              <ImageUploader
-                value={brand.favicon}
-                autoUpload
-                uploadType="image"
-                size="sm"
-                objectFit="contain"
-                onChange={(url) => setBrand((p) => ({ ...p, favicon: url }))}
-              />
-            </div>
-          ),
+          render: renderBrandFavicon,
         },
       ],
     },
@@ -483,13 +558,7 @@ export default function AdminSettings() {
       items: [
         {
           key: 'open_links',
-          render: () => (
-            <OpenLinksManager
-              links={(brand.openLinks || []) as SiteOpenLink[]}
-              iconOptions={iconOptions}
-              onChange={(links) => setBrand((p) => ({ ...p, openLinks: links }))}
-            />
-          ),
+          render: renderOpenLinks,
         },
       ],
     },
@@ -502,33 +571,19 @@ export default function AdminSettings() {
       items: [
         {
           key: 'sms_access_key_id', label: 'AccessKey ID', icon: Settings2,
-          render: () => (
-            <Input value={sms.sms_access_key_id} onChange={(v) => setSms((p) => ({ ...p, sms_access_key_id: v }))} />
-          ),
+          render: renderSmsAccessKeyId,
         },
         {
           key: 'sms_access_key_secret', label: 'AccessKey Secret', icon: Settings2,
-          render: () => (
-            <Input
-              type="password"
-              autoComplete="off"
-              value={sms.sms_access_key_secret}
-              onChange={(v) => setSms((p) => ({ ...p, sms_access_key_secret: v }))}
-              placeholder={smsSecretConfigured ? t('admin.ui.settings.smsSecretPlaceholder') : ''}
-            />
-          ),
+          render: renderSmsAccessKeySecret,
         },
         {
           key: 'sms_sign_name', label: t('admin.ui.settings.smsSign'), icon: Settings2,
-          render: () => (
-            <Input value={sms.sms_sign_name} onChange={(v) => setSms((p) => ({ ...p, sms_sign_name: v }))} />
-          ),
+          render: renderSmsSignName,
         },
         {
           key: 'sms_template_code', label: t('admin.ui.settings.smsTemplate'), icon: Settings2,
-          render: () => (
-            <Input value={sms.sms_template_code} onChange={(v) => setSms((p) => ({ ...p, sms_template_code: v }))} />
-          ),
+          render: renderSmsTemplateCode,
         },
       ],
     },
@@ -545,28 +600,7 @@ export default function AdminSettings() {
         },
         {
           key: 'theme_mode', label: t('admin.ui.settings.themeMode'), icon: themeMode === 'dark' ? Moon : Sun,
-          render: () => (
-            <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
-              {[
-                { value: 'light', label: t('admin.ui.settings.themeLight'), icon: Sun },
-                { value: 'dark', label: t('admin.ui.settings.themeDark'), icon: Moon },
-                { value: 'auto', label: t('admin.ui.settings.themeAuto'), icon: Monitor },
-              ].map(mode => (
-                <button
-                  key={mode.value}
-                  onClick={() => setThemeMode(mode.value as 'light' | 'dark' | 'auto')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    themeMode === mode.value
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <mode.icon className="w-3.5 h-3.5" />
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-          ),
+          render: renderThemeMode,
         },
         {
           key: 'animations_enabled', label: t('admin.ui.settings.animations'), icon: Layout,
@@ -606,7 +640,7 @@ export default function AdminSettings() {
         },
       ],
     },
-  ] as const, [t, primaryColor, themeMode, animationsEnabled, aiUserRateLimit, aiGuestDailyLimit, brand, sms, iconOptions]);
+  ] as const, [t, primaryColor, themeMode, animationsEnabled, aiUserRateLimit, aiGuestDailyLimit, brand, sms, iconOptions, renderBrandLogo, renderBrandFavicon, renderOpenLinks, renderSmsAccessKeyId, renderSmsAccessKeySecret, renderSmsSignName, renderSmsTemplateCode, renderThemeMode]);
 
   const filteredSections = useMemo(() => {
     if (!searchQuery) return settingSections;

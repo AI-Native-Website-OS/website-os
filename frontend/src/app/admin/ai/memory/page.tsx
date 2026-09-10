@@ -38,7 +38,7 @@ export default function AdminAiMemory() {
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
-  const users = [...new Set(files.map(f => f.username))].sort();
+  const users = [...new Set(files.map(f => f.username))].sort((a, b) => a.localeCompare(b));
 
   const toggleUser = (username: string) => {
     setExpanded(prev =>

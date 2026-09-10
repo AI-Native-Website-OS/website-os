@@ -380,96 +380,23 @@ function AdminContent() {
 
       {/* ── 双层嵌套：分类列表 ── */}
       {isNested && view === 'list' && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className={`relative ${catSorting ? 'pointer-events-none opacity-70' : ''}`}>
-            {catSorting && (
-              <div className="absolute inset-x-0 top-0 z-10 bg-black/80 text-white text-xs text-center py-1.5">
-                {t('admin.ui.content.savingOrder')}
-              </div>
-            )}
-            <div className="divide-y divide-gray-100">
-            {catLoading && categories.length === 0 ? (
-              <div className="py-12 text-center">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
-              </div>
-            ) : categories.length === 0 && uncategorizedTotal === 0 ? (
-              <div className="py-12 text-center text-gray-400">
-                <Database className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>{t('admin.ui.content.noCategories')}</p>
-              </div>
-            ) : (
-              <>
-                {uncategorizedTotal > 0 && (
-                  <div
-                    onClick={enterUncategorized}
-                    className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                      <Database className="w-5 h-5 text-gray-500" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">{t('admin.ui.content.uncategorized')}</div>
-                      <div className="text-xs text-gray-400 mt-0.5 truncate">{t('admin.ui.content.legacyItems').replace('{n}', String(uncategorizedTotal))}</div>
-                    </div>
-                    <span className="text-xs text-gray-400">{t('admin.ui.content.itemsCount').replace('{n}', String(uncategorizedTotal))}</span>
-                  </div>
-                )}
-                {categories.map((cat, index) => (
-                  <div
-                    key={cat.id}
-                    draggable
-                    onDragStart={() => handleCatDragStart(index)}
-                    onDragOver={(e) => { e.preventDefault(); handleCatDragOver(index); }}
-                    onDrop={handleCatDrop}
-                    onDragEnd={() => { dragCatItem.current = null; dragCatOverItem.current = null; }}
-                    onClick={() => enterCat(cat)}
-                    className={`flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors group ${dragCatItem.current === index ? 'opacity-50' : ''}`}
-                  >
-                    <span
-                      className="flex items-center cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 flex-shrink-0"
-                      title={t('admin.ui.content.dragSort')}
-                    >
-                      <GripVertical className="w-4 h-4" />
-                    </span>
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {cat.coverImage ? (
-                        <img src={getImageUrl(cat.coverImage)} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <Database className="w-5 h-5 text-gray-500" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">
-                        {cat.name}
-                        <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${cat.status === 1 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                          {cat.status === 1 ? t('common.enable') : t('common.disable')}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-400 mt-0.5 truncate">{cat.description || t('admin.ui.content.noDesc')}</div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setEditingCat(cat); setShowCatForm(true); }}
-                        className="p-2 text-gray-300 hover:text-black opacity-0 group-hover:opacity-100 transition-all"
-                        title={t('common.edit')}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleCatDelete(cat); }}
-                        className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                        title={t('common.delete')}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-            </div>
-          </div>
-        </div>
+        <CategoryList
+          categories={categories}
+          catLoading={catLoading}
+          catSorting={catSorting}
+          uncategorizedTotal={uncategorizedTotal}
+          t={t}
+          dragCatItem={dragCatItem}
+          dragCatOverItem={dragCatOverItem}
+          onEnterUncategorized={enterUncategorized}
+          onDragStart={handleCatDragStart}
+          onDragOver={handleCatDragOver}
+          onDrop={handleCatDrop}
+          onDragEnd={() => { dragCatItem.current = null; dragCatOverItem.current = null; }}
+          onEnterCat={enterCat}
+          onEditCat={(cat) => { setEditingCat(cat); setShowCatForm(true); }}
+          onDeleteCat={handleCatDelete}
+        />
       )}
 
       {/* ── 分类表单 ── */}
@@ -479,111 +406,284 @@ function AdminContent() {
 
       {/* ── 内容列表（单层 / 双层嵌套分类下） ── */}
       {(!isNested || view === 'detail') && (
-        <>
-          <div className="flex gap-3 mb-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); load(); } }}
-                placeholder={t('admin.ui.content.searchPlaceholder')}
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-            </div>
-            <button onClick={() => { setPage(1); load(); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">{t('common.search')}</button>
-          </div>
-
-          <Modal open={showForm} onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? t('admin.ui.content.editContent') : t('admin.ui.content.addContent')} width="w-[920px]">
-            <ContentForm item={editing} moduleKey={moduleKey} saving={saving} onSave={handleSave} categoryId={filterCategoryId} categoryName={isNested && view === 'detail' ? selectedCat?.name : undefined} nested={isNested} />
-          </Modal>
-
-          {selected.size > 0 && (
-            <BatchToolbar
-              selectedCount={selected.size}
-              onDelete={handleBatchDelete}
-              onPublish={() => handleBatchStatus(1)}
-              onUnpublish={() => handleBatchStatus(0)}
-              loading={batchLoading}
-            />
-          )}
-
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="w-10 py-3 px-2">
-                    <input type="checkbox"
-                      checked={(items?.records?.length ?? 0) > 0 && selected.size === (items?.records?.length ?? 0)}
-                      onChange={toggleSelectAll}
-                      className="rounded border-gray-300 cursor-pointer" />
-                  </th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-500 w-16">{t('admin.ui.content.colCover')}</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colTitle')}</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colType')}</th>
-                  {isNested && <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colGroup')}</th>}
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">slug</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colStatus')}</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colViews')}</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-500">{t('common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items?.records?.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-100">
-                    <td className="py-3 px-2">
-                      <input type="checkbox"
-                        checked={selected.has(item.id)}
-                        onChange={() => toggleSelect(item.id)}
-                        className="rounded border-gray-300 cursor-pointer" />
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {item.coverImage ? (
-                        <img src={getImageUrl(item.coverImage)} alt="" className="w-12 h-8 object-cover rounded border border-gray-200" />
-                      ) : (
-                        <div className="w-12 h-8 bg-gray-100 rounded border border-gray-200 flex items-center justify-center text-gray-300">
-                          {/* eslint-disable-next-line jsx-a11y/alt-text */}
-                          <Image className="w-4 h-4" />
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 font-medium">{item.title}</td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">
-                        {displayTypeLabel(item, t)}
-                      </span>
-                    </td>
-                    {isNested && <td className="py-3 px-4 text-gray-500">{item.groupName || '-'}</td>}
-                    <td className="py-3 px-4 text-gray-500"><span className="font-mono text-xs">{item.slug}</span></td>
-                    <td className="py-3 px-4 text-center">
-                      <button onClick={() => toggleStatus(item)} className={`px-2 py-0.5 rounded text-xs cursor-pointer ${item.status === 1 ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{item.status === 1 ? t('common.enable') : t('common.disable')}</button>
-                    </td>
-                    <td className="py-3 px-4 text-center">{item.viewCount || 0}</td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button onClick={() => { setEditing(item); setShowForm(true); }} className="p-1 text-gray-500 hover:text-black"><Pencil className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(item.id)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {(!items?.records || items.records.length === 0) && (
-                  <tr><td colSpan={isNested ? 9 : 8} className="py-8 text-center text-gray-400">{loading ? t('common.loading') : t('admin.ui.content.noContent')}</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {items && items.pages > 1 && (
-            <div className="flex justify-center gap-2 mt-4">
-              {Array.from({ length: items.pages }, (_, i) => (
-                <button key={i} onClick={() => setPage(i + 1)} className={`px-3 py-1 rounded text-sm ${page === i + 1 ? 'bg-black text-white' : 'border border-gray-300 hover:bg-gray-50'}`}>{i + 1}</button>
-              ))}
-            </div>
-          )}
-        </>
+        <ContentList
+          isNested={isNested}
+          view={view}
+          selectedCat={selectedCat}
+          items={items}
+          loading={loading}
+          selected={selected}
+          keyword={keyword}
+          page={page}
+          batchLoading={batchLoading}
+          showForm={showForm}
+          editing={editing}
+          saving={saving}
+          moduleKey={moduleKey}
+          filterCategoryId={filterCategoryId}
+          t={t}
+          onKeywordChange={setKeyword}
+          onSearch={() => { setPage(1); load(); }}
+          onToggleSelect={toggleSelect}
+          onToggleSelectAll={toggleSelectAll}
+          onToggleStatus={toggleStatus}
+          onDelete={handleDelete}
+          onEdit={(item) => { setEditing(item); setShowForm(true); }}
+          onCloseForm={() => { setShowForm(false); setEditing(null); }}
+          onSave={handleSave}
+          onBatchDelete={handleBatchDelete}
+          onBatchStatus={handleBatchStatus}
+          onPageChange={setPage}
+        />
       )}
     </div>
+  );
+}
+
+function CategoryList({ categories, catLoading, catSorting, uncategorizedTotal, t, dragCatItem, dragCatOverItem, onEnterUncategorized, onDragStart, onDragOver, onDrop, onDragEnd, onEnterCat, onEditCat, onDeleteCat }: {
+  categories: ContentModuleCategory[];
+  catLoading: boolean;
+  catSorting: boolean;
+  uncategorizedTotal: number;
+  t: (k: string) => string;
+  dragCatItem: { current: number | null };
+  dragCatOverItem: { current: number | null };
+  onEnterUncategorized: () => void;
+  onDragStart: (index: number) => void;
+  onDragOver: (index: number) => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
+  onEnterCat: (cat: ContentModuleCategory) => void;
+  onEditCat: (cat: ContentModuleCategory) => void;
+  onDeleteCat: (cat: ContentModuleCategory) => void;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className={`relative ${catSorting ? 'pointer-events-none opacity-70' : ''}`}>
+        {catSorting && (
+          <div className="absolute inset-x-0 top-0 z-10 bg-black/80 text-white text-xs text-center py-1.5">
+            {t('admin.ui.content.savingOrder')}
+          </div>
+        )}
+        <div className="divide-y divide-gray-100">
+          {catLoading && categories.length === 0 ? (
+            <div className="py-12 text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+            </div>
+          ) : categories.length === 0 && uncategorizedTotal === 0 ? (
+            <div className="py-12 text-center text-gray-400">
+              <Database className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>{t('admin.ui.content.noCategories')}</p>
+            </div>
+          ) : (
+            <>
+              {uncategorizedTotal > 0 && (
+                <div
+                  onClick={onEnterUncategorized}
+                  className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                    <Database className="w-5 h-5 text-gray-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">{t('admin.ui.content.uncategorized')}</div>
+                    <div className="text-xs text-gray-400 mt-0.5 truncate">{t('admin.ui.content.legacyItems').replace('{n}', String(uncategorizedTotal))}</div>
+                  </div>
+                  <span className="text-xs text-gray-400">{t('admin.ui.content.itemsCount').replace('{n}', String(uncategorizedTotal))}</span>
+                </div>
+              )}
+              {categories.map((cat, index) => (
+                <div
+                  key={cat.id}
+                  draggable
+                  onDragStart={() => onDragStart(index)}
+                  onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
+                  onDrop={onDrop}
+                  onDragEnd={onDragEnd}
+                  onClick={() => onEnterCat(cat)}
+                  className={`flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors group ${dragCatItem.current === index ? 'opacity-50' : ''}`}
+                >
+                  <span
+                    className="flex items-center cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 flex-shrink-0"
+                    title={t('admin.ui.content.dragSort')}
+                  >
+                    <GripVertical className="w-4 h-4" />
+                  </span>
+                  <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {cat.coverImage ? (
+                      <img src={getImageUrl(cat.coverImage)} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Database className="w-5 h-5 text-gray-500" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {cat.name}
+                      <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${cat.status === 1 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                        {cat.status === 1 ? t('common.enable') : t('common.disable')}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5 truncate">{cat.description || t('admin.ui.content.noDesc')}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEditCat(cat); }}
+                      className="p-2 text-gray-300 hover:text-black opacity-0 group-hover:opacity-100 transition-all"
+                      title={t('common.edit')}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDeleteCat(cat); }}
+                      className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                      title={t('common.delete')}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContentList({ isNested, view, selectedCat, items, loading, selected, keyword, page, batchLoading, showForm, editing, saving, moduleKey, filterCategoryId, t, onKeywordChange, onSearch, onToggleSelect, onToggleSelectAll, onToggleStatus, onDelete, onEdit, onCloseForm, onSave, onBatchDelete, onBatchStatus, onPageChange }: {
+  isNested: boolean;
+  view: 'list' | 'detail';
+  selectedCat: ContentModuleCategory | null;
+  items: PageResult<any> | null;
+  loading: boolean;
+  selected: Set<number>;
+  keyword: string;
+  page: number;
+  batchLoading: boolean;
+  showForm: boolean;
+  editing: any | null;
+  saving: boolean;
+  moduleKey: string;
+  filterCategoryId: number | undefined;
+  t: (k: string) => string;
+  onKeywordChange: (v: string) => void;
+  onSearch: () => void;
+  onToggleSelect: (id: number) => void;
+  onToggleSelectAll: () => void;
+  onToggleStatus: (item: any) => void;
+  onDelete: (id: number) => void;
+  onEdit: (item: any) => void;
+  onCloseForm: () => void;
+  onSave: (data: any) => void;
+  onBatchDelete: () => void;
+  onBatchStatus: (status: number) => void;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <>
+      <div className="flex gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            value={keyword}
+            onChange={(e) => onKeywordChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }}
+            placeholder={t('admin.ui.content.searchPlaceholder')}
+            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
+          />
+        </div>
+        <button onClick={onSearch} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">{t('common.search')}</button>
+      </div>
+
+      <Modal open={showForm} onClose={onCloseForm} title={editing ? t('admin.ui.content.editContent') : t('admin.ui.content.addContent')} width="w-[920px]">
+        <ContentForm item={editing} moduleKey={moduleKey} saving={saving} onSave={onSave} categoryId={filterCategoryId} categoryName={isNested && view === 'detail' ? selectedCat?.name : undefined} nested={isNested} />
+      </Modal>
+
+      {selected.size > 0 && (
+        <BatchToolbar
+          selectedCount={selected.size}
+          onDelete={onBatchDelete}
+          onPublish={() => onBatchStatus(1)}
+          onUnpublish={() => onBatchStatus(0)}
+          loading={batchLoading}
+        />
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="w-10 py-3 px-2">
+                <input type="checkbox"
+                  checked={(items?.records?.length ?? 0) > 0 && selected.size === (items?.records?.length ?? 0)}
+                  onChange={onToggleSelectAll}
+                  className="rounded border-gray-300 cursor-pointer" />
+              </th>
+              <th className="text-center py-3 px-4 font-medium text-gray-500 w-16">{t('admin.ui.content.colCover')}</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colTitle')}</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colType')}</th>
+              {isNested && <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colGroup')}</th>}
+              <th className="text-left py-3 px-4 font-medium text-gray-500">slug</th>
+              <th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colStatus')}</th>
+              <th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colViews')}</th>
+              <th className="text-center py-3 px-4 font-medium text-gray-500">{t('common.actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items?.records?.map((item) => (
+              <tr key={item.id} className="border-b border-gray-100">
+                <td className="py-3 px-2">
+                  <input type="checkbox"
+                    checked={selected.has(item.id)}
+                    onChange={() => onToggleSelect(item.id)}
+                    className="rounded border-gray-300 cursor-pointer" />
+                </td>
+                <td className="py-3 px-4 text-center">
+                  {item.coverImage ? (
+                    <img src={getImageUrl(item.coverImage)} alt="" className="w-12 h-8 object-cover rounded border border-gray-200" />
+                  ) : (
+                    <div className="w-12 h-8 bg-gray-100 rounded border border-gray-200 flex items-center justify-center text-gray-300">
+                      {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                      <Image className="w-4 h-4" />
+                    </div>
+                  )}
+                </td>
+                <td className="py-3 px-4 font-medium">{item.title}</td>
+                <td className="py-3 px-4">
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                    {displayTypeLabel(item, t)}
+                  </span>
+                </td>
+                {isNested && <td className="py-3 px-4 text-gray-500">{item.groupName || '-'}</td>}
+                <td className="py-3 px-4 text-gray-500"><span className="font-mono text-xs">{item.slug}</span></td>
+                <td className="py-3 px-4 text-center">
+                  <button onClick={() => onToggleStatus(item)} className={`px-2 py-0.5 rounded text-xs cursor-pointer ${item.status === 1 ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{item.status === 1 ? t('common.enable') : t('common.disable')}</button>
+                </td>
+                <td className="py-3 px-4 text-center">{item.viewCount || 0}</td>
+                <td className="py-3 px-4 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <button onClick={() => onEdit(item)} className="p-1 text-gray-500 hover:text-black"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => onDelete(item.id)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {(!items?.records || items.records.length === 0) && (
+              <tr><td colSpan={isNested ? 9 : 8} className="py-8 text-center text-gray-400">{loading ? t('common.loading') : t('admin.ui.content.noContent')}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {items && items.pages > 1 && (
+        <div className="flex justify-center gap-2 mt-4">
+          {Array.from({ length: items.pages }, (_, i) => (
+            <button key={i} onClick={() => onPageChange(i + 1)} className={`px-3 py-1 rounded text-sm ${page === i + 1 ? 'bg-black text-white' : 'border border-gray-300 hover:bg-gray-50'}`}>{i + 1}</button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

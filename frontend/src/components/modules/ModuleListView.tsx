@@ -23,6 +23,56 @@ function itemCategoryValue(moduleKey: string, item: any): string | undefined {
   return item.categoryId != null ? String(item.categoryId) : (item.groupName || undefined);
 }
 
+type ListFilter = NonNullable<ListModuleConfig['filter']>;
+
+function buildCategoryFilterOptions(cats: ContentModuleCategory[]) {
+  const options: FilterOption[] = [];
+  const valueToSlug: Record<string, string> = {};
+  const slugToVal: Record<string, string> = {};
+  const categoryMap: Record<number, string> = {};
+  for (const c of cats) {
+    categoryMap[c.id] = c.name;
+    const value = String(c.id);
+    const slug = c.slug || value;
+    options.push({ label: c.name, value, slug });
+    if (slug) {
+      valueToSlug[value] = slug;
+      slugToVal[slug] = value;
+    }
+  }
+  return { options, valueToSlug, slugToVal, categoryMap };
+}
+
+function buildFieldFilterOptions(data: any[], filter: ListFilter) {
+  const options: FilterOption[] = [];
+  const valueToSlug: Record<string, string> = {};
+  const slugToVal: Record<string, string> = {};
+  for (const item of data) {
+    const label = item[filter.labelField] as string | undefined;
+    const value: string = String(item[filter.valueField] ?? '');
+    if (!label) continue;
+    const slug = item.slug || value;
+    options.push({ label, value, slug });
+    if (slug) {
+      valueToSlug[value] = slug;
+      slugToVal[slug] = value;
+    }
+  }
+  return { options, valueToSlug, slugToVal };
+}
+
+function buildDistinctFilterOptions(records: any[], filter: ListFilter): FilterOption[] {
+  const options: FilterOption[] = [];
+  const seen = new Set<string>();
+  for (const r of records) {
+    const value = r[filter.valueField];
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    options.push({ label: value as string, value: value as string, slug: '' });
+  }
+  return options;
+}
+
 export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string; categorySlug?: string }) {
   const [module, setModule] = useState<CoreModule | null>(null);
   const [resolvedKey, setResolvedKey] = useState<string>(moduleKey);
@@ -63,47 +113,27 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
     }
     try {
       const options: FilterOption[] = [];
-      const valueToSlug: Record<string, string> = {};
-      const slugToVal: Record<string, string> = {};
+      let valueToSlug: Record<string, string> = {};
+      let slugToVal: Record<string, string> = {};
       if (cfg.filter.endpoint) {
         const res: any = await api.get(cfg.filter.endpoint);
         const data = res.data || [];
         if (cfg.filter.kind === 'category') {
-          const cats: ContentModuleCategory[] = data;
-          setCategoryMap(Object.fromEntries(cats.map((c) => [c.id, c.name])));
-          for (const c of cats) {
-            const value = String(c.id);
-            const slug = c.slug || value;
-            options.push({ label: c.name, value, slug });
-            if (slug) {
-              valueToSlug[value] = slug;
-              slugToVal[slug] = value;
-            }
-          }
+          const built = buildCategoryFilterOptions(data);
+          setCategoryMap(built.categoryMap);
+          options.push(...built.options);
+          valueToSlug = built.valueToSlug;
+          slugToVal = built.slugToVal;
         } else {
-          for (const item of data) {
-            const field: string = cfg.filter!.valueField;
-            const label = item[cfg.filter!.labelField] as string | undefined;
-            const value: string = String(item[field] ?? '');
-            if (!label) continue;
-            const slug = item.slug || value;
-            options.push({ label, value, slug });
-            if (slug) {
-              valueToSlug[value] = slug;
-              slugToVal[slug] = value;
-            }
-          }
+          const built = buildFieldFilterOptions(data, cfg.filter);
+          options.push(...built.options);
+          valueToSlug = built.valueToSlug;
+          slugToVal = built.slugToVal;
         }
       } else {
         const res: any = await api.get(cfg.endpoint, { params: { page: 1, size: 999 } });
         const records = res.data.records || [];
-        const seen = new Set<string>();
-        for (const r of records) {
-          const value = r[cfg.filter!.valueField];
-          if (!value || seen.has(value)) continue;
-          seen.add(value);
-          options.push({ label: value as string, value: value as string, slug: '' });
-        }
+        options.push(...buildDistinctFilterOptions(records, cfg.filter));
       }
       setFilterOptions(options);
       setSlugMap(valueToSlug);
@@ -324,7 +354,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
           <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
             <PageState loading={loading} empty={!loading && items.length === 0} emptyMessage={`暂无${module?.moduleName || '内容'}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {items.map(renderCard)}
+                {items.map((item, index) => renderCard(item, index))}
               </div>
             </PageState>
 

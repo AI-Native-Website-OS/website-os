@@ -54,8 +54,8 @@ export default function FilePreview({ fileUrl, fileName, onClose }: FilePreviewP
       return <img src={fileUrl} alt={fileName} className="max-w-full max-h-[75vh] mx-auto object-contain" />;
     }
     if (isText) {
-      if (loading) return <div className="flex items-center justify-center h-[40vh] text-gray-400">加载中...</div>;
-      if (loadError) return <ErrorState />;
+      const pending = renderLoadingOrError(loading, loadError);
+      if (pending) return pending;
       if (textContent !== null) {
         return (
           <pre className="w-full h-[75vh] rounded-lg bg-gray-50 p-6 overflow-auto text-sm leading-relaxed whitespace-pre-wrap font-mono">
@@ -66,8 +66,8 @@ export default function FilePreview({ fileUrl, fileName, onClose }: FilePreviewP
       return null;
     }
     if (isDocx) {
-      if (loading) return <div className="flex items-center justify-center h-[40vh] text-gray-400">加载中...</div>;
-      if (loadError) return <ErrorState />;
+      const pending = renderLoadingOrError(loading, loadError);
+      if (pending) return pending;
       if (htmlContent !== null) {
         return (
           <div className="w-full min-h-[75vh] rounded-lg bg-white p-8 overflow-auto prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: htmlContent }} />
@@ -98,6 +98,12 @@ export default function FilePreview({ fileUrl, fileName, onClose }: FilePreviewP
       </div>
     </div>
   );
+}
+
+function renderLoadingOrError(loading: boolean, loadError: boolean) {
+  if (loading) return <div className="flex items-center justify-center h-[40vh] text-gray-400">加载中...</div>;
+  if (loadError) return <ErrorState />;
+  return null;
 }
 
 function ErrorState() {
