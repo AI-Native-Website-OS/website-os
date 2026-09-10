@@ -193,9 +193,43 @@ _db_config_cache: Dict[str, Any] = {"ts": 0.0, "values": None}
 _DB_CONFIG_CACHE_TTL = 5.0
 
 
+def _config_crypto_key() -> Optional[bytes]:
+    """读取敏感配置 AES 落盘密钥（与后端 CONFIG_CRYPTO_AES_KEY 一致）。
+
+    兼容 Base64(16/24/32 字节) 与普通字符串两种写法；普通字符串经 SHA-256 派生。
+    """
+    raw = os.getenv("CONFIG_CRYPTO_AES_KEY", "").strip()
+    if not raw:
+        return None
+    try:
+        key = base64.b64decode(raw)
+        if len(key) in (16, 24, 32):
+            return key
+    except Exception:
+        pass
+    return hashlib.sha256(raw.encode("utf-8")).digest()
+
+
+def _decrypt_db_value(value: str) -> str:
+    """解密后端 AES 落盘的敏感配置（enc:v1: 前缀）；历史明文原样返回。"""
+    if not value or not value.startswith("enc:v1:"):
+        return value
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise RuntimeError("检测到加密敏感配置(enc:v1:)，但未安装 cryptography 依赖")
+    key = _config_crypto_key()
+    if key is None:
+        raise RuntimeError("检测到加密敏感配置(enc:v1:)，但缺少 CONFIG_CRYPTO_AES_KEY 环境变量")
+    data = base64.b64decode(value[len("enc:v1:"):])
+    nonce, ciphertext = data[:12], data[12:]
+    return AESGCM(key).decrypt(nonce, ciphertext, None).decode("utf-8")
+
+
 def _db_model_config_values(force: bool = False) -> Dict[str, str]:
     """查询 system_configs 表，返回 config_key → config_value（仅模型配置项）。
 
+    敏感项（如 *._API_KEY）在库中为 AES 密文，读取时解密为明文供 AI 调用使用。
     短 TTL 缓存；force=True 时绕过缓存（管理后台保存后的热更新）。
     容错：任何异常返回空 dict，不影响上层逻辑。
     """
@@ -210,7 +244,14 @@ def _db_model_config_values(force: bool = False) -> Dict[str, str]:
             rows = db.execute(
                 select(SystemConfig).where(SystemConfig.config_key.in_(keys))
             ).scalars().all()
-        values = {r.config_key: (r.config_value or "") for r in rows}
+        values: Dict[str, str] = {}
+        for r in rows:
+            key = r.config_key
+            raw = r.config_value or ""
+            try:
+                values[key] = _decrypt_db_value(raw)
+            except Exception as e:
+                logger.error("解密配置 %s 失败，跳过该项（回退环境变量）：%s", key, e)
         _db_config_cache["values"] = values
         _db_config_cache["ts"] = now
         return values

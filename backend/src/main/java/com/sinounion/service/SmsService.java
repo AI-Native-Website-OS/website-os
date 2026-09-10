@@ -8,6 +8,7 @@ import com.aliyun.tea.TeaException;
 import com.aliyun.teaopenapi.models.Config;
 import com.aliyun.teautil.models.RuntimeOptions;
 import com.sinounion.common.BusinessException;
+import com.sinounion.config.SecretCryptoService;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,7 @@ public class SmsService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final SystemConfigMapper systemConfigMapper;
+    private final SecretCryptoService secretCryptoService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     /** 发送验证码到指定手机号；返回验证码（开发兜底模式返回，生产模式返回 null 表示已发送）。 */
@@ -154,7 +156,11 @@ public class SmsService {
 
     private String getConfig(String key) {
         SystemConfig cfg = systemConfigMapper.findByKey(key);
-        return cfg != null ? cfg.getConfigValue() : null;
+        if (cfg == null || cfg.getConfigValue() == null) {
+            return null;
+        }
+        // 敏感项在 system_configs 中为 AES 密文，使用前解密；历史明文（无 enc: 前缀）原样返回
+        return secretCryptoService.decryptAtRest(cfg.getConfigValue());
     }
 
     private boolean isValidPhone(String phone) {

@@ -144,6 +144,11 @@ export const adminApi = {
       api.put<any, ApiResponse<void>>('/admin/system/env-configs', items),
   },
 
+  crypto: {
+    publicKey: () =>
+      api.get<any, ApiResponse<{ algorithm: string; publicKey: string }>>('/admin/system/crypto/public-key'),
+  },
+
   systemConfigs: {
     list: () =>
       api.get<any, ApiResponse<SystemConfig[]>>('/admin/system-configs'),

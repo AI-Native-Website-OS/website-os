@@ -4,12 +4,15 @@ import com.aliyun.dysmsapi20170525.models.SendSmsResponse;
 import com.aliyun.dysmsapi20170525.models.SendSmsResponseBody;
 import com.aliyun.tea.TeaException;
 import com.sinounion.common.BusinessException;
+import com.sinounion.config.SecretCryptoService;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+
+import java.lang.reflect.Field;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -24,13 +27,14 @@ class SmsServiceTest {
 
     private RedisTemplate<String, Object> redisTemplate;
     private SystemConfigMapper systemConfigMapper;
+    private SecretCryptoService secretCryptoService;
     private TestableSmsService smsService;
 
     static class TestableSmsService extends SmsService {
         private com.aliyun.dysmsapi20170525.Client fakeClient;
 
-        TestableSmsService(RedisTemplate<String, Object> redisTemplate, SystemConfigMapper mapper) {
-            super(redisTemplate, mapper);
+        TestableSmsService(RedisTemplate<String, Object> redisTemplate, SystemConfigMapper mapper, SecretCryptoService crypto) {
+            super(redisTemplate, mapper, crypto);
         }
 
         void setFakeClient(com.aliyun.dysmsapi20170525.Client client) {
@@ -43,14 +47,24 @@ class SmsServiceTest {
         }
     }
 
+    private static SecretCryptoService newCrypto() throws Exception {
+        SecretCryptoService crypto = new SecretCryptoService();
+        Field f = SecretCryptoService.class.getDeclaredField("configuredAesKey");
+        f.setAccessible(true);
+        f.set(crypto, "unit-test-secret-key-0123456789abcdef");
+        crypto.init();
+        return crypto;
+    }
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         redisTemplate = mock(RedisTemplate.class);
         ValueOperations<String, Object> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(redisTemplate.hasKey(anyString())).thenReturn(false);
         systemConfigMapper = mock(SystemConfigMapper.class);
-        smsService = new TestableSmsService(redisTemplate, systemConfigMapper);
+        secretCryptoService = newCrypto();
+        smsService = new TestableSmsService(redisTemplate, systemConfigMapper, secretCryptoService);
     }
 
     private void mockSmsConfig(boolean configured) {

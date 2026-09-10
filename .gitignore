@@ -2,6 +2,7 @@
 .idea/
 .superpowers
 .opencode
+.env
 
 # ——— Python ————
 AI_consultant/*.log

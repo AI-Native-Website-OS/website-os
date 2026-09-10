@@ -12,7 +12,7 @@ spring:
   redis:
     host: localhost
     port: 6379
-    password: sinodata
+    password: ${SPRING_REDIS_PASSWORD:}
     database: 0
   servlet:
     multipart:

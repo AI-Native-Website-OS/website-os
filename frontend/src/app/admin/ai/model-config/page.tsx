@@ -8,6 +8,7 @@ import {
   Bot, FileText, Image, Database, Cable, Eye, EyeOff
 } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
+import { encryptSecret, SECRET_MASK } from '@/lib/secretCrypto';
 
 interface FieldDef {
   key: string;
@@ -23,6 +24,15 @@ interface FieldDef {
 }
 
 const AI_KEY_PREFIXES = ['LLM_', 'EMBEDDING_', 'VL_', 'RERANK_'];
+
+/** 需要掩码 + 加密传输 + 仅修改（不可回显）的密钥字段。 */
+const SECRET_FIELD_KEYS = new Set(
+  FIELD_DEFS.filter((f) => f.type === 'password').map((f) => f.key),
+);
+
+function isSecretKey(key: string) {
+  return SECRET_FIELD_KEYS.has(key);
+}
 
 const FIELD_DEFS: FieldDef[] = [
   // ── LLM 模型配置 ──
@@ -122,11 +132,21 @@ export default function AdminModelConfigPage() {
   const isChanged = (key: string) => pending[key] !== undefined;
 
   const handleChange = (key: string, value: string) => {
-    if (!value && !valueMap[key]) {
+    const dropPending = () => {
       setPending(prev => { const n = { ...prev }; delete n[key]; return n; });
-    } else {
-      setPending(prev => ({ ...prev, [key]: value }));
+    };
+    if (!value) {
+      // 密钥字段留空 = 不修改（保留原值）；普通字段空串表示清空
+      if (isSecretKey(key)) {
+        dropPending();
+      } else if (!valueMap[key]) {
+        dropPending();
+      } else {
+        setPending(prev => ({ ...prev, [key]: value }));
+      }
+      return;
     }
+    setPending(prev => ({ ...prev, [key]: value }));
   };
 
   const handleRevert = (key: string) => {
@@ -153,9 +173,20 @@ export default function AdminModelConfigPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const payload = Object.entries(pending).map(([key, value]) => ({ key, value }));
+      // 密钥字段用 RSA 公钥加密后再提交，密文不外泄明文；留空项不提交（后端保留原值）
+      const payload: Array<{ key: string; value: string }> = [];
+      const plainPayload: Array<{ key: string; value: string }> = [];
+      for (const [key, value] of Object.entries(pending)) {
+        if (isSecretKey(key)) {
+          if (!value.trim()) continue;
+          payload.push({ key, value: await encryptSecret(value) });
+        } else {
+          payload.push({ key, value });
+          plainPayload.push({ key, value });
+        }
+      }
       await adminApi.envConfigs.update(payload);
-      try { await aiService.modelConfig.save({ items: payload }); } catch {}
+      try { await aiService.modelConfig.save({ items: plainPayload }); } catch {}
       await fetchData();
       setMessage({ type: 'success', text: t('admin.ui.modelConfig.savedMsg') });
     } catch {
@@ -302,6 +333,15 @@ export default function AdminModelConfigPage() {
           {tabFields.map(field => {
             const val = getDisplayValue(field.key);
             const changed = isChanged(field.key);
+            const isSecret = isSecretKey(field.key);
+            const secretConfigured = isSecret && valueMap[field.key] === SECRET_MASK;
+            const typed = isSecret && changed;
+            const inputValue = isSecret ? (typed ? val : '') : val;
+            const inputPlaceholder = isSecret
+              ? (secretConfigured
+                  ? t('admin.ui.modelConfig.secretConfiguredHint')
+                  : (field.placeholderKey ? t(field.placeholderKey) : field.placeholder))
+              : (field.placeholderKey ? t(field.placeholderKey) : field.placeholder);
             return (
               <div key={field.key}
                 className={`rounded-xl border transition-all ${
@@ -354,12 +394,13 @@ export default function AdminModelConfigPage() {
                         <div className="relative mt-1">
                           <input
                             type={field.type === 'password' && !showKeys[field.key] ? 'password' : 'text'}
-                            value={val}
+                            value={inputValue}
                             onChange={e => handleChange(field.key, e.target.value)}
-                            placeholder={field.placeholderKey ? t(field.placeholderKey) : field.placeholder}
-                            min={field.min}
+                            placeholder={inputPlaceholder}
+min={field.min}
                             max={field.max}
                             step={field.step}
+                            autoComplete="off"
                             className="w-full max-w-md px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors"
                           />
                           {field.type === 'password' && (

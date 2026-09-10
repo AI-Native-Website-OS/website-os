@@ -453,6 +453,21 @@ ENV_MAP = {
 # reverse mapping: config attribute → env var name
 _CONFIG_ATTR_TO_ENV = {v: k for k, v in ENV_MAP.items()}
 
+
+def _is_sensitive_env_key(key: str) -> bool:
+    upper = key.upper()
+    return upper == "JWT_SECRET" or upper.endswith("_API_KEY") \
+        or upper.endswith("_SECRET") or upper.endswith("_PASSWORD")
+
+
+def _display_env_value(key: str, val: str) -> str:
+    """模型配置回显：敏感项（API Key 等）不返回明文，未配置为空串。"""
+    if not val:
+        return val
+    if _is_sensitive_env_key(key):
+        return "******"
+    return val
+
 @router.get("/model-config", response_model=ModelConfigOut)
 def get_model_config():
     c = get_engine().config
@@ -462,11 +477,11 @@ def get_model_config():
         if val is None:
             continue
         if isinstance(val, list):
-            items.append(ModelConfigItem(key=env_key, value=",".join(val)))
+            items.append(ModelConfigItem(key=env_key, value=_display_env_value(env_key, ",".join(val))))
         elif isinstance(val, bool):
-            items.append(ModelConfigItem(key=env_key, value="true" if val else "false"))
+            items.append(ModelConfigItem(key=env_key, value=_display_env_value(env_key, "true" if val else "false")))
         else:
-            items.append(ModelConfigItem(key=env_key, value=str(val)))
+            items.append(ModelConfigItem(key=env_key, value=_display_env_value(env_key, str(val))))
     return ModelConfigOut(items=items)
 
 

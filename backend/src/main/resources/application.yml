@@ -26,7 +26,7 @@ spring:
   redis:
     host: ${SPRING_REDIS_HOST}
     port: ${SPRING_REDIS_PORT}
-    password: sinodata
+    password: ${SPRING_REDIS_PASSWORD:}
     database: 0
   servlet:
     multipart:
@@ -58,6 +58,11 @@ jwt:
 upload:
   path: ${UPLOAD_PATH}
   allowed-types: ${UPLOAD_ALLOWED_TYPES}
+
+# 敏感配置加密（短信 Secret / 模型 API Key 等）：传输用 RSA、落盘用 AES
+# CONFIG_CRYPTO_AES_KEY 为 Base64 编码的 32 字节密钥；未配置时启动自动生成并写入 .env
+config-crypto:
+  aes-key: ${CONFIG_CRYPTO_AES_KEY:}
 
 # SpringDoc配置
 springdoc:

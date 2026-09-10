@@ -2,6 +2,7 @@ package com.sinounion.controller.admin;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sinounion.common.Result;
+import com.sinounion.config.SecretCryptoService;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
 import com.sinounion.util.ModelConfigKeys;
@@ -28,6 +29,7 @@ import java.util.*;
 public class AdminEnvConfigController {
 
     private final SystemConfigMapper systemConfigMapper;
+    private final SecretCryptoService secretCryptoService;
 
     private static final List<String> MANAGED_KEYS = Arrays.asList(
         // ── Database ──
@@ -121,7 +123,7 @@ public class AdminEnvConfigController {
             if (val == null) val = envFile.get(key);
             if (val == null) val = System.getenv(key);
             entry.put("key", key);
-            entry.put("value", val != null ? val : "");
+            entry.put("value", secretCryptoService.mask(key, val != null ? val : ""));
             items.add(entry);
         }
         return Result.success(items);
@@ -140,10 +142,16 @@ public class AdminEnvConfigController {
                 String value = item.get("value");
                 if (key == null || key.isEmpty()) continue;
                 if (ModelConfigKeys.DB_BACKED_KEYS.contains(key)) {
-                    dbUpdateMap.put(key, value != null ? value : "");
+                    String resolved = secretCryptoService.resolveForStorage(key, value);
+                    if (resolved != null) {
+                        dbUpdateMap.put(key, resolved);
+                    }
                 } else {
-                    envUpdateMap.put(key, value != null ? value : "");
-                    System.setProperty(key, value != null ? value : "");
+                    String resolved = secretCryptoService.resolvePlain(key, value);
+                    if (resolved != null) {
+                        envUpdateMap.put(key, resolved);
+                        System.setProperty(key, resolved);
+                    }
                 }
             }
 

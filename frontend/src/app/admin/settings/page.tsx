@@ -7,6 +7,7 @@ import ImageUploader from '@/components/ImageUploader';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { SiteOpenLink } from '@/hooks/useSiteConfig';
 import { OPEN_ICON_OPTIONS, OPEN_ICON_MAP } from '@/lib/openSourceIcons';
+import { encryptSecret, SECRET_MASK } from '@/lib/secretCrypto';
 import {
   Palette, Check, Search, Sun, Moon,
   Monitor, Eye, EyeOff, ChevronDown, ChevronRight, ChevronUp, Settings2,
@@ -102,8 +103,8 @@ function Select({
   );
 }
 
-function Input({ value, onChange, placeholder, type = 'text' }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+function Input({ value, onChange, placeholder, type = 'text', autoComplete }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; type?: string; autoComplete?: string;
 }) {
   return (
     <input
@@ -111,6 +112,7 @@ function Input({ value, onChange, placeholder, type = 'text' }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
+      autoComplete={autoComplete}
       className="w-48 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400"
     />
   );
@@ -302,6 +304,8 @@ export default function AdminSettings() {
     sms_sign_name: '',
     sms_template_code: '',
   });
+  // 短信 Secret 是否已配置（配置后仅可覆盖修改，不回显旧值）
+  const [smsSecretConfigured, setSmsSecretConfigured] = useState(false);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -347,7 +351,15 @@ export default function AdminSettings() {
           } catch { /* ignore malformed */ }
         }
         if (c.configKey && c.configKey.startsWith('sms_')) {
-          setSms((prev) => ({ ...prev, [c.configKey]: c.configValue }));
+          if (c.configKey === 'sms_access_key_secret') {
+            if (c.configValue === SECRET_MASK) {
+              setSmsSecretConfigured(true);
+            } else {
+              setSms((prev) => ({ ...prev, sms_access_key_secret: c.configValue || '' }));
+            }
+          } else {
+            setSms((prev) => ({ ...prev, [c.configKey]: c.configValue }));
+          }
         }
       });
       setPrimaryColor(color);
@@ -382,6 +394,16 @@ export default function AdminSettings() {
   const handleSaveAll = async () => {
     setSaving(true);
     try {
+      // 短信 Secret 仅在填写新值时提交（RSA 加密）；留空表示保留原值
+      const smsTasks: Promise<void>[] = [];
+      for (const [k, v] of Object.entries(sms)) {
+        if (k === 'sms_access_key_secret') {
+          if (!v.trim()) continue;
+          smsTasks.push(saveConfig(k, await encryptSecret(v)));
+          continue;
+        }
+        smsTasks.push(saveConfig(k, v));
+      }
       await Promise.all([
         saveConfig('site_primary_color', primaryColor),
         saveConfig('theme_mode', themeMode),
@@ -390,8 +412,12 @@ export default function AdminSettings() {
         saveConfig('ai_user_rate_limit', String(Math.max(1, aiUserRateLimit))),
         saveConfig('ai_guest_daily_limit', String(Math.max(1, aiGuestDailyLimit))),
         saveConfig('site_brand', JSON.stringify(brand)),
-        ...Object.entries(sms).map(([k, v]) => saveConfig(k, v)),
+        ...smsTasks,
       ]);
+      if (smsTasks.length > 0) {
+        setSmsSecretConfigured(true);
+        setSms((p) => ({ ...p, sms_access_key_secret: '' }));
+      }
       applyTheme(primaryColor);
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('site-config-changed'));
       showToast(t('admin.ui.settings.allSaved'));
@@ -483,7 +509,13 @@ export default function AdminSettings() {
         {
           key: 'sms_access_key_secret', label: 'AccessKey Secret', icon: Settings2,
           render: () => (
-            <Input value={sms.sms_access_key_secret} onChange={(v) => setSms((p) => ({ ...p, sms_access_key_secret: v }))} />
+            <Input
+              type="password"
+              autoComplete="off"
+              value={sms.sms_access_key_secret}
+              onChange={(v) => setSms((p) => ({ ...p, sms_access_key_secret: v }))}
+              placeholder={smsSecretConfigured ? t('admin.ui.settings.smsSecretPlaceholder') : ''}
+            />
           ),
         },
         {
