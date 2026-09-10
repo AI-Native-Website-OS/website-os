@@ -1,7 +1,7 @@
 # ─── IDE ───
 .idea/
-.superpowers
-.opencode
+.superpowers/
+.opencode/
 .env
 
 # ——— Python ————

@@ -25,15 +25,6 @@ interface FieldDef {
 
 const AI_KEY_PREFIXES = ['LLM_', 'EMBEDDING_', 'VL_', 'RERANK_'];
 
-/** 需要掩码 + 加密传输 + 仅修改（不可回显）的密钥字段。 */
-const SECRET_FIELD_KEYS = new Set(
-  FIELD_DEFS.filter((f) => f.type === 'password').map((f) => f.key),
-);
-
-function isSecretKey(key: string) {
-  return SECRET_FIELD_KEYS.has(key);
-}
-
 const FIELD_DEFS: FieldDef[] = [
   // ── LLM 模型配置 ──
   { key: 'LLM_PROVIDER', labelKey: 'admin.ui.modelConfig.fields.LLM_PROVIDER', type: 'text', placeholder: 'openai / azure / ollama', group: 'llm' },
@@ -76,6 +67,15 @@ const FIELD_DEFS: FieldDef[] = [
   { key: 'RERANK_ENABLED', labelKey: 'admin.ui.modelConfig.fields.RERANK_ENABLED', type: 'boolean', descriptionKey: 'admin.ui.modelConfig.descs.RERANK_ENABLED', group: 'rerank' },
   { key: 'RERANK_TOP_K', labelKey: 'admin.ui.modelConfig.fields.RERANK_TOP_K', type: 'number', min: 1, max: 100, descriptionKey: 'admin.ui.modelConfig.descs.RERANK_TOP_K', group: 'rerank' },
 ];
+
+/** 需要掩码 + 加密传输 + 仅修改（不可回显）的密钥字段。 */
+const SECRET_FIELD_KEYS = new Set(
+  FIELD_DEFS.filter((f) => f.type === 'password').map((f) => f.key),
+);
+
+function isSecretKey(key: string) {
+  return SECRET_FIELD_KEYS.has(key);
+}
 
 const GROUPS = [
   { key: 'llm', labelKey: 'admin.ui.modelConfig.groups.llm', icon: Bot, descKey: 'admin.ui.modelConfig.groups.desc' },

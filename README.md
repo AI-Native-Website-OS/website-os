@@ -137,4 +137,4 @@ cd frontend && npm ci && npm run dev
 
 ## License
 
-Apache License — 详见 [LICENSE](LICENSE.txt)。
+Apache License — 详见 [LICENSE](LICENSE)。

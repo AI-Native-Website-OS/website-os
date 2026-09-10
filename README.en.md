@@ -137,4 +137,4 @@ The risk list will be continuously maintained and updated throughout the project
 
 ## License
 
-Apache License — see [LICENSE](LICENSE.txt).
+Apache License — see [LICENSE](LICENSE).
