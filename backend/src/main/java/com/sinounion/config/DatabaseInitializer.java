@@ -2,21 +2,16 @@ package com.sinounion.config;
 
 import com.sinounion.util.ModelConfigKeys;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StreamUtils;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -42,46 +37,13 @@ public class DatabaseInitializer {
             }
             vectorAvailable = vectorExtensionExists();
 
-            InputStream is = new ClassPathResource("sinounion.sql").getInputStream();
-            String sqlContent = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-            List<String> statements = parseStatements(sqlContent);
-
-            List<String> commentStatements = new ArrayList<>();
-
-            for (String stmt : statements) {
-                String trimmed = stmt.trim();
-                if (trimmed.isEmpty()) continue;
-                String upper = trimmed.toUpperCase();
-                if (upper.startsWith("COMMENT ON")) {
-                    commentStatements.add(trimmed);
-                    continue;
-                }
-                if (!vectorAvailable && trimmed.contains("vector(")) {
-                    log.debug("vector extension not available, skipping: {}", trimmed.substring(0, Math.min(60, trimmed.length())));
-                    continue;
-                }
-                try {
-                    jdbcTemplate.execute(trimmed);
-                } catch (Exception e) {
-                    log.debug("SQL skipped (may already exist): {}", e.getMessage());
-                }
-            }
-
             migrateMissingColumns();
 
             ensureSuperAdminPermissions();
 
             seedModelConfigFromEnv();
-
-            for (String stmt : commentStatements) {
-                try {
-                    jdbcTemplate.execute(stmt);
-                } catch (Exception e) {
-                    log.debug("COMMENT skipped: {}", e.getMessage());
-                }
-            }
         } catch (Exception e) {
-            log.error("Failed to initialize database from sinounion.sql", e);
+            log.error("Failed to initialize database", e);
         }
     }
 
@@ -120,108 +82,6 @@ public class DatabaseInitializer {
         } catch (Exception e) {
             return false;
         }
-    }
-
-    private List<String> parseStatements(String sql) {
-        List<String> statements = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inSingleQuote = false;
-        boolean inDollarTag = false;
-        String dollarTag = null;
-        boolean inLineComment = false;
-        boolean inBlockComment = false;
-
-        for (int i = 0; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            char next = (i + 1 < sql.length()) ? sql.charAt(i + 1) : 0;
-
-            if (inLineComment) {
-                if (c == '\n') {
-                    inLineComment = false;
-                    current.append('\n');
-                }
-                continue;
-            }
-            if (inBlockComment) {
-                if (c == '*' && next == '/') {
-                    inBlockComment = false;
-                    i++;
-                }
-                continue;
-            }
-
-            if (!inSingleQuote && !inDollarTag) {
-                if (c == '-' && next == '-') {
-                    inLineComment = true;
-                    i++;
-                    continue;
-                }
-                if (c == '/' && next == '*') {
-                    inBlockComment = true;
-                    i++;
-                    continue;
-                }
-            }
-
-            // Track single quotes
-            if (c == '\'' && !inDollarTag) {
-                inSingleQuote = !inSingleQuote;
-            }
-
-            // Track PostgreSQL dollar-quoting (e.g. $$...$$ or $func$...$func$)
-            if (!inSingleQuote && !inBlockComment && !inLineComment) {
-                if (!inDollarTag && c == '$') {
-                    int end = sql.indexOf('$', i + 1);
-                    if (end > i) {
-                        inDollarTag = true;
-                        dollarTag = sql.substring(i, end + 1);
-                        current.append(dollarTag);
-                        i = end;
-                        continue;
-                    }
-                } else if (inDollarTag && c == '$') {
-                    String possibleEnd = extractDollarTag(sql, i);
-                    if (possibleEnd != null && possibleEnd.equals(dollarTag)) {
-                        inDollarTag = false;
-                        dollarTag = null;
-                        current.append(possibleEnd);
-                        i += possibleEnd.length() - 1;
-                        continue;
-                    }
-                }
-            }
-
-            if (c == ';' && !inSingleQuote && !inDollarTag) {
-                String stmt = current.toString().trim();
-                if (!stmt.isEmpty()) {
-                    statements.add(stmt);
-                }
-                current = new StringBuilder();
-                continue;
-            }
-
-            current.append(c);
-        }
-
-        String last = current.toString().trim();
-        if (!last.isEmpty()) {
-            statements.add(last);
-        }
-
-        return statements;
-    }
-
-    private String extractDollarTag(String sql, int start) {
-        StringBuilder tag = new StringBuilder("$");
-        for (int i = start + 1; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            if (c == '$') {
-                tag.append('$');
-                return tag.toString();
-            }
-            tag.append(c);
-        }
-        return null;
     }
 
     private void migrateMissingColumns() {
