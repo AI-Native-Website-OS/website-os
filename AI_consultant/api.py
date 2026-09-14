@@ -667,7 +667,7 @@ _CONNECTIVITY_TESTERS = {
 
 @router.post("/model-config/test", response_model=TestConnectivityResult)
 def test_model_connectivity(req: TestConnectivityRequest):
-    c = get_engine().config
+    c = Config()
     model_type = req.model_type
     start = _time.time()
     tester = _CONNECTIVITY_TESTERS.get(model_type)
