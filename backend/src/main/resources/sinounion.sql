@@ -895,10 +895,6 @@ INSERT INTO content_items (module_key, title, slug, group_name, summary, content
 VALUES ('demo-solution', '示例方案', 'shili-fangan', '', '这是一张示例详情页', '这里是纯文本，您可以使用管理员账号在后台进行其他配置', NULL, 0, 1, 0, NOW(), NULL, NULL, 0, NULL, NULL)
 ON CONFLICT (module_key, slug) DO NOTHING;
 
--- 演示方案 · 内容管理（单层模块，使用分组）
-INSERT INTO content_items (module_key, title, slug, group_name, summary, content, cover_image, sort_order, status, is_top, published_at, author, source, view_count, seo_title, seo_description) VALUES
-ON CONFLICT (module_key, slug) DO NOTHING;
-
 -- FAQ管理
 INSERT INTO faqs (question, answer, category, product_id, sort_order, status, view_count)
 SELECT v.question, v.answer, v.category, v.product_id, v.sort_order, v.status, v.view_count

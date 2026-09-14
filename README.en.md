@@ -61,8 +61,8 @@ A CMS at its core, AI as its engine, SEO / GEO as the gateway to traffic, and Gr
 ### Live Demo
 
 - Demo URL: https://website-os.testsnlh.top:33000/
-- Username: admin
-- Password: admin123
+- Username: admin-test
+- Password: 123456
 
 ## Tech Stack
 

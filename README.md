@@ -61,8 +61,8 @@
 ###  在线体验
 
 - 在线体验地址： https://website-os.testsnlh.top:33000/
-- 用户名：admin
-- 密码：admin123
+- 用户名：admin-test
+- 密码：123456
 
 ## 技术栈
 
