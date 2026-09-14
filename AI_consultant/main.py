@@ -1150,8 +1150,9 @@ class AIClient:
     def _init(self):
         try:
             from openai import OpenAI
+            api_key = self.config.llm_api_key or os.environ.get("OPENAI_API_KEY") or "EMPTY"
             self.client = OpenAI(
-                api_key=self.config.llm_api_key or "",
+                api_key=api_key,
                 base_url=self.config.llm_base_url.rstrip("/") + "/",
             )
         except ImportError:
@@ -1164,7 +1165,8 @@ class AIClient:
             from openai import OpenAI
             try:
                 self.__vl_client = OpenAI(
-                    api_key=self.config.vl_api_key or self.config.llm_api_key or "",
+                    api_key=self.config.vl_api_key or self.config.llm_api_key
+                    or os.environ.get("OPENAI_API_KEY") or "EMPTY",
                     base_url=self.config.vl_base_url.rstrip("/") + "/",
                 )
             except Exception:
