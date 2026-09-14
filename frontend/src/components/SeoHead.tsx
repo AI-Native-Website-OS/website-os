@@ -98,13 +98,7 @@ export default function SeoHead({
   }
 
   useEffect(() => {
-    const apply = () => {
-      if (document.title !== fullTitle) document.title = fullTitle;
-    };
-    apply();
-    const observer = new MutationObserver(apply);
-    observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true });
-    return () => observer.disconnect();
+    document.title = fullTitle;
   }, [fullTitle]);
 
   return (

@@ -24,7 +24,7 @@ export default function SiteTitle() {
       if (prev && prev !== name && base.endsWith(` - ${prev}`)) {
         base = base.slice(0, -(` - ${prev}`).length);
       }
-      if (!base || base.endsWith(suffix)) {
+      if (!base || base.includes(name) || base.endsWith(suffix)) {
         prevNameRef.current = name;
         return;
       }
