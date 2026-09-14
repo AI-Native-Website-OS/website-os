@@ -7,11 +7,14 @@ import { Plus, Pencil, Trash2, Shield, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function AdminRoles() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useI18n();
+  const { hasRole } = useAuth();
+  const isSuperAdmin = hasRole('SUPER_ADMIN');
   const [editing, setEditing] = useState<Role | null>(null);
   const [showForm, setShowForm] = useState(false);
   const { confirm, ConfirmDialog } = useConfirm();
@@ -37,9 +40,9 @@ export default function AdminRoles() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{t('admin.page.roles')}</h1>
-        <button onClick={() => { setEditing(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">
+        {isSuperAdmin && <button onClick={() => { setEditing(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">
           <Plus className="w-4 h-4" /> {t('admin.ui.roles.addRole')}
-        </button>
+        </button>}
       </div>
 
       {ConfirmDialog}
@@ -66,11 +69,15 @@ export default function AdminRoles() {
                   <span className="inline-flex items-center gap-1 text-sm"><Users className="w-3.5 h-3.5 text-gray-400" />{item.userCount}</span>
                 </td>
                 <td className="py-3 px-4 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <button onClick={() => { setEditing(item); setShowForm(true); }} className="p-1 text-gray-500 hover:text-black"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => router.push(`/admin/permissions?role=${item.code}`)} className="p-1 text-gray-500 hover:text-blue-600" title={t('admin.ui.roles.configPerm')}><Shield className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(item.code)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                  </div>
+                  {isSuperAdmin ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <button onClick={() => { setEditing(item); setShowForm(true); }} className="p-1 text-gray-500 hover:text-black"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={() => router.push(`/admin/permissions?role=${item.code}`)} className="p-1 text-gray-500 hover:text-blue-600" title={t('admin.ui.roles.configPerm')}><Shield className="w-4 h-4" /></button>
+                      <button onClick={() => handleDelete(item.code)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-300">-</span>
+                  )}
                 </td>
               </tr>
             ))}

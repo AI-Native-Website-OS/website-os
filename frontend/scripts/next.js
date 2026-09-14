@@ -15,6 +15,7 @@ for (const c of candidates) {
 }
 
 let port = '3200';
+let host = 'localhost';
 const env = { ...process.env };
 if (envPath) {
   const text = fs.readFileSync(envPath, 'utf8');
@@ -26,6 +27,7 @@ if (envPath) {
     const k = s.slice(0, i).trim();
     const v = s.slice(i + 1).trim();
     if (k === 'FRONTEND_PORT') { port = v; }
+    else if (k === 'FRONTEND_HOST') { host = v; }
     else { env[k] = v; }
   }
 }
@@ -57,5 +59,5 @@ if (cmd === 'build') {
   // 生产环境用 serve 托管静态文件（output: 'export' 生成 dist/）
   run([resolveNpxCli(), 'serve', 'dist', '-c', 'serve.json', '-p', port, '--no-clipboard']);
 } else {
-  run([nextBin, cmd, '-p', port]);
+  run([nextBin, cmd, '-H', host, '-p', port]);
 }

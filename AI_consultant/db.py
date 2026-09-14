@@ -17,19 +17,19 @@ for _env_path in [
 
 # ── PostgreSQL ────────────────────────────────────────────────────
 
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+PG_HOST = os.getenv("PG_HOST")
+PG_PORT = os.getenv("PG_PORT")
+PG_DATABASE = os.getenv("PG_DATABASE")
+PG_USER = os.getenv("PG_USER")
+PG_PASSWORD = os.getenv("PG_PASSWORD")
 
 DATABASE_URL = URL.create(
     drivername="postgresql+psycopg2",
-    username=DB_USER,
-    password=DB_PASSWORD,
-    host=DB_HOST,
-    port=int(DB_PORT),
-    database=DB_NAME,
+    username=PG_USER,
+    password=PG_PASSWORD,
+    host=PG_HOST,
+    port=int(PG_PORT),
+    database=PG_DATABASE,
 )
 
 @lru_cache(maxsize=1)
@@ -66,7 +66,7 @@ REDIS_HOST = os.getenv("REDIS_HOST")
 REDIS_PORT = os.getenv("REDIS_PORT")
 REDIS_USER = os.getenv("REDIS_USER") or None
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
-REDIS_DB = os.getenv("REDIS_DB")
+REDIS_DATABASE = os.getenv("REDIS_DATABASE")
 
 _redis_client = None
 
@@ -81,7 +81,7 @@ def get_redis():
                 port=int(REDIS_PORT),
                 username=REDIS_USER,
                 password=REDIS_PASSWORD,
-                db=int(REDIS_DB),
+                db=int(REDIS_DATABASE),
                 decode_responses=True,
             )
             _redis_client.ping()

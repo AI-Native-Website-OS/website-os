@@ -38,6 +38,16 @@ export const BLOCK_IMAGE_RULES: ImageUploadRules = {
   exactSize: { width: 1920, height: 800 },
 };
 
+// 浏览器标签页图标规则：favicon 仅支持浏览器可渲染的格式
+// （WebP / SVG / GIF / ICO 不被浏览器作为 favicon 稳定支持，故禁止上传）
+export const FAVICON_IMAGE_RULES: ImageUploadRules = {
+  maxSizeMB: 1,
+  allowedExtensions: ['jpg', 'jpeg', 'png'],
+  forbiddenExtensions: ['webp', 'svg', 'gif', 'ico', 'bmp', 'tiff'],
+  maxNameLength: 100,
+  forbiddenNameChars: /[\\/:*?"<>|]/,
+};
+
 // HTML 模板内嵌图片规则：不限制尺寸（尺寸由 HTML 排版决定），其余与区块图片一致
 export const HTML_IMAGE_RULES: ImageUploadRules = {
   maxSizeMB: 10,
@@ -69,6 +79,12 @@ export const BLOCK_IMAGE_RULE_HINTS: string[] = [
   '图片格式：仅支持 jpg / jpeg / png / webp（禁止 svg / gif / ico / bmp / tiff）',
   '图片名称：长度 ≤ 100 字符，禁止特殊字符',
   '图片尺寸：必须为 1920 × 800',
+];
+
+export const FAVICON_IMAGE_RULE_HINTS: string[] = [
+  '图片大小：≤ 1MB',
+  '图片格式：仅支持 jpg / jpeg / png（WebP 无法作为浏览器标签页图标，已禁止）',
+  '图片名称：长度 ≤ 100 字符，禁止特殊字符',
 ];
 
 export const DOCUMENT_RULE_HINTS: string[] = [

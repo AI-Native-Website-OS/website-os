@@ -1,31 +1,4 @@
-﻿# robots.txt for example.cn
-# AI 引擎爬虫放行，提升外部 AI 推荐可见度（GEO）
-
-User-agent: GPTBot
-Allow: /
-
-User-agent: OAI-SearchBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: Claude-SearchBot
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
+﻿# robots.txt
+# 部署后由后端 GeoSyncService 依据 SEO/GEO 配置（system_configs.seo_site_url 等）重新生成。
 User-agent: *
 Allow: /
-
-Sitemap: http://192.168.0.68:3200/sitemap.xml

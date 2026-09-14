@@ -13,6 +13,7 @@ export interface SiteOpenLink {
 export interface SiteConfig {
   siteName?: string;
   siteFullName?: string;
+  siteDescription?: string;
   copyright?: string;
   companyName?: string;
   contactPhone?: string;
@@ -37,6 +38,7 @@ export interface SiteConfig {
 const DEFAULT_SITE_CONFIG: SiteConfig = {
   siteName: '示例科技',
   siteFullName: '示例科技有限公司',
+  siteDescription: '',
   copyright: '示例科技有限公司 版权所有',
   companyName: '示例科技有限公司',
   contactPhone: '010-00000000',

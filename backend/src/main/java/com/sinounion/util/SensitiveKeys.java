@@ -10,7 +10,7 @@ import java.util.Set;
  *
  * 覆盖两类来源：
  *   1. system_configs 表中的 key（如 sms_access_key_secret）；
- *   2. 管理后台 env-configs 接口受管的环境变量（如 LLM_API_KEY、DB_PASSWORD、JWT_SECRET 等）。
+ *   2. 管理后台 env-configs 接口受管的环境变量（如 LLM_API_KEY、PG_PASSWORD、JWT_SECRET 等）。
  *
  * 敏感项遵循统一安全策略：GET 不回显明文（返回掩码占位）、传输用 RSA 加密、
  * 写入 system_configs 时用 AES 加密落盘、前端仅可覆盖修改不可回看旧值。
@@ -27,7 +27,7 @@ public final class SensitiveKeys {
         "sms_access_key_secret",
         "JWT_SECRET",
         "SPRING_DATASOURCE_PASSWORD",
-        "DB_PASSWORD",
+        "PG_PASSWORD",
         "SPRING_REDIS_PASSWORD",
         "REDIS_PASSWORD"
     ));

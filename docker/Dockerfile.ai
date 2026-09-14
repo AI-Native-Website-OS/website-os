@@ -1,0 +1,5 @@
+FROM sino-website-base:latest
+WORKDIR /app/AI_consultant
+EXPOSE 8000
+COPY AI_consultant/*.py /app/AI_consultant/
+CMD ["/app/AI_consultant/venv/bin/python", "/app/AI_consultant/run.py"]

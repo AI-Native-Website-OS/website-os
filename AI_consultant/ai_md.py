@@ -22,29 +22,51 @@ logger = logging.getLogger("ai_md")
 
 router = APIRouter()
 
-SITE_NAME = "圣诺联合"
-SITE_FULL_NAME = "河北圣诺联合科技有限公司"
-SITE_DESCRIPTION = (
-    "中国领先的企业数字基础设施服务商，专注于为政府、国企和企业客户提供智慧招采平台、"
-    "可信数据空间、分布式数据治理、区块链可信基础设施和AI智能体应用等数字化转型解决方案。"
-)
-SITE_URL = "https://www.example.cn"
 BASE_URL_CONFIG_KEY = "seo_site_url"
+SITE_BRAND_CONFIG_KEY = "site_brand"
 
 MD_CTX_HEADER = (
-    "> **站点**：{site} · {desc}\n\n"
+    "> **站点**：{site}{desc}\n\n"
     "> 本文是 {site} 官网页面的 Markdown 版本，与网页内容一致，供大语言模型直接阅读。\n\n"
 )
+
+
+# ── 站点身份（system_configs.site_brand，随 SEO/GEO 配置动态生效） ─────
+
+def _site_brand() -> dict:
+    """读取站点品牌配置（system_configs.site_brand JSON），失败或未配置返回空字典。"""
+    try:
+        with get_db() as db:
+            row = db.execute(
+                "SELECT config_value FROM system_configs WHERE config_key = :k",
+                {"k": SITE_BRAND_CONFIG_KEY},
+            ).fetchone()
+            if row and row[0] and str(row[0]).strip():
+                import json
+                parsed = json.loads(str(row[0]).strip())
+                if isinstance(parsed, dict):
+                    return parsed
+    except Exception as e:
+        logger.warning("Failed to read site_brand: %s", e)
+    return {}
+
+
+def _site_name() -> str:
+    return str(_site_brand().get("siteName") or "").strip()
+
+
+def _site_full_name() -> str:
+    return str(_site_brand().get("siteFullName") or "").strip()
+
+
+def _site_description() -> str:
+    return str(_site_brand().get("siteDescription") or "").strip()
 
 
 # ── llms.txt 读取（与 main.py 一致的探测路径） ─────────────────────
 
 def _read_llms_txt() -> str:
-    candidates = []
-    env_path = os.getenv("LLMS_TXT_PATH", "").strip()
-    if env_path:
-        candidates.append(env_path)
-    candidates += ["../frontend/dist/llms.txt", "../frontend/public/llms.txt"]
+    candidates = ["../frontend/dist/llms.txt", "../frontend/public/llms.txt"]
     for p in candidates:
         try:
             path = Path(p)
@@ -62,10 +84,10 @@ def _read_llms_txt() -> str:
 
 def _llms_ctx() -> str:
     """用 llms-txt 包解析 llms.txt，返回站点标题 + 摘要组成的上下文头；
-    包缺失或解析失败时退化为静态站点信息。"""
+    包缺失或解析失败时退化为站点配置信息。"""
     content = _read_llms_txt().strip()
-    title = SITE_FULL_NAME
-    desc = SITE_DESCRIPTION
+    title = _site_full_name() or _site_name()
+    desc = _site_description()
     if content:
         try:
             from llms_txt import parse_llms_file
@@ -77,8 +99,10 @@ def _llms_ctx() -> str:
                 # sections 是 dict[section_name -> list[Link]]，无 description 字段；
                 # 摘要取 blockquote 的首行（若 parse 未暴露，保留默认）。
         except Exception as e:
-            logger.warning("llms-txt parse failed, using static site info: %s", e)
-    return MD_CTX_HEADER.format(site=title, desc=desc)
+            logger.warning("llms-txt parse failed, using site config info: %s", e)
+    title = title or "本站"
+    desc_suffix = f" · {desc}" if desc else ""
+    return MD_CTX_HEADER.format(site=title, desc=desc_suffix)
 
 
 # ── 站点基址（与后端 SeoSyncService.currentBaseUrl 同源） ───────────
@@ -94,7 +118,7 @@ def _base_url() -> str:
                 return str(row[0]).strip()
     except Exception as e:
         logger.warning("Failed to read seo_site_url: %s", e)
-    return SITE_URL
+    return str(_site_brand().get("url") or "").strip()
 
 
 # ── HTML → Markdown ──────────────────────────────────────────────
@@ -181,12 +205,13 @@ def _render_home() -> str:
                       "WHERE page_type = 'home' AND enabled = 1 ORDER BY id LIMIT 1")
 
     sb = [_llms_ctx()]
-    title = (cfg[0] if cfg else None) or "企业数字基础设施服务商"
-    desc = (cfg[1] if cfg else None) or SITE_DESCRIPTION
+    full_name = _site_full_name() or _site_name()
+    desc = (cfg[1] if cfg else None) or _site_description()
     if cfg and cfg[2] and str(cfg[2]).strip():
         desc = str(cfg[2]).strip()
-    sb.append(f"# {SITE_FULL_NAME}\n")
-    sb.append(f"> {desc}\n")
+    sb.append(f"# {full_name or '官网'}\n")
+    if desc:
+        sb.append(f"> {desc}\n")
     _append_keywords(sb, cfg[3] if cfg else None)
     sb.append("\n## 核心业务\n")
     for m in modules:

@@ -30,15 +30,16 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class SeoSyncService {
 
-    public static final String SITE_URL = "https://www.example.cn";
+    public static final String SITE_URL = "https://example.com";
     public static final String BASE_URL_CONFIG_KEY = "seo_site_url";
 
     private final SeoConfigMapper seoConfigMapper;
     private final ContentItemMapper contentItemMapper;
     private final CoreModuleMapper coreModuleMapper;
     private final SystemConfigMapper systemConfigMapper;
+    private final SiteConfigService siteConfigService;
 
-    /** 当前站点基址：优先取 system_configs.seo_site_url（一键同步时由前端 origin 写入），否则用线上域名。 */
+    /** 当前站点基址：优先取 system_configs.seo_site_url（一键同步时由前端 origin 写入），否则用站点配置或中性默认域名。 */
     public String currentBaseUrl() {
         try {
             SystemConfig cfg = systemConfigMapper.findByKey(BASE_URL_CONFIG_KEY);
@@ -46,6 +47,10 @@ public class SeoSyncService {
                 return cfg.getConfigValue().trim();
             }
         } catch (Exception ignored) {
+        }
+        String configured = siteConfigService.getSiteUrl();
+        if (configured != null && !configured.trim().isEmpty()) {
+            return configured.trim();
         }
         return SITE_URL;
     }
@@ -153,9 +158,18 @@ public class SeoSyncService {
         String base = currentBaseUrl();
 
         List<String[]> staticPages = new ArrayList<>();
-        staticPages.add(new String[]{base + "/", "home", "企业数字基础设施服务商", "圣诺联合为中国政府、国企和企业客户提供智慧招采平台、可信数据空间、分布式数据治理、区块链可信基础设施和AI智能体应用等企业数字基础设施解决方案。"});
-        staticPages.add(new String[]{base + "/about", "about", "关于我们", "河北圣诺联合科技有限公司——企业数字基础设施服务商"});
-        staticPages.add(new String[]{base + "/faqs", "faq", "常见问题 - FAQ", "圣诺联合常见问题解答：了解产品功能、服务流程、技术支持和价格方案等常见问题。"});
+        String siteName = siteConfigService.getSiteName();
+        String fullName = siteConfigService.getFullName();
+        String siteDesc = siteConfigService.getSiteDescription();
+        String homeTitle = (siteName != null && !siteName.trim().isEmpty()) ? siteName.trim() : "首页";
+        String aboutTitle = "关于我们";
+        String faqTitle = "常见问题 - FAQ";
+        String homeDesc = (siteDesc != null && !siteDesc.trim().isEmpty()) ? siteDesc.trim() : "";
+        String aboutDesc = (fullName != null && !fullName.trim().isEmpty()) ? fullName.trim() : "";
+        String faqDesc = "常见问题解答：了解产品功能、服务流程、技术支持和价格方案等常见问题。";
+        staticPages.add(new String[]{base + "/", "home", homeTitle, homeDesc});
+        staticPages.add(new String[]{base + "/about", "about", aboutTitle, aboutDesc});
+        staticPages.add(new String[]{base + "/faqs", "faq", faqTitle, faqDesc});
         for (String[] e : staticPages) {
             SyncResult r = upsertStaticOrListPage(e[0], e[1], e[2], e[3]);
             created += r.created;

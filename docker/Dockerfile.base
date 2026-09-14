@@ -1,0 +1,24 @@
+FROM ubuntu:24.04                                                                                                                                                                                                                            
+ENV TZ=Asia/Shanghai
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN sed -i 's|//archive.ubuntu.com|//mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    sed -i 's|//security.ubuntu.com|//mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-8-jre-headless \
+    python3 python3-pip python3-venv \
+    libpq-dev \
+    supervisor \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN mkdir -p /app/backend /app/frontend /app/AI_consultant /app/uploads /app/memories /var/log
+
+COPY requirements.txt /tmp/requirements.txt
+RUN python3 -m venv /app/AI_consultant/venv && \
+    /app/AI_consultant/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    rm /tmp/requirements.txt

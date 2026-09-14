@@ -45,7 +45,7 @@ public class UploadController {
     @Value("${UPLOAD_PATH}")
     private String uploadPath;
 
-    @Value("${UPLOAD_ALLOWED_TYPES}")
+    @Value("${upload.allowed-types}")
     private String allowedTypesConfig;
 
     private String absoluteUploadPath;

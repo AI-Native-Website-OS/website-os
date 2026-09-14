@@ -1,6 +1,7 @@
 package com.sinounion.controller.admin;
 
 import com.sinounion.common.Result;
+import com.sinounion.service.SiteConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,8 +25,25 @@ public class AdminFileController {
     @Value("${APP_FRONTEND_PUBLIC_DIR}")
     private String frontendPublicDir;
 
-    @Value("${APP_FRONTEND_DIST_DIR:../frontend/dist}")
+    @Value("${app.frontend-dist-dir:../frontend/dist}")
     private String frontendDistDir;
+
+    private final SiteConfigService siteConfigService;
+
+    public AdminFileController(SiteConfigService siteConfigService) {
+        this.siteConfigService = siteConfigService;
+    }
+
+    private String llmsFallback() {
+        String fullName = siteConfigService.getFullName();
+        if (fullName == null || fullName.trim().isEmpty()) {
+            fullName = siteConfigService.getSiteName();
+        }
+        if (fullName == null || fullName.trim().isEmpty()) {
+            fullName = "官网";
+        }
+        return "# " + fullName.trim() + "\n";
+    }
 
     private Path resolvePath(String dirStr, String filename) {
         Path dir = Paths.get(dirStr);
@@ -39,7 +57,7 @@ public class AdminFileController {
     @GetMapping("/llms-txt")
     @PreAuthorize("hasAuthority('seo:view')")
     public Result<Map<String, String>> readLlmsTxt() {
-        return readFile("llms.txt", "# 河北圣诺联合科技有限公司\n");
+        return readFile("llms.txt", llmsFallback());
     }
 
     @Operation(summary = "保存 llms.txt")
@@ -53,7 +71,7 @@ public class AdminFileController {
     @GetMapping("/llms-full-txt")
     @PreAuthorize("hasAuthority('seo:view')")
     public Result<Map<String, String>> readLlmsFullTxt() {
-        return readFile("llms-full.txt", "# 河北圣诺联合科技有限公司\n");
+        return readFile("llms-full.txt", llmsFallback());
     }
 
     @Operation(summary = "保存 llms-full.txt")
@@ -67,7 +85,7 @@ public class AdminFileController {
     @GetMapping("/robots-txt")
     @PreAuthorize("hasAuthority('seo:view')")
     public Result<Map<String, String>> readRobotsTxt() {
-        return readFile("robots.txt", "# robots.txt for example.cn\n");
+        return readFile("robots.txt", "# robots.txt\n");
     }
 
     @Operation(summary = "保存 robots.txt")

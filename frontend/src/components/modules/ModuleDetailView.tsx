@@ -10,6 +10,7 @@ import {
 import api from '@/lib/api';
 import type { ContentItem, ContentRelations, CoreModule } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
+import { useSiteConfig } from '@/hooks/useSiteConfig';
 import SeoHead from '@/components/SeoHead';
 import Breadcrumb from '@/components/Breadcrumb';
 import FilePreview from '@/components/FilePreview';
@@ -20,7 +21,7 @@ import { BlockContent } from '@/components/BlockContent';
 import { parseContentSections, type SectionEntry } from '@/lib/blockData';
 import CrossRecommend from '@/components/CrossRecommend';
 import { getImageUrl, getFileUrl, formatDate, parseCoverScale } from '@/lib/utils';
-import { generateArticleSchema } from '@/lib/seo';
+import { generateArticleSchema, toSiteIdentity } from '@/lib/seo';
 import { detailUrl, nestedDetailUrl, listUrl, categoryUrl } from '@/lib/moduleConfig';
 import { loadModule } from '@/lib/moduleLoader';
 
@@ -65,6 +66,8 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
   const [showCta, setShowCta] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const { user } = useAuth();
+  const { siteConfig } = useSiteConfig();
+  const site = toSiteIdentity(siteConfig);
   const router = useRouter();
 
   useEffect(() => {
@@ -129,7 +132,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
 
   useEffect(() => {
     if (item) {
-      document.title = `${item.title} - 圣诺联合`;
+      document.title = site.name ? `${item.title} - ${site.name}` : item.title;
     }
   }, [item]);
 
@@ -194,7 +197,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
             title: item.title, description: item.summary || '', content: item.content || '',
             image: getImageUrl(item.coverImage), slug: item.slug, author: item.author || '',
             publishedAt: item.publishedAt ?? '', category: categoryName,
-          }),
+          }, site),
         ]}
       />
       <div className="bg-white min-h-screen">

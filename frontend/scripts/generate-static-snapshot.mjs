@@ -1,17 +1,51 @@
 #!/usr/bin/env node
 // 生成静态构建兜底快照 src/lib/static-snapshot.json
 // 用法：在可访问后端 API 的机器上执行 `npm run snapshot`
-//   API_BASE_URL=http://<backend-host>:8080 npm run snapshot
+//   后端地址由 .env 的 BACKEND_HOST / BACKEND_PORT 派生（默认 http://localhost:8080）
 // 生成结果需提交到仓库，供无法访问后端的构建环境（如测试 Jenkins）在构建期使用。
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = resolve(__dirname, '../src/lib/static-snapshot.json');
 
+// 加载根目录 .env（与 scripts/next.js 保持一致），使 BACKEND_HOST/BACKEND_PORT 真正生效；
+// 已存在的 OS 环境变量优先，不覆盖。
+function loadRootEnv() {
+  const candidates = [resolve(__dirname, '../../.env'), '/app/.env'];
+  for (const p of candidates) {
+    let text;
+    try {
+      text = readFileSync(p, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      const s = line.trim();
+      if (!s || s.startsWith('#')) continue;
+      const i = s.indexOf('=');
+      if (i <= 0) continue;
+      const k = s.slice(0, i).trim();
+      const v = s.slice(i + 1).trim();
+      if (!(k in process.env)) process.env[k] = v;
+    }
+    return;
+  }
+}
+
+loadRootEnv();
+
+// 出站连接目标地址：0.0.0.0 / :: 表示“监听所有网卡”，作为连接地址时需归一化为本机回环地址。
+function connectHost(host) {
+  const h = String(host || '').trim();
+  if (!h || h === '0.0.0.0' || h === '::' || h === '[::]') return '127.0.0.1';
+  return h;
+}
+
 function buildApiUrl(path) {
-  let base = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:8080';
+  // 后端地址固定由根 .env 的 BACKEND_HOST/BACKEND_PORT 派生
+  let base = `http://${connectHost(process.env.BACKEND_HOST)}:${process.env.BACKEND_PORT || '8080'}`;
   base = base.replace(/\/+$/, '');
   if (!base.endsWith('/api')) { base += '/api'; }
   return `${base}${path}`;

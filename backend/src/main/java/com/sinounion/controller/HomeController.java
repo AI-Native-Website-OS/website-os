@@ -78,4 +78,22 @@ public class HomeController {
     public Result<Map<String, Object>> getSiteConfig() {
         return Result.success(siteConfigService.getSiteConfig());
     }
+
+    @Operation(summary = "获取全局主题配置（深浅色模式与主题色）")
+    @GetMapping("/theme")
+    public Result<Map<String, Object>> getThemeConfig() {
+        Map<String, Object> theme = new HashMap<>();
+        SystemConfig mode = systemConfigMapper.findByKey("theme_mode");
+        String themeMode = mode != null && StringUtils.hasText(mode.getConfigValue())
+                ? mode.getConfigValue().trim() : "light";
+        if (!"dark".equals(themeMode) && !"auto".equals(themeMode)) {
+            themeMode = "light";
+        }
+        SystemConfig color = systemConfigMapper.findByKey("site_primary_color");
+        String primaryColor = color != null && StringUtils.hasText(color.getConfigValue())
+                ? color.getConfigValue().trim() : "#000000";
+        theme.put("themeMode", themeMode);
+        theme.put("primaryColor", primaryColor);
+        return Result.success(theme);
+    }
 }

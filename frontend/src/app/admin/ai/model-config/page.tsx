@@ -316,7 +316,10 @@ export default function AdminModelConfigPage() {
       const res: any = await aiService.modelConfig.test(modelType);
       setTestResult(res);
     } catch (e: any) {
-      setTestResult({ model_type: modelType, success: false, message: e?.message || t('admin.ui.modelConfig.testFail'), latency_ms: 0 });
+      // 透出服务端/代理返回的真实错误（如 401 detail、上游 HTTP 503 等），避免只显示无信息量的“请求失败”
+      const raw = typeof e === 'string' ? e : (e?.message || e?.detail || e?.error?.message || e?.error || '');
+      const detail = String(raw).replace(/\s+/g, ' ').trim().slice(0, 300);
+      setTestResult({ model_type: modelType, success: false, message: detail || t('admin.ui.modelConfig.testFail'), latency_ms: 0 });
     } finally {
       setTesting(null);
     }

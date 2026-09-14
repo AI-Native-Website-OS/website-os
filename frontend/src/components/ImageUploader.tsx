@@ -17,9 +17,10 @@ interface ImageUploaderProps {
   size?: 'md' | 'sm';
   objectFit?: 'cover' | 'contain';
   rules?: ImageUploadRules;
+  fallbackSrc?: string;
 }
 
-export default function ImageUploader({ value, file, onFileSelect, onChange, autoUpload, uploadType, subPath, size = 'md', objectFit = 'cover', rules }: ImageUploaderProps) {
+export default function ImageUploader({ value, file, onFileSelect, onChange, autoUpload, uploadType, subPath, size = 'md', objectFit = 'cover', rules, fallbackSrc }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [uploading, setUploading] = useState(false);
@@ -44,7 +45,10 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
       form.append('file', f);
       form.append('type', ut);
       if (subPath) form.append('subPath', subPath);
-      if (rules) form.append('validate', rules.exactSize?.height === 1080 ? 'cover' : 'image');
+      if (rules) {
+        const size = rules.exactSize;
+        form.append('validate', size ? (size.height === 1080 ? 'cover' : 'image') : 'image-any');
+      }
       const res: any = await api.post('/upload', form);
       if (res.code === 200) {
         onChange?.(res.data?.url || res.url);
@@ -87,12 +91,13 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
   };
 
   const displaySrc = previewUrl || (value ? getImageUrl(value) : '');
+  const showFallback = !displaySrc && !!fallbackSrc;
 
   return (
     <div>
-      {displaySrc ? (
+      {displaySrc || showFallback ? (
         <div className="relative group inline-block">
-          <img src={displaySrc} alt="封面预览" className={`${dim} ${fit} rounded-md border border-gray-200`} />
+          <img src={displaySrc || fallbackSrc} alt="封面预览" className={`${dim} ${fit} rounded-md border border-gray-200`} />
           {file && (
             <div className="absolute top-1 left-1 flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">
               <Clock className="w-3 h-3" />待上传
@@ -102,9 +107,11 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
             <button type="button" onClick={() => inputRef.current?.click()} className="p-1 bg-white rounded-full text-gray-700 hover:text-black">
               <Upload className="w-4 h-4" />
             </button>
-            <button type="button" onClick={handleRemove} className="p-1 bg-white rounded-full text-gray-700 hover:text-red-600">
-              <X className="w-4 h-4" />
-            </button>
+            {!showFallback && (
+              <button type="button" onClick={handleRemove} className="p-1 bg-white rounded-full text-gray-700 hover:text-red-600">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       ) : (

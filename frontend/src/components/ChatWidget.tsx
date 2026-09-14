@@ -240,7 +240,7 @@ export default function ChatWidget() {
     setSessionId(sid);
     setVisitorId(vid);
     
-    const fallback = '您好！我是圣诺联合的AI智能顾问，请问有什么可以帮助您的？';
+    const fallback = '您好！我是本站的AI智能顾问，请问有什么可以帮助您的？';
     setMessages([{ role: 'assistant', content: fallback, timestamp: new Date() }]);
 
     aiService.config.get().then((cfg: any) => {
@@ -405,7 +405,7 @@ export default function ChatWidget() {
             <span className="text-sm font-medium">AI智能顾问</span>
           </div>
           <h2 className="text-3xl md:text-4xl font-semibold text-black mb-3">与AI对话，获取专业建议</h2>
-          <p className="text-gray-500">围绕智慧招采、可信数据空间、数据治理、区块链、AI落地提出问题</p>
+          <p className="text-gray-500">可以围绕本站产品、解决方案与业务场景提出问题</p>
         </motion.div>
 
         {/* Chat Container */}

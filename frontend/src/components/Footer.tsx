@@ -83,7 +83,8 @@ export default function Footer() {
   }, []);
 
   const year = new Date().getFullYear();
-  const companyName = footer?.extra?.find((it) => it.label === '公司名称')?.value || '圣诺联合';
+  const companyName = footer?.extra?.find((it) => it.label === '公司名称')?.value
+    || siteConfig.companyName || siteConfig.siteFullName || siteConfig.siteName || '';
 
   const contactItems: { label: string; value: string }[] = (footer?.extra || [])
     .filter((it) => it.value && it.value.trim())

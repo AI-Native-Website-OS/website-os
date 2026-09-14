@@ -45,28 +45,28 @@ public class AdminUserController {
 
     @Operation(summary = "创建用户")
     @PostMapping
-    @PreAuthorize("hasAuthority('user:create')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<UserVO> create(@Valid @RequestBody CreateUserDTO dto) {
         return Result.success(userService.createUser(dto));
     }
 
     @Operation(summary = "更新用户")
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('user:update')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<UserVO> update(@PathVariable Long id, @Valid @RequestBody UpdateUserDTO dto) {
         return Result.success(userService.updateUser(id, dto));
     }
 
     @Operation(summary = "切换用户状态")
     @PutMapping("/{id}/toggle-status")
-    @PreAuthorize("hasAuthority('user:update')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<UserVO> toggleStatus(@PathVariable Long id) {
         return Result.success(userService.toggleStatus(id));
     }
 
     @Operation(summary = "删除用户")
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('user:delete')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<Void> delete(@PathVariable Long id) {
         userService.deleteUser(id);
         return Result.success(null);
@@ -74,7 +74,7 @@ public class AdminUserController {
 
     @Operation(summary = "重置密码")
     @PostMapping("/{id}/reset-password")
-    @PreAuthorize("hasAuthority('user:update')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<Void> resetPassword(@PathVariable Long id, @RequestBody Map<String, String> body) {
         userService.resetPassword(id, body.get("password"));
         return Result.success(null);

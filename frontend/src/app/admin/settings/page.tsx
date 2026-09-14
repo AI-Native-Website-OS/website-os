@@ -7,6 +7,7 @@ import ImageUploader from '@/components/ImageUploader';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { SiteOpenLink } from '@/hooks/useSiteConfig';
 import { OPEN_ICON_OPTIONS, OPEN_ICON_MAP } from '@/lib/openSourceIcons';
+import { FAVICON_IMAGE_RULES } from '@/lib/uploadRules';
 import { encryptSecret, SECRET_MASK } from '@/lib/secretCrypto';
 import {
   Palette, Check, Search, Sun, Moon,
@@ -249,21 +250,6 @@ function SectionCard({ title, description, icon: Icon, defaultOpen = true, child
 }
 
 
-function getInitialTheme(): 'light' | 'dark' | 'auto' {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('site_theme_mode');
-    if (saved === 'dark' || saved === 'light' || saved === 'auto') return saved;
-  }
-  return 'light';
-}
-
-function getInitialColor(): string {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('site_primary_color') || '#000000';
-  }
-  return '#000000';
-}
-
 function applyBrandConfig(
   configValue: string,
   setBrand: React.Dispatch<React.SetStateAction<Record<string, any>>>,
@@ -304,9 +290,9 @@ export default function AdminSettings() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [primaryColor, setPrimaryColor] = useState(getInitialColor);
+  const [primaryColor, setPrimaryColor] = useState('#000000');
 
-  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'auto'>(getInitialTheme);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'auto'>('light');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
 
@@ -314,13 +300,15 @@ export default function AdminSettings() {
   const [aiGuestDailyLimit, setAiGuestDailyLimit] = useState(5);
 
   const [brand, setBrand] = useState<Record<string, any>>({
-    siteName: '示例科技',
-    siteFullName: '示例科技有限公司',
+    siteName: '',
+    siteFullName: '',
+    siteDescription: '',
     companyName: '示例科技有限公司',
     copyright: '示例科技有限公司 版权所有',
     contactPhone: '010-00000000',
     contactEmail: 'demo@example.com',
     icpNumber: 'ICP备案号待配置',
+    url: '',
     logo: '/logo.png',
     favicon: '/logo-lable.png',
     openLinks: [
@@ -347,7 +335,6 @@ export default function AdminSettings() {
 
   const applyTheme = (color: string) => {
     document.documentElement.style.setProperty('--primary-color', color);
-    localStorage.setItem('site_primary_color', color);
   };
 
 
@@ -355,7 +342,7 @@ export default function AdminSettings() {
   useEffect(() => {
     adminApi.systemConfigs.list().then((res) => {
       const configs: SystemConfig[] = res?.data || [];
-      let color = localStorage.getItem('site_primary_color') || '#000000';
+      let color = '#000000';
       configs.forEach((c: SystemConfig) => {
         if (c.configKey === 'site_primary_color') { color = c.configValue; return; }
         if (c.configKey === 'site_brand') {
@@ -388,7 +375,6 @@ export default function AdminSettings() {
   useEffect(() => {
     const apply = (isDark: boolean) => {
       document.documentElement.classList.toggle('dark', isDark);
-      localStorage.setItem('site_theme_mode', themeMode);
     };
     if (themeMode === 'dark') {
       apply(true);
@@ -472,10 +458,32 @@ export default function AdminSettings() {
         uploadType="image"
         size="sm"
         objectFit="contain"
+        rules={FAVICON_IMAGE_RULES}
         onChange={(url) => setBrand((p) => ({ ...p, favicon: url }))}
       />
     </div>
   ), [brand.favicon]);
+
+  const renderBrandSiteName = useCallback(() => (
+    <Input value={brand.siteName || ''} onChange={(v) => setBrand((p) => ({ ...p, siteName: v }))} />
+  ), [brand.siteName]);
+
+  const renderBrandSiteFullName = useCallback(() => (
+    <Input value={brand.siteFullName || ''} onChange={(v) => setBrand((p) => ({ ...p, siteFullName: v }))} />
+  ), [brand.siteFullName]);
+
+  const renderBrandSiteDescription = useCallback(() => (
+    <textarea
+      rows={3}
+      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+      value={brand.siteDescription || ''}
+      onChange={(e) => setBrand((p) => ({ ...p, siteDescription: e.target.value }))}
+    />
+  ), [brand.siteDescription]);
+
+  const renderBrandSiteUrl = useCallback(() => (
+    <Input value={brand.url || ''} onChange={(v) => setBrand((p) => ({ ...p, url: v }))} />
+  ), [brand.url]);
 
   const renderOpenLinks = useCallback(() => (
     <OpenLinksManager
@@ -538,6 +546,26 @@ export default function AdminSettings() {
       icon: Globe,
       defaultOpen: true,
       items: [
+        {
+          key: 'site_name', label: t('admin.ui.settings.brandSiteName'), icon: Globe,
+          description: t('admin.ui.settings.brandSiteNameDesc'),
+          render: renderBrandSiteName,
+        },
+        {
+          key: 'site_full_name', label: t('admin.ui.settings.brandSiteFullName'), icon: Globe,
+          description: t('admin.ui.settings.brandSiteFullNameDesc'),
+          render: renderBrandSiteFullName,
+        },
+        {
+          key: 'site_description', label: t('admin.ui.settings.brandSiteDescription'), icon: Globe,
+          description: t('admin.ui.settings.brandSiteDescriptionDesc'),
+          render: renderBrandSiteDescription,
+        },
+        {
+          key: 'site_url', label: t('admin.ui.settings.brandSiteUrl'), icon: Globe,
+          description: t('admin.ui.settings.brandSiteUrlDesc'),
+          render: renderBrandSiteUrl,
+        },
         {
           key: 'site_logo', label: t('admin.ui.settings.brandLogo'), icon: Globe,
           description: t('admin.ui.settings.brandLogoDesc'),

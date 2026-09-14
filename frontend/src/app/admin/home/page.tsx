@@ -83,7 +83,7 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.policeIcon')}</label>
-            <ImageUploader value={config.policeIcon} onChange={(url) => set({ policeIcon: url })} autoUpload uploadType="image" subPath="footer" size="sm" objectFit="contain" />
+            <ImageUploader value={config.policeIcon} onChange={(url) => set({ policeIcon: url })} autoUpload uploadType="image" subPath="footer" size="sm" objectFit="contain" fallbackSrc="/police.png" />
           </div>
           <div className="grid gap-4">
             <div>

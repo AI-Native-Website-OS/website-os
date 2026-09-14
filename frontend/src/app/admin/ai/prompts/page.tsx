@@ -76,7 +76,7 @@ export default function AdminAiPrompts() {
 
       {tab === 'system_prompt' && (
         <div>
-          <p className="text-sm text-gray-500 mb-3">{t('admin.ui.prompts.systemDescPrefix')} <code className="bg-gray-100 px-1 rounded">.env</code> {t('admin.ui.prompts.systemDescSuffix')}</p>
+          <p className="text-sm text-gray-500 mb-3">{t('admin.ui.prompts.systemDescPrefix')}</p>
           <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)}
             className="w-full h-64 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none"
             placeholder={t('admin.ui.prompts.systemPlaceholder')} />

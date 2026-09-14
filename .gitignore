@@ -10,8 +10,8 @@ AI_consultant/*.log
 # ─── Frontend ───
 frontend/node_modules/
 frontend/.next/
-frontend/dist
-frontend/public
+frontend/dist/
+frontend/public/
 frontend/next-env.d.ts
 frontend/tsconfig.tsbuildinfo
 frontend/*.log
@@ -28,6 +28,17 @@ AI_consultant/__pycache__/
 AI_consultant/*.pyc
 AI_consultant/.pytest_cache/
 AI_consultant/memories/
+
+# ─── 测试产物（构建/测试产生，一律不保留、不纳入版本库）───
+**/coverage/
+**/test-results/
+**/playwright-report/
+**/blob-report/
+**/.vitest/
+**/.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/surefire-reports/
 
 # ─── 用户上传文件 ───
 uploads/

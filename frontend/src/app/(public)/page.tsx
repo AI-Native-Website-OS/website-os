@@ -42,9 +42,10 @@ import SeoHead from '@/components/SeoHead';
 
 import ParticleBackground from '@/components/ParticleBackground';
 
-import { generateSoftwareApplicationSchema } from '@/lib/seo';
+import { generateSoftwareApplicationSchema, toSiteIdentity } from '@/lib/seo';
 
 import { useAuth } from '@/hooks/useAuth';
+import { useSiteConfig } from '@/hooks/useSiteConfig';
 
 import Markdown from '@/components/Markdown';
 
@@ -218,6 +219,26 @@ const buildRequirementText = (mode: string): string => {
   return '案例咨询（AI对话提交）';
 };
 
+// 打字机效果：流式/一次性拿到全文时都按固定节奏逐字显示，保证可见的逐字输出。
+function TypewriterMarkdown({ content, streaming, onTick }: { content: string; streaming: boolean; onTick?: () => void }) {
+  const [shown, setShown] = useState<number>(() => (streaming ? 0 : content.length));
+  const onTickRef = useRef(onTick);
+  onTickRef.current = onTick;
+  useEffect(() => {
+    if (!streaming) {
+      setShown(content.length);
+      return;
+    }
+    if (shown >= content.length) return;
+    const timer = setTimeout(() => {
+      setShown(prev => Math.min(content.length, prev + 4));
+      onTickRef.current?.();
+    }, 20);
+    return () => clearTimeout(timer);
+  }, [streaming, shown, content]);
+  return <Markdown content={content.slice(0, shown)} />;
+}
+
 interface ChatStreamContext {
   user: any;
   aiLimits: { userLimit: number; guestLimit: number };
@@ -368,6 +389,9 @@ export default function HomePage() {
 
   const { user } = useAuth();
 
+  const { siteConfig } = useSiteConfig();
+  const site = toSiteIdentity(siteConfig);
+
   const { t } = useI18n();
 
   const router = useRouter();
@@ -430,6 +454,11 @@ export default function HomePage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollChatToBottom = () => {
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1081,17 +1110,17 @@ export default function HomePage() {
   return (
     <>
       <SeoHead
-        title="企业数字基础设施服务商"
-        description="圣诺联合为中国政府、国企和企业客户提供智慧招采平台、可信数据空间、分布式数据治理、区块链可信基础设施和AI智能体应用等企业数字基础设施解决方案。"
-        keywords="企业数字化,数字基础设施,智慧招采,可信数据空间,区块链,AI智能体,数据治理"
+        title={site.name || '首页'}
+        description={site.description || ''}
+        keywords=""
         path="/"
-        additionalSchemas={[
+        additionalSchemas={site.name ? [
           generateSoftwareApplicationSchema({
-            name: '圣诺联合企业数字基础设施平台',
-            description: '一站式企业数字基础设施解决方案',
+            name: site.name,
+            description: site.description || '',
             category: 'BusinessApplication',
-          }),
-        ]}
+          }, site),
+        ] : []}
       />
       {/* ===== Screen 1: Hero + AI顾问 (OpenAI-style) ===== */}
 
@@ -1190,7 +1219,11 @@ export default function HomePage() {
                           ))}
                         </div>
                       ) : (
-                        <Markdown content={message.content} />
+                        <TypewriterMarkdown
+                          content={message.content}
+                          streaming={chatLoading && index === messages.length - 1 && message.role === 'assistant'}
+                          onTick={scrollChatToBottom}
+                        />
                       )}
 
                       {message.role === 'assistant' && message.stopped && (
@@ -1446,7 +1479,7 @@ export default function HomePage() {
 
             <p className="text-gray-500 mb-8 max-w-xl mx-auto text-lg">
 
-              让圣诺为您设计一套可落地的数字化升级方案
+              让我们为您设计一套可落地的数字化升级方案
 
             </p>
 

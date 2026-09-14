@@ -42,30 +42,20 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class GeoSyncService {
 
-    public static final String SITE_NAME = "圣诺联合";
-    public static final String SITE_FULL_NAME = "河北圣诺联合科技有限公司";
-    public static final String SITE_DESCRIPTION =
-            "中国领先的企业数字基础设施服务商，专注于为政府、国企和企业客户提供智慧招采平台、可信数据空间、分布式数据治理、区块链可信基础设施和AI智能体应用等数字化转型解决方案。";
-
     public static final String LLMS_INTRO_KEY = "geo_llms_intro";
     public static final String LLMS_APPEND_KEY = "geo_llms_append";
-
-    private static final String DEFAULT_LLMS_INTRO =
-            "站点关键信息：\n" +
-            "- 圣诺联合是一家专注于智慧招标采购、人工智能、可信数据空间和区块链技术的科技企业，为政府、国企和企业客户提供数字化解决方案。\n" +
-            "- 核心业务包括智慧招标采购、AI 招标文件分析、AI 投标文件分析、辅助评标、可信数据空间和相关数字化服务。\n" +
-            "- 主要服务政府、企业及招标采购相关业务场景，重点提供招标文件编制、投标文件分析、辅助评标等 AI 能力。";
 
     private final SeoConfigMapper seoConfigMapper;
     private final CoreModuleMapper coreModuleMapper;
     private final SeoFaqMapper seoFaqMapper;
     private final SystemConfigMapper systemConfigMapper;
     private final SeoSyncService seoSyncService;
+    private final SiteConfigService siteConfigService;
 
     @Value("${APP_FRONTEND_PUBLIC_DIR}")
     private String frontendPublicDir;
 
-    @Value("${APP_FRONTEND_DIST_DIR:../frontend/dist}")
+    @Value("${app.frontend-dist-dir:../frontend/dist}")
     private String frontendDistDir;
 
     public static class GeoFilesContent {
@@ -206,11 +196,21 @@ public class GeoSyncService {
 
         StringBuilder sb = new StringBuilder();
         // H1：站点/公司全称（唯一必需元素）
-        sb.append("# ").append(SITE_FULL_NAME).append("\n\n");
-        // Blockquote：核心摘要
-        sb.append("> ").append(SITE_DESCRIPTION).append("\n\n");
+        String fullName = siteConfigService.getFullName();
+        if (fullName == null || fullName.trim().isEmpty()) {
+            fullName = siteConfigService.getSiteName();
+        }
+        if (fullName == null || fullName.trim().isEmpty()) {
+            fullName = "官网";
+        }
+        sb.append("# ").append(fullName).append("\n\n");
+        // Blockquote：核心摘要（站点描述，由站点配置提供，可配置）
+        String description = siteConfigService.getSiteDescription();
+        if (description != null && !description.trim().isEmpty()) {
+            sb.append("> ").append(description.trim()).append("\n\n");
+        }
         // H1 与 Table of Contents 之间的自由 Markdown：站点要点列表（可配置覆盖）
-        String intro = getSystemConfig(LLMS_INTRO_KEY, DEFAULT_LLMS_INTRO);
+        String intro = getSystemConfig(LLMS_INTRO_KEY, defaultLlmsIntro());
         if (intro != null && !intro.trim().isEmpty()) {
             sb.append(intro.trim()).append("\n\n");
         }
@@ -299,6 +299,21 @@ public class GeoSyncService {
         } catch (Exception ignored) {
         }
         return defaultValue;
+    }
+
+    /** 默认站点要点：基于站点配置动态组装；未配置站点描述时退化为中性文本。 */
+    private String defaultLlmsIntro() {
+        String fullName = siteConfigService.getFullName();
+        if (fullName == null || fullName.trim().isEmpty()) {
+            fullName = siteConfigService.getSiteName();
+        }
+        String desc = siteConfigService.getSiteDescription();
+        if (desc != null && !desc.trim().isEmpty()) {
+            return "站点关键信息：\n- " + fullName.trim() + "：" + desc.trim();
+        }
+        return "站点关键信息：\n- " + (fullName == null || fullName.trim().isEmpty()
+                ? "本站"
+                : fullName.trim()) + "。具体栏目与页面详见下方目录。";
     }
 
     /** 加载某 SEO 配置对应的 FAQ：优先按 page_type+page_id，page_type 为空时退化为按 page_id 匹配。 */
@@ -404,7 +419,7 @@ public class GeoSyncService {
 
     private String buildRobotsTxt() {
         StringBuilder sb = new StringBuilder();
-        sb.append("# robots.txt for example.cn\n");
+        sb.append("# robots.txt\n");
         sb.append("# AI 引擎爬虫放行，提升外部 AI 推荐可见度（GEO）\n\n");
         sb.append("User-agent: GPTBot\nAllow: /\n\n");
         sb.append("User-agent: OAI-SearchBot\nAllow: /\n\n");

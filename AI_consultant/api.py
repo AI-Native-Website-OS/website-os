@@ -6,7 +6,6 @@ import threading
 import time as _time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path as _EnvPath
 from typing import Optional, List, Dict
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -65,7 +64,7 @@ from schemas import (
 )
 from db import get_db
 from models import AiPromptConfig
-from knowledge import KnowledgeEngine, EmbeddingClient, RerankerClient, extract_text_from_file
+from knowledge import KnowledgeEngine, EmbeddingClient, RerankerClient, extract_text_from_file, read_local_temp_media
 from forbidden_detector import get_detector, ForbiddenDetector
 from rate_limit import get_rate_limiter
 from auth import authenticate, requires_auth
@@ -125,21 +124,29 @@ def get_engine() -> ChatGPT:
 
 # ── Chat ──────────────────────────────────────────────────────────
 
-def _extract_file_attachment(att: dict, req: ChatRequest) -> dict:
+def _extract_file_attachment(att: dict, req: ChatRequest, upload_path: str = "") -> dict:
     name = att.get("name") or "file.bin"
     try:
         import base64 as _b64
-        raw = _b64.b64decode(att["base64"])
-        text = extract_text_from_file(raw, name)
-        if text:
-            req.user_input = (req.user_input or "") + f"\n\n以下是我上传的文件 {name} 的内容：\n```\n{text}\n```"
+        raw = None
+        if att.get("base64"):
+            raw = _b64.b64decode(att["base64"])
+        else:
+            # 无内联 base64 时，显式从 UPLOAD_PATH/temp 读取本地附件
+            ref = att.get("url") or att.get("file_path") or att.get("path") or ""
+            if ref:
+                raw = read_local_temp_media(ref, upload_path)
+        if raw is not None:
+            text = extract_text_from_file(raw, name)
+            if text:
+                req.user_input = (req.user_input or "") + f"\n\n以下是我上传的文件 {name} 的内容：\n```\n{text}\n```"
     except Exception as e:
         logger.warning("Attachment parse failed %s: %s", name, e)
     stripped = dict(att)
     stripped.pop("base64", None)
     return stripped
 
-def _merge_attachments(req: ChatRequest) -> List[Dict]:
+def _merge_attachments(req: ChatRequest, upload_path: str = "") -> List[Dict]:
     """解析附件中的文件内容并注入用户输入；返回移除 base64 后的附件列表（用于存储）"""
     if not req.attachments:
         return []
@@ -147,11 +154,34 @@ def _merge_attachments(req: ChatRequest) -> List[Dict]:
     for att in req.attachments:
         if not isinstance(att, dict):
             cleaned.append(att)
-        elif att.get("type") == "file" and att.get("base64"):
-            cleaned.append(_extract_file_attachment(att, req))
+        elif att.get("type") == "file" and (
+            att.get("base64") or att.get("url") or att.get("file_path") or att.get("path")
+        ):
+            cleaned.append(_extract_file_attachment(att, req, upload_path))
         else:
             cleaned.append(att)
     return cleaned
+
+def _resolve_chat_images(images: List[str], upload_path: str) -> List[str]:
+    """把 /uploads/temp/... 等本地引用解析为 base64 data URL；其余（data:/http(s): 等）保持原样。"""
+    if not images:
+        return images
+    import base64 as _b64
+    import mimetypes
+    resolved: List[str] = []
+    for img in images:
+        ref = str(img)
+        if ref.startswith("data:"):
+            resolved.append(img)
+            continue
+        data = read_local_temp_media(ref, upload_path)
+        if data is None:
+            resolved.append(img)
+            continue
+        ext = os.path.splitext(ref.split("?")[0])[1].lower() or ".jpg"
+        mime = mimetypes.guess_type("x" + ext)[0] or "image/jpeg"
+        resolved.append("data:" + mime + ";base64," + _b64.b64encode(data).decode("ascii"))
+    return resolved
 
 def _limit_stream(reason, message):
     yield f"data: {json.dumps({'type': 'limit', 'reason': reason, 'message': message, 'remaining': 0}, ensure_ascii=False)}\n\n"
@@ -224,7 +254,10 @@ def _prepare_session(eng, req) -> Optional[str]:
         return eng.current_session().session_id if eng.current_session() else None
 
 def _stream_chat_response(eng, req):
-    attachments = _merge_attachments(req)
+    upload_path = getattr(eng.config, "upload_path", "")
+    attachments = _merge_attachments(req, upload_path)
+    if req.images:
+        req.images = _resolve_chat_images(req.images, upload_path)
     sid = _prepare_session(eng, req)
     sync_q: "q.Queue" = q.Queue()
     stop_evt = threading.Event()
@@ -379,32 +412,10 @@ def update_config(req: ConfigUpdateRequest):
 
 # ── Prompt Config ─────────────────────────────────────────────────
 
-_ENV_FILE = _EnvPath(__file__).resolve().parent.parent / ".env"
-
-def _update_env_file(key: str, value: str):
-    """更新 .env 文件中指定 key 的值，若 key 不存在则追加"""
-    env_path = _ENV_FILE
-    if not env_path.exists():
-        env_path.write_text(f"{key}={value}\n", encoding="utf-8")
-        return
-    lines = env_path.read_text(encoding="utf-8").splitlines()
-    found = False
-    new_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(f"{key}=") or stripped.startswith(f"# {key}="):
-            new_lines.append(f"{key}={value}")
-            found = True
-        else:
-            new_lines.append(line)
-    if not found:
-        new_lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-
 
 @router.get("/prompt-config", response_model=PromptConfigOut)
 def get_prompt_config():
-    sys_prompt = os.getenv("AI_SYSTEM_PROMPT", "")
+    sys_prompt = ""
     suggestions = []
     banned = []
     threshold = 0.82
@@ -413,11 +424,13 @@ def get_prompt_config():
     with get_db() as db:
         rows = db.execute(
             select(AiPromptConfig).where(
-                AiPromptConfig.type.in_(["suggestion", "banned_word", "banned_threshold", "welcome_message", "input_placeholder"])
+                AiPromptConfig.type.in_(["system_prompt", "suggestion", "banned_word", "banned_threshold", "welcome_message", "input_placeholder"])
             ).order_by(AiPromptConfig.type, AiPromptConfig.sort_order)
         ).scalars().all()
         for r in rows:
-            if r.type == "suggestion":
+            if r.type == "system_prompt":
+                sys_prompt = r.content or ""
+            elif r.type == "suggestion":
                 suggestions.append(r.content)
             elif r.type == "banned_word":
                 banned.append(r.content)
@@ -442,15 +455,13 @@ def get_prompt_config():
 
 @router.post("/prompt-config", response_model=StatusOut)
 def save_prompt_config(req: PromptConfigSaveRequest):
-    # 系统提示词持久化到 .env 文件 + 环境变量
-    if req.system_prompt:
-        os.environ["AI_SYSTEM_PROMPT"] = req.system_prompt
-        _update_env_file("AI_SYSTEM_PROMPT", req.system_prompt)
-    # 推荐话术、违禁词和禁答阈值存数据库
+    # 系统提示词、推荐话术、违禁词、禁答阈值、UI 文案统一持久化到 ai_prompt_config 表
     with get_db() as db:
         db.execute(sa_delete(AiPromptConfig).where(
-            AiPromptConfig.type.in_(["suggestion", "banned_word", "banned_threshold", "welcome_message", "input_placeholder"])
+            AiPromptConfig.type.in_(["system_prompt", "suggestion", "banned_word", "banned_threshold", "welcome_message", "input_placeholder"])
         ))
+        if req.system_prompt and req.system_prompt.strip():
+            db.add(AiPromptConfig(type="system_prompt", content=req.system_prompt.strip(), sort_order=0))
         for i, s in enumerate(req.suggestions):
             if s.strip():
                 db.add(AiPromptConfig(type="suggestion", content=s.strip(), sort_order=i))
@@ -1029,7 +1040,7 @@ def reembed_knowledge(kb_id: Optional[int] = Query(None)):
 
 # ── SEO/GEO 内容生成 ──────────────────────────────────────────────
 
-SEO_GENERATE_SYSTEM_PROMPT = """你是一位资深的中文 SEO 与 GEO/AEO 优化专家，服务对象是「圣诺联合」（河北圣诺联合科技有限公司），一家企业数字基础设施服务商（智慧招采平台、可信数据空间、分布式数据治理、区块链可信基础设施、AI智能体应用）。
+SEO_GENERATE_SYSTEM_PROMPT = """你是一位资深的中文 SEO 与 GEO/AEO 优化专家，服务对象是{subject}。
 
 请根据给定的单个页面信息，为该页面生成一套 SEO 与 GEO 内容。要求：
 
@@ -1051,6 +1062,33 @@ SEO_GENERATE_SYSTEM_PROMPT = """你是一位资深的中文 SEO 与 GEO/AEO 优�
     {"question": "...", "answer": "..."}
   ]
 }"""
+
+
+def _seo_generate_system_prompt() -> str:
+    """SEO/GEO 生成系统提示词：站点身份从 system_configs.site_brand 动态读取；
+    未配置品牌信息时使用中性表述，避免在代码中硬编码任何业务内容。"""
+    name = ""
+    full = ""
+    try:
+        with get_db() as db:
+            row = db.execute(
+                "SELECT config_value FROM system_configs WHERE config_key = :k",
+                {"k": "site_brand"},
+            ).fetchone()
+            if row and row[0] and str(row[0]).strip():
+                data = json.loads(str(row[0]).strip())
+                if isinstance(data, dict):
+                    name = str(data.get("siteName") or "").strip()
+                    full = str(data.get("siteFullName") or "").strip()
+    except Exception as e:
+        logger.warning("Failed to read site_brand for SEO prompt: %s", e)
+    if full and name and full != name:
+        subject = f"「{name}」（{full}）"
+    elif full or name:
+        subject = f"「{full or name}」"
+    else:
+        subject = "本站点"
+    return SEO_GENERATE_SYSTEM_PROMPT.replace("{subject}", subject)
 
 
 def _gen_client():
@@ -1137,8 +1175,9 @@ def seo_generate(req: SeoGenerateRequest):
     workers = max(1, min(int(req.max_concurrency) or 4, len(req.pages)))
     results = []
     failed = []
+    sys_prompt = _seo_generate_system_prompt()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futs = {pool.submit(_generate_one, client, p, SEO_GENERATE_SYSTEM_PROMPT): p.key for p in req.pages}
+        futs = {pool.submit(_generate_one, client, p, sys_prompt): p.key for p in req.pages}
         for fut in as_completed(futs):
             key = futs[fut]
             try:
@@ -1189,6 +1228,6 @@ app.include_router(ai_md_router, prefix="/ai")
 if __name__ == "__main__":
     import multiprocessing
     workers = max(2, multiprocessing.cpu_count() // 2)
-    host = os.getenv("AI_HOST", "127.0.0.1")
-    port = int(os.getenv("AI_PORT", "8000"))
+    host = os.getenv("PYTHON_HOST", "127.0.0.1")
+    port = int(os.getenv("PYTHON_PORT", "8000"))
     uvicorn.run("api:app", host=host, port=port, workers=workers)

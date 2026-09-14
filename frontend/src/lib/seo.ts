@@ -1,7 +1,53 @@
-export const SITE_URL = 'https://www.example.cn';
-export const SITE_NAME = '圣诺联合';
-export const SITE_DESCRIPTION = '中国领先的企业数字基础设施服务商，帮助政府、国企和企业客户建设智慧招采平台、可信数据空间、分布式数据治理平台、区块链可信基础设施和AI智能体应用。';
-export const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.png`;
+/**
+ * 站点身份（名称/域名/描述）运行时从后端站点配置（system_configs.site_brand）获取，
+ * 不在代码中硬编码；SEO/GEO 配置页修改后即时生效。
+ */
+export interface SiteIdentity {
+  name: string;
+  url: string;
+  description: string;
+  logo?: string;
+}
+
+export const EMPTY_SITE_IDENTITY: SiteIdentity = {
+  name: '',
+  url: '',
+  description: '',
+  logo: '/logo.png',
+};
+
+/** 默认占位品牌名（后台未配置站点品牌时由默认配置注入），SEO/GEO 输出时视为未配置并忽略。 */
+const PLACEHOLDER_BRAND_NAMES = new Set(['示例科技', '示例科技有限公司']);
+
+/** 默认占位域名（IANA 保留示例域名），未配置站点域名时视为未配置并忽略。 */
+function isPlaceholderDomain(url: string): boolean {
+  return /\.example\.com$/i.test(url);
+}
+
+/** 从站点配置对象构造站点身份，供 schema/canonical 等使用。 */
+export function toSiteIdentity(cfg?: {
+  siteName?: string;
+  siteFullName?: string;
+  siteDescription?: string;
+  url?: string;
+  logo?: string;
+} | null): SiteIdentity {
+  const rawName = (cfg?.siteName || '').trim();
+  const rawFull = (cfg?.siteFullName || '').trim();
+  const name = PLACEHOLDER_BRAND_NAMES.has(rawName) ? '' : rawName;
+  const full = PLACEHOLDER_BRAND_NAMES.has(rawFull) ? '' : rawFull;
+  const rawUrl = (cfg?.url || '').replace(/\/+$/, '');
+  return {
+    name: (name || full).trim(),
+    url: isPlaceholderDomain(rawUrl) ? '' : rawUrl,
+    description: (cfg?.siteDescription || '').trim(),
+    logo: cfg?.logo || '/logo.png',
+  };
+}
+
+export function defaultOgImage(site: SiteIdentity = EMPTY_SITE_IDENTITY): string {
+  return site.url ? `${site.url}/og-image.png` : (site.logo || '/logo.png');
+}
 
 export interface SeoProps {
   title: string;
@@ -24,8 +70,8 @@ export interface BreadcrumbItem {
   url: string;
 }
 
-export function getCanonicalUrl(path: string): string {
-  return `${SITE_URL}${path}`;
+export function getCanonicalUrl(path: string, site: SiteIdentity = EMPTY_SITE_IDENTITY): string {
+  return `${site.url}${path}`;
 }
 
 /**
@@ -40,7 +86,10 @@ export function safeJsonLd(value: unknown): string {
     .replace(/&/g, '\\u0026');
 }
 
-export function generateBreadcrumbSchema(items: BreadcrumbItem[]): object {
+export function generateBreadcrumbSchema(
+  items: BreadcrumbItem[],
+  site: SiteIdentity = EMPTY_SITE_IDENTITY,
+): object {
   return {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -48,7 +97,7 @@ export function generateBreadcrumbSchema(items: BreadcrumbItem[]): object {
       '@type': 'ListItem',
       position: index + 1,
       name: item.name,
-      item: `${SITE_URL}${item.url}`,
+      item: `${site.url}${item.url}`,
     })),
   };
 }
@@ -60,20 +109,20 @@ export function generateProductSchema(product: {
   slug: string;
   category?: string;
   moduleKey?: string;
-}): object {
+}, site: SiteIdentity = EMPTY_SITE_IDENTITY): object {
   const url = product.moduleKey
-    ? `${SITE_URL}/list/detail?moduleKey=${product.moduleKey}&slug=${product.slug}`
-    : `${SITE_URL}/list/detail?moduleKey=products&slug=${product.slug}`;
+    ? `${site.url}/list/detail?moduleKey=${product.moduleKey}&slug=${product.slug}`
+    : `${site.url}/list/detail?moduleKey=products&slug=${product.slug}`;
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: product.name,
     description: product.description,
-    image: product.image || DEFAULT_OG_IMAGE,
+    image: product.image || defaultOgImage(site),
     url,
     brand: {
       '@type': 'Brand',
-      name: SITE_NAME,
+      name: site.name,
     },
     category: product.category || '企业软件',
     offers: {
@@ -95,26 +144,26 @@ export function generateArticleSchema(article: {
   modifiedAt?: string;
   category?: string;
   moduleKey?: string;
-}): object {
+}, site: SiteIdentity = EMPTY_SITE_IDENTITY): object {
   const url = article.moduleKey
-    ? `${SITE_URL}/list/detail?moduleKey=${article.moduleKey}&slug=${article.slug}`
-    : `${SITE_URL}/list/detail?moduleKey=resources&slug=${article.slug}`;
+    ? `${site.url}/list/detail?moduleKey=${article.moduleKey}&slug=${article.slug}`
+    : `${site.url}/list/detail?moduleKey=resources&slug=${article.slug}`;
   return {
     '@context': 'https://schema.org',
     '@type': 'Article',
     headline: article.title,
     description: article.description,
-    image: article.image || DEFAULT_OG_IMAGE,
+    image: article.image || defaultOgImage(site),
     author: {
       '@type': 'Person',
-      name: article.author || SITE_NAME,
+      name: article.author || site.name,
     },
     publisher: {
       '@type': 'Organization',
-      name: SITE_NAME,
+      name: site.name,
       logo: {
         '@type': 'ImageObject',
-        url: `${SITE_URL}/logo.png`,
+        url: site.url ? `${site.url}/logo.png` : (site.logo || '/logo.png'),
       },
     },
     datePublished: article.publishedAt,
@@ -147,7 +196,7 @@ export function generateSoftwareApplicationSchema(app: {
   description: string;
   category?: string;
   url?: string;
-}): object {
+}, site: SiteIdentity = EMPTY_SITE_IDENTITY): object {
   return {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
@@ -155,7 +204,7 @@ export function generateSoftwareApplicationSchema(app: {
     description: app.description,
     applicationCategory: app.category || 'BusinessApplication',
     operatingSystem: 'Web',
-    url: app.url || SITE_URL,
+    url: app.url || site.url,
     offers: {
       '@type': 'Offer',
       price: '0',
@@ -163,7 +212,7 @@ export function generateSoftwareApplicationSchema(app: {
     },
     author: {
       '@type': 'Organization',
-      name: SITE_NAME,
+      name: site.name,
     },
   };
 }

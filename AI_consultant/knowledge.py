@@ -357,6 +357,11 @@ def _resolve_upload_dir(upload_path: str) -> str:
     return str(p)
 
 
+def resolve_upload_temp_path(upload_path: str) -> str:
+    """AI 对话附件临时目录：解析后的 UPLOAD_PATH + "/temp"。"""
+    return os.path.join(_resolve_upload_dir(upload_path or "uploads"), "temp")
+
+
 def _is_remote_url(value: str) -> bool:
     """判断是否为 http/https 远端 URL（用 urlparse 避免硬编码明文协议字符串）。"""
     return urlparse(value).scheme.lower() in ("http", "https")
@@ -405,14 +410,28 @@ def _read_local_file(path: Optional[str]) -> Optional[bytes]:
         return None
 
 
+def read_local_temp_media(url_or_path: str, upload_path: str = "") -> Optional[bytes]:
+    """显式从 UPLOAD_PATH/temp 读取 AI 对话附件（不依赖 /uploads/ URL 前缀映射）。
+
+    兼容 /uploads/temp/xxx、/temp/xxx、uploads/temp/xxx、纯文件名等引用形式；
+    仅按文件名在上传临时目录内查找，并做越界校验，防止路径穿越。
+    """
+    if not url_or_path:
+        return None
+    u = url_or_path.strip().split("?")[0].split("#")[0].replace("\\", "/")
+    if not u:
+        return None
+    root = Path(resolve_upload_temp_path(upload_path))
+    candidate = root / u.rsplit("/", 1)[-1]
+    if not _within_root(candidate, root):
+        logger.warning("blocked local temp media path outside upload temp dir: %s", url_or_path)
+        return None
+    return _read_local_file(str(candidate))
+
+
 def _allowed_media_hosts(backend_base_url: str) -> set:
-    """允许抓取远端媒体的主机白名单：默认仅后端自身，可用 AI_MEDIA_ALLOWED_HOSTS 追加。"""
+    """允许抓取远端媒体的主机白名单：默认仅后端自身。"""
     hosts = set()
-    raw = os.getenv("AI_MEDIA_ALLOWED_HOSTS", "")
-    for h in raw.split(","):
-        h = h.strip().lower()
-        if h:
-            hosts.add(h)
     if backend_base_url:
         try:
             host = (urlparse(backend_base_url).hostname or "").lower()

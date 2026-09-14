@@ -32,16 +32,17 @@ public class AdminEnvConfigController {
     private final SecretCryptoService secretCryptoService;
 
     private static final List<String> MANAGED_KEYS = Arrays.asList(
-        // ── Database ──
-        "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD",
+        // ── PostgreSQL ──
+        "PG_HOST", "PG_PORT", "PG_DATABASE", "PG_USER", "PG_PASSWORD",
         "SPRING_DATASOURCE_URL", "SPRING_DATASOURCE_USERNAME", "SPRING_DATASOURCE_PASSWORD",
         // ── Redis ──
-        "SPRING_REDIS_HOST", "SPRING_REDIS_PORT", "SPRING_REDIS_PASSWORD", "SPRING_REDIS_DATABASE",
+        "REDIS_HOST", "REDIS_PORT", "REDIS_USER", "REDIS_PASSWORD", "REDIS_DATABASE",
+        "SPRING_REDIS_HOST", "SPRING_REDIS_PORT", "SPRING_REDIS_USERNAME", "SPRING_REDIS_PASSWORD", "SPRING_REDIS_DATABASE",
         // ── Ports ──
-        "BACKEND_PORT", "AI_PORT", "FRONTEND_PORT", "SERVER_PORT",
+        "BACKEND_HOST", "BACKEND_PORT", "PYTHON_HOST", "PYTHON_PORT", "FRONTEND_HOST", "FRONTEND_PORT",
         "API_SERVER_URL",
         // ── JWT ──
-        "JWT_SECRET", "JWT_EXPIRATION",
+        "JWT_SECRET",
         // ── LLM Model Config ──
         "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
         "LLM_TEMPERATURE", "LLM_MAX_TOKENS", "LLM_TOP_P",
@@ -64,9 +65,9 @@ public class AdminEnvConfigController {
         "LOGGING_LEVEL_COM_SINOUNION", "LOGGING_LEVEL_ORG_SPRINGFRAMEWORK",
         // ── Backend ──
         "SPRING_APPLICATION_NAME",
-        "UPLOAD_PATH", "UPLOAD_ALLOWED_TYPES",
-        "AI_SERVICE_URL", "AI_SERVICE_MEMORIES_DIR",
-        "APP_FRONTEND_PUBLIC_DIR", "APP_FRONTEND_DIST_DIR", "APP_CONFIG_FILE_PATH"
+        "UPLOAD_PATH",
+        "AI_SERVICE_MEMORIES_DIR",
+        "APP_FRONTEND_PUBLIC_DIR"
     );
 
     private Path resolveEnvPath() {
@@ -114,14 +115,14 @@ public class AdminEnvConfigController {
         List<Map<String, String>> items = new ArrayList<>();
         for (String key : MANAGED_KEYS) {
             Map<String, String> entry = new LinkedHashMap<>();
-            // Priority: DB (model config) > System.setProperty (runtime) > .env file > System.getenv (OS)
+            // Priority: DB (model config) > System.setProperty (runtime) > System.getenv (OS) > .env file
             String val = null;
             if (ModelConfigKeys.DB_BACKED_KEYS.contains(key)) {
                 val = dbValues.get(key);
             }
             if (val == null) val = System.getProperty(key);
-            if (val == null) val = envFile.get(key);
             if (val == null) val = System.getenv(key);
+            if (val == null) val = envFile.get(key);
             entry.put("key", key);
             entry.put("value", secretCryptoService.mask(key, val != null ? val : ""));
             items.add(entry);

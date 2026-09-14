@@ -21,7 +21,7 @@ import java.util.Map;
 @RequestMapping("/admin/system/config-file")
 public class AdminConfigFileController {
 
-    @Value("${APP_CONFIG_FILE_PATH}")
+    @Value("${app.config-file-path:}")
     private String configFilePath;
 
     private Path resolvePath() {

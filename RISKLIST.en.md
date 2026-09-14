@@ -53,7 +53,7 @@
 
 | ID | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| C1 | `/ai` all routes unauthenticated, CORS `*` + credentials, listening on 0.0.0.0 | Default bind changed to `AI_HOST` (default 127.0.0.1, see `main.py`/`api.py` entrypoints); **Residual**: still no authentication, `allow_origins=["*"]` + `allow_credentials=True` unchanged, and `docker/.env.example` + compose still set `AI_HOST=0.0.0.0` | `AI_consultant/api.py:75-81`, `main.py` entrypoint | Add API-Key/server-side token validation to `/ai` (issued by backend, frontend proxied through backend); close public exposure |
+| C1 | `/ai` all routes unauthenticated, CORS `*` + credentials, listening on 0.0.0.0 | Default bind changed to `PYTHON_HOST` (default 127.0.0.1, see `main.py`/`api.py` entrypoints); **Residual**: still no authentication, `allow_origins=["*"]` + `allow_credentials=True` unchanged, and `docker/.env.example` + compose still set `PYTHON_HOST=0.0.0.0` | `AI_consultant/api.py:75-81`, `main.py` entrypoint | Add API-Key/server-side token validation to `/ai` (issued by backend, frontend proxied through backend); close public exposure |
 | C4 | Unauthorized rewriting of model `base_url` etc. config | The POST `/model-config` write path was removed (now only reloads from DB); **Residual**: the unauthenticated `POST /ai/config` → `update_config` can still rewrite `llm_base_url`/`llm_api_key`, keeping the "send real provider key to attacker server" path alive | `AI_consultant/api.py:343-362,534-550`, `main.py` | Write operations like `base_url`/system prompt only allowed from backend |
 | C6 | Cross-user shared Redis `active_session` key | On worker restart/failover may resume another user's session; multi-worker doubles in-memory rate-limit counters | `AI_consultant/db.py:95-111`, `main.py:943-950`, `rate_limit.py:101-169` | Bind session key to real authenticated identity |
 | C7 | Rate limiting bypassable | guest counted by client `visitor_id`/`session_id`, user by request-body `username`; rotation bypasses "5/day, 30/min"; Redis-failure degrades to per-worker memory count with unbounded dict growth | `api.py:96-103`, `rate_limit.py:111-179` | Bind to server-issued identity; limit dict growth |
@@ -118,7 +118,7 @@
 | H6 | Runtime DDL with shared privileged DB account (`CREATE EXTENSION vector`, `ALTER … embedding TYPE vector(dim)`) | Production table locks/full-table rewrite | `AI_consultant/knowledge.py:566-589`, `main.py` | Separate migration from runtime accounts |
 | H2 | `AdminRelatedContentController.batch` throws `NumberFormatException` for non-numeric `ids` → 500 with echo | Should be 400 | `AdminRelatedContentController.java:53-56` | Parameter validation |
 | H3 | `AuthController /auth/me` NPE when user deleted (`user` null) | Should be 401/404 | `AuthController.java:57-61` | Null-check |
-| H7 | `db.py` `int(DB_PORT)` crashes at import; Redis helper swallows connection errors returning `None` | Callers must null-check everywhere (already caused rate-limit/session degradation) | `AI_consultant/db.py:20-33,88-111` | Validate config at startup; fail explicitly on connection errors |
+| H7 | `db.py` `int(PG_PORT)` crashes at import; Redis helper swallows connection errors returning `None` | Callers must null-check everywhere (already caused rate-limit/session degradation) | `AI_consultant/db.py:20-33,88-111` | Validate config at startup; fail explicitly on connection errors |
 | H8 | `AdminEnvConfigController` / `AdminConfigFileController` allow writing arbitrary `application.yml`/`.env` content online | config-permission holder ≈ config tampering/near-RCE surface, only constrained by fixed paths | `AdminConfigFileController.java:63-77` | Tighten permissions & content validation; audit logging |
 
 ---
@@ -170,7 +170,7 @@
 | ID | Issue Item | Current Status & Impact | Remediation |
 | --- | --- | --- | --- |
 | O-01 | Missing Docker deployment instructions | Incomplete deployment process (no production Compose section added to README) | Add Docker deployment docs/scripts |
-| O-02 | Inter-container connectivity not fully verified | `docker-compose.yml` added `AI_HOST=0.0.0.0`, healthchecks and `depends_on`; **Residual**: no actual connectivity verification done | Verify and lock down one by one: backend↔frontend, backend↔python, frontend↔python |
+| O-02 | Inter-container connectivity not fully verified | `docker-compose.yml` added `PYTHON_HOST=0.0.0.0`, healthchecks and `depends_on`; **Residual**: no actual connectivity verification done | Verify and lock down one by one: backend↔frontend, backend↔python, frontend↔python |
 
 ---
 

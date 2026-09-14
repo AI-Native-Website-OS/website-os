@@ -23,7 +23,7 @@ public class KnowledgeSyncService {
 
     private final AiRequestSigner aiRequestSigner;
 
-    @Value("${AI_SERVICE_URL}")
+    @Value("${ai.service.url}")
     private String aiServiceUrl;
 
     @javax.annotation.PostConstruct

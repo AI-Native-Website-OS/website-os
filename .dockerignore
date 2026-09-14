@@ -11,3 +11,15 @@ frontend/out
 uploads
 **/.env
 **/*.log
+# ─── 测试内容（构建镜像时一律不保留）───
+**/src/test
+**/tests
+**/test-results
+**/coverage
+**/playwright-report
+**/blob-report
+**/.pytest_cache
+**/__pycache__
+**/test_*.py
+**/*.test.*
+**/*.spec.*

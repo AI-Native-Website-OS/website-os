@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import api from '@/lib/api';
 import type { SeoConfig } from '@/types';
-import { SeoProps, SITE_URL, SITE_NAME, DEFAULT_OG_IMAGE, getCanonicalUrl, BreadcrumbItem, generateBreadcrumbSchema, safeJsonLd } from '@/lib/seo';
+import { getSiteConfig } from '@/hooks/useSiteConfig';
+import { SeoProps, SiteIdentity, EMPTY_SITE_IDENTITY, toSiteIdentity, defaultOgImage, getCanonicalUrl, BreadcrumbItem, generateBreadcrumbSchema, safeJsonLd } from '@/lib/seo';
 
 interface SeoHeadProps extends SeoProps {
   path: string;
@@ -37,7 +38,17 @@ export default function SeoHead({
   pageId,
 }: SeoHeadProps) {
   const [dbConfig, setDbConfig] = useState<SeoConfig | null>(null);
-  const lookupUrl = getCanonicalUrl(path);
+  const [site, setSite] = useState<SiteIdentity>(EMPTY_SITE_IDENTITY);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSiteConfig()
+      .then((cfg) => { if (!cancelled) setSite(toSiteIdentity(cfg)); })
+      .catch(() => { if (!cancelled) setSite(EMPTY_SITE_IDENTITY); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const lookupUrl = getCanonicalUrl(path, site);
 
   useEffect(() => {
     const key = cacheKey(lookupUrl, pageId);
@@ -70,15 +81,20 @@ export default function SeoHead({
   const effectiveOgType = dbConfig?.ogType || ogType;
   const effectiveRobots = dbConfig?.robots;
 
-  const fullTitle = effectiveTitle.includes(SITE_NAME) ? effectiveTitle : `${effectiveTitle} - ${SITE_NAME}`;
-  const desc = effectiveDescription || '中国领先的企业数字基础设施服务商';
-  const canonicalUrl = effectiveCanonical || getCanonicalUrl(path);
-  const image = effectiveOgImage || DEFAULT_OG_IMAGE;
+  const fullTitle = (site.name && !effectiveTitle.includes(site.name))
+    ? `${effectiveTitle} - ${site.name}`
+    : effectiveTitle;
+  const ogTitle = (site.name && !effectiveOgTitle.includes(site.name))
+    ? `${effectiveOgTitle} - ${site.name}`
+    : effectiveOgTitle;
+  const desc = effectiveDescription || site.description || '';
+  const canonicalUrl = effectiveCanonical || getCanonicalUrl(path, site);
+  const image = effectiveOgImage || defaultOgImage(site);
   const robots = effectiveRobots || `${noindex ? 'noindex' : 'index'},${nofollow ? 'nofollow' : 'follow'}`;
 
   const schemas: object[] = [...additionalSchemas];
   if (breadcrumbs && breadcrumbs.length > 0) {
-    schemas.push(generateBreadcrumbSchema(breadcrumbs));
+    schemas.push(generateBreadcrumbSchema(breadcrumbs, site));
   }
 
   useEffect(() => {
@@ -101,11 +117,11 @@ export default function SeoHead({
         <meta name="robots" content={robots} />
 
         <meta property="og:type" content={effectiveOgType} />
-        <meta property="og:title" content={effectiveOgTitle.includes(SITE_NAME) ? effectiveOgTitle : `${effectiveOgTitle} - ${SITE_NAME}`} />
+        <meta property="og:title" content={ogTitle} />
         <meta property="og:description" content={effectiveOgDescription} />
         <meta property="og:url" content={canonicalUrl} />
         <meta property="og:image" content={image} />
-        <meta property="og:site_name" content={SITE_NAME} />
+        {site.name && <meta property="og:site_name" content={site.name} />}
         <meta property="og:locale" content="zh_CN" />
         {publishedTime && <meta property="article:published_time" content={publishedTime} />}
         {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}

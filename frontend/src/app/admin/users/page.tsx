@@ -6,12 +6,15 @@ import { User, PageResult, Role } from '@/types';
 import { Plus, Pencil, Trash2, Search, KeyRound, AlertCircle } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function AdminUsers() {
   const [data, setData] = useState<PageResult<User> | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useI18n();
+  const { user, hasRole } = useAuth();
+  const isSuperAdmin = hasRole('SUPER_ADMIN');
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -33,7 +36,7 @@ export default function AdminUsers() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6"><h1 className="text-2xl font-bold text-gray-900">{t('admin.page.users')}</h1><button onClick={() => { setEditing(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800"><Plus className="w-4 h-4" /> {t('admin.ui.users.addUser')}</button></div>
+      <div className="flex items-center justify-between mb-6"><h1 className="text-2xl font-bold text-gray-900">{t('admin.page.users')}</h1>{isSuperAdmin && <button onClick={() => { setEditing(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800"><Plus className="w-4 h-4" /> {t('admin.ui.users.addUser')}</button>}</div>
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /><input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && loadData()} placeholder={t('admin.ui.users.searchPlaceholder')} className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
         <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">{t('admin.ui.users.allRoles')}</option>{roles.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}</select>
@@ -41,7 +44,7 @@ export default function AdminUsers() {
       </div>
 
       {ConfirmDialog}
-      {showForm && <UserForm user={editing} roles={roles} onSave={handleSave} onCancel={() => { setShowForm(false); setEditing(null); setSaveError(''); }} error={saveError} />}
+      {showForm && <UserForm user={editing} roles={roles} onSave={handleSave} onCancel={() => { setShowForm(false); setEditing(null); setSaveError(''); }} error={saveError} disableRole={editing?.role === 'SUPER_ADMIN' && editing.username === user?.username} />}
 
       {showResetPwd && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
@@ -58,7 +61,36 @@ export default function AdminUsers() {
         <table className="w-full text-sm">
           <thead><tr className="border-b border-gray-200 bg-gray-50"><th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.users.colUsername')}</th><th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.users.colRealName')}</th><th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.users.colEmail')}</th><th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.users.colRole')}</th><th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.sections.colStatus')}</th><th className="text-center py-3 px-4 font-medium text-gray-500">{t('common.actions')}</th></tr></thead>
           <tbody>
-            {data?.records?.map((item) => (<tr key={item.id} className="border-b border-gray-100"><td className="py-3 px-4 font-medium">{item.username}</td><td className="py-3 px-4 text-gray-500">{item.realName}</td><td className="py-3 px-4 text-gray-500">{item.email}</td><td className="py-3 px-4"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{roles.find(r => r.code === item.role)?.name || item.role}</span></td><td className="py-3 px-4 text-center"><button onClick={() => handleToggleStatus(item)} disabled={item.role === 'SUPER_ADMIN'} className={`px-2 py-0.5 rounded text-xs cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${item.status === 1 ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>{item.status === 1 ? t('common.enable') : t('common.disable')}</button></td><td className="py-3 px-4 text-center"><div className="flex items-center justify-center gap-2"><button onClick={() => { setEditing(item); setShowForm(true); }} className="p-1 text-gray-500 hover:text-black"><Pencil className="w-4 h-4" /></button><button onClick={() => { setShowResetPwd(item); setNewPassword(''); }} className="p-1 text-gray-500 hover:text-orange-600"><KeyRound className="w-4 h-4" /></button><button onClick={() => handleDelete(item.id)} disabled={item.role === 'SUPER_ADMIN'} className="p-1 text-gray-500 hover:text-red-600 disabled:text-gray-300 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /></button></div></td></tr>))}
+            {data?.records?.map((item) => {
+              const isSuperAdminRow = item.role === 'SUPER_ADMIN';
+              const isSelf = isSuperAdminRow && item.username === user?.username;
+              const isOtherSuperAdmin = isSuperAdminRow && !isSelf;
+              return (
+                <tr key={item.id} className="border-b border-gray-100">
+                  <td className="py-3 px-4 font-medium">{item.username}</td>
+                  <td className="py-3 px-4 text-gray-500">{item.realName}</td>
+                  <td className="py-3 px-4 text-gray-500">{item.email}</td>
+                  <td className="py-3 px-4"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{roles.find(r => r.code === item.role)?.name || item.role}</span></td>
+                  <td className="py-3 px-4 text-center">
+                    {isSuperAdminRow || !isSuperAdmin ? (
+                      <span className="text-xs text-gray-300">-</span>
+                    ) : (
+                      <button onClick={() => handleToggleStatus(item)} className={`px-2 py-0.5 rounded text-xs cursor-pointer ${item.status === 1 ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>{item.status === 1 ? t('common.enable') : t('common.disable')}</button>
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    {isSuperAdmin && !isOtherSuperAdmin && (
+                      <div className="flex items-center justify-center gap-2">
+                        <button onClick={() => { setEditing(item); setShowForm(true); }} className="p-1 text-gray-500 hover:text-black"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => { setShowResetPwd(item); setNewPassword(''); }} className="p-1 text-gray-500 hover:text-orange-600"><KeyRound className="w-4 h-4" /></button>
+                        {!isSuperAdminRow && <button onClick={() => handleDelete(item.id)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
+                      </div>
+                    )}
+                    {isSuperAdmin && isOtherSuperAdmin && <span className="text-xs text-gray-300">-</span>}
+                  </td>
+                </tr>
+              );
+            })}
             {(!data?.records || data.records.length === 0) && <tr><td colSpan={6} className="py-8 text-center text-gray-400">{t('common.empty')}</td></tr>}
           </tbody>
         </table>
@@ -68,7 +100,7 @@ export default function AdminUsers() {
   );
 }
 
-function UserForm({ user, roles, onSave, onCancel, error }: { user: User | null; roles: Role[]; onSave: (data: any) => void; onCancel: () => void; error?: string }) {
+function UserForm({ user, roles, onSave, onCancel, error, disableRole }: { user: User | null; roles: Role[]; onSave: (data: any) => void; onCancel: () => void; error?: string; disableRole?: boolean }) {
   const { t } = useI18n();
   const [form, setForm] = useState({ username: user?.username || '', password: '', email: user?.email || '', phone: user?.phone || '', realName: user?.realName || '', role: user?.role || 'NORMAL_USER' });
   const isEdit = !!user?.id;
@@ -82,9 +114,9 @@ function UserForm({ user, roles, onSave, onCancel, error }: { user: User | null;
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.users.formRealName')}</label><input value={form.realName} onChange={(e) => setForm({ ...form, realName: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" /></div>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.users.formEmail')}</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" /></div>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.users.formPhone')}</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" /></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.users.formRole')}</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">{roles.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}</select></div>
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.users.formRole')}</label><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} disabled={disableRole} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-50">{roles.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}</select></div>
       </div>
-      <div className="flex gap-3 mt-4"><button onClick={() => onSave(isEdit ? { email: form.email, phone: form.phone, realName: form.realName, role: form.role } : form)} className="px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">{t('common.save')}</button><button onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">{t('common.cancel')}</button></div>
+      <div className="flex gap-3 mt-4"><button onClick={() => onSave(isEdit ? { email: form.email, phone: form.phone, realName: form.realName, ...(disableRole ? {} : { role: form.role }) } : form)} className="px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">{t('common.save')}</button><button onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">{t('common.cancel')}</button></div>
     </div>
   );
 }

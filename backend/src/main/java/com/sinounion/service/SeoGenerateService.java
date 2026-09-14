@@ -20,7 +20,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SeoGenerateService {
 
-    @Value("${AI_SERVICE_URL}")
+    @Value("${ai.service.url}")
     private String aiServiceUrl;
 
     private final SeoSyncService seoSyncService;

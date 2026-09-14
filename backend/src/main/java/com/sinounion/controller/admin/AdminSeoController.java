@@ -75,7 +75,7 @@ public class AdminSeoController {
         List<Map<String, Object>> options = new ArrayList<>();
 
         List<Map<String, String>> staticPages = new ArrayList<>();
-        staticPages.add(mapOf("label", "首页", "path", "/", "title", "企业数字基础设施服务商"));
+        staticPages.add(mapOf("label", "首页", "path", "/", "title", "首页"));
         staticPages.add(mapOf("label", "关于我们", "path", "/about", "title", "关于我们"));
         staticPages.add(mapOf("label", "FAQ", "path", "/faqs", "title", "常见问题 - FAQ"));
         for (Map<String, String> sp : staticPages) {

@@ -23,6 +23,8 @@ import com.sinounion.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -46,7 +48,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final PermissionMapper permissionMapper;
-    @Value("${AI_SERVICE_URL}")
+    @Value("${ai.service.url}")
     private String aiServiceUrl;
 
     @javax.annotation.PostConstruct
@@ -218,6 +220,16 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
+        if ("SUPER_ADMIN".equals(user.getRole())) {
+            String operator = getCurrentUsername();
+            boolean isSelf = operator != null && operator.equals(user.getUsername());
+            if (!isSelf) {
+                throw new BusinessException("无权限修改其他超级管理员账号");
+            }
+            if (dto.getRole() != null) {
+                throw new BusinessException("超级管理员不能修改自身角色");
+            }
+        }
         if (dto.getEmail() != null) user.setEmail(dto.getEmail());
         if (dto.getPhone() != null) user.setPhone(dto.getPhone());
         if (dto.getRealName() != null) user.setRealName(dto.getRealName());
@@ -328,6 +340,13 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
+        if ("SUPER_ADMIN".equals(user.getRole())) {
+            String operator = getCurrentUsername();
+            boolean isSelf = operator != null && operator.equals(user.getUsername());
+            if (!isSelf) {
+                throw new BusinessException("无权限重置其他超级管理员的密码");
+            }
+        }
         user.setPassword(passwordEncoder.encode(newPassword));
         userMapper.updateById(user);
         userMapper.incrementTokenVersion(id);
@@ -350,6 +369,14 @@ public class UserServiceImpl implements UserService {
         vo.setCreatedAt(user.getCreatedAt());
         vo.setPermissions(permissions);
         return vo;
+    }
+
+    private String getCurrentUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+        return authentication.getName();
     }
 
     private void initMemory(String username, String role) {

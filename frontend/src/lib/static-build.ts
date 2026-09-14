@@ -30,8 +30,16 @@ interface StaticSnapshot {
 
 const staticSnapshot = snapshot as StaticSnapshot;
 
+// 出站连接目标地址：0.0.0.0 / :: 表示“监听所有网卡”，作为连接地址时需归一化为本机回环地址。
+function connectHost(host: string | undefined): string {
+  const h = String(host || '').trim();
+  if (!h || h === '0.0.0.0' || h === '::' || h === '[::]') return '127.0.0.1';
+  return h;
+}
+
 function buildApiUrl(path: string): string {
-  let base = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:8080';
+  // 后端地址固定由根 .env 的 BACKEND_HOST/BACKEND_PORT 派生
+  let base = `http://${connectHost(process.env.BACKEND_HOST)}:${process.env.BACKEND_PORT || '8080'}`;
   base = base.replace(/\/+$/, '');
   if (!base.endsWith('/api')) base += '/api';
   return `${base}${path}`;
@@ -115,7 +123,7 @@ export function ensureStaticParams<T>(route: string, params: T[]): T[] {
     throw new Error(
       `构建期未能为路由 ${route} 生成任何静态参数，且本地快照（src/lib/static-snapshot.json）也没有可用数据。` +
         `请在可访问后端 API 的机器上运行 \`npm run snapshot\` 重新生成并提交快照，` +
-        `或为构建环境配置 API_BASE_URL / NEXT_PUBLIC_API_BASE_URL。` +
+        `或为构建环境配置 .env 中的 BACKEND_HOST / BACKEND_PORT。` +
         `同时确认存在已启用的核心模块与已发布的带 slug 内容。`
     );
   }

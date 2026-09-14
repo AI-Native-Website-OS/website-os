@@ -297,7 +297,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       )}>
         <div className="flex items-center justify-between h-14 px-5 border-b border-gray-100">
           <Link href="/" className="flex items-center">
-            <img src={getImageUrl(siteConfig.logo) || '/logo.png'} alt={siteConfig.siteName || '圣诺联合'} className="h-9 w-auto" />
+            <img src={getImageUrl(siteConfig.logo) || '/logo.png'} alt={siteConfig.siteName || 'logo'} className="h-9 w-auto" />
           </Link>
           <button className="lg:hidden -mr-1 p-1 rounded hover:bg-gray-100 transition-colors" onClick={() => setSidebarOpen(false)}>
             <X className="w-4 h-4 text-gray-500" />

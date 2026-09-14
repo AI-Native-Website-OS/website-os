@@ -32,7 +32,9 @@ public class SinoUnionApplication {
                                 || (val.startsWith("'") && val.endsWith("'"))) {
                             val = val.substring(1, val.length() - 1);
                         }
-                        if (System.getProperty(key) == null) {
+                        // 优先级：命令行 -D > 进程环境变量(OS env) > .env 文件。
+                        // 已存在 OS 环境变量时不写入 System property，确保 OS env 覆盖 .env 值。
+                        if (System.getenv(key) == null && System.getProperty(key) == null) {
                             System.setProperty(key, val);
                         }
                     }

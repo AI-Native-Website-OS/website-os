@@ -1,175 +1,87 @@
-# 生产部署编排（使用 GitHub Actions 推送到 GHCR 的镜像）
-# 用法（在 docker/ 目录执行）:
-#   docker compose -f docker-compose.yml up -d          # 使用 GHCR 镜像
-#   docker compose -f docker-compose.yml pull           # 先拉取最新镜像
-# 镜像地址默认取自 ghcr.io/<owner>/<repo>，可用环境变量覆盖：
-#   REGISTRY  镜像仓库前缀，默认 ghcr.io/sinocli/sino_website
-#   TAG       镜像标签，默认 latest（建议在生产中固定为版本/commit sha）
+version: '3.8'
+name: sinowebsite
 
 services:
-  postgres:
-    image: pgvector/pgvector:0.7.0-pg15
-    container_name: sino_postgres
-    restart: unless-stopped
+  sino-website-postgresql:
+    image: pgvector/pgvector:pg18
+    container_name: sino-website-postgresql
+    restart: always
     environment:
-      POSTGRES_DB: ${DB_NAME:-sinounion}
-      POSTGRES_USER: ${DB_USER:-sinounion}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-sinounion}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      # 首次启动自动建表（幂等脚本，含 pgvector 扩展）
-      - ../backend/src/main/resources/sinounion.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-sinounion} -d ${DB_NAME:-sinounion}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks: [sino-net]
-
-  redis:
-    image: redis:7-alpine
-    container_name: sino_redis
-    restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-sinoredis}"]
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-sinoredis}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks: [sino-net]
-
-  backend:
-    image: ${REGISTRY:-ghcr.io/sinocli/sino_website}/backend:${TAG:-latest}
-    container_name: sino_backend
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      SERVER_PORT: 8080
-      SERVER_SERVLET_CONTEXT_PATH: /api
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-sinounion}
-      DB_USER: ${DB_USER:-sinounion}
-      DB_PASSWORD: ${DB_PASSWORD:-sinounion}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-sinoredis}
-      REDIS_DB: 0
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
-      AI_SERVICE_URL: http://ai:8000
-      # AI 服务内部调用令牌（后端 → AI 服务），务必设置为强随机字符串
-      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-}
-      FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL:-http://localhost:8080}
-      UPLOAD_PATH: /app/uploads
-      APP_FRONTEND_PUBLIC_DIR: /app/frontend-public
-      APP_CONFIG_FILE_PATH: /app/app-config.json
-      APP_TRUST_PROXY_IP_HEADER: "false"
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      # 上传大小限制（默认 8MB，如需大文件上传请显式覆盖，勿随意调大）
-      APP_MAX_FILE_SIZE: ${APP_MAX_FILE_SIZE:-50MB}
-      APP_MAX_REQUEST_SIZE: ${APP_MAX_REQUEST_SIZE:-100MB}
-    volumes:
-      - backend-uploads:/app/uploads
-      - backend-public:/app/frontend-public
-    healthcheck:
-      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/localhost/8080"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    networks: [sino-net]
-
-  ai:
-    image: ${REGISTRY:-ghcr.io/sinocli/sino_website}/ai:${TAG:-latest}
-    container_name: sino_ai
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-sinounion}
-      DB_USER: ${DB_USER:-sinounion}
-      DB_PASSWORD: ${DB_PASSWORD:-sinounion}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-sinoredis}
-      REDIS_DB: 0
-      AI_HOST: ${AI_HOST:-0.0.0.0}
-      AI_PORT: ${AI_PORT:-8000}
-      AI_SERVICE_URL: http://ai:8000
-      # AI 服务管理/破坏性接口鉴权：浏览器管理端校验 JWT（需与后端共享 JWT_SECRET），
-      # 服务间调用校验内部令牌
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-}
-      BACKEND_BASE_URL: http://backend:8080
-      AI_SERVICE_MEMORIES_DIR: /app/memories
-      UPLOAD_PATH: /app/uploads
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      LANG: C.UTF-8
-      # ↓↓↓ LLM / 向量模型配置：按需填写，见 docker/.env.example ↓↓↓
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
-      DEEPSEEK_REASONER_MODEL: ${DEEPSEEK_REASONER_MODEL:-deepseek-reasoner}
-      QWEN_API_KEY: ${QWEN_API_KEY:-}
-      QWEN_BASE_URL: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      QWEN_MODEL: ${QWEN_MODEL:-qwen-plus}
-      QWEN_VL_MODEL: ${QWEN_VL_MODEL:-qwen-vl-plus}
-      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
-      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
-      VL_API_KEY: ${VL_API_KEY:-}
-      VL_BASE_URL: ${VL_BASE_URL:-}
-      VL_MODEL: ${VL_MODEL:-}
-      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
-      RERANKER_BASE_URL: ${RERANKER_BASE_URL:-}
-      RERANKER_MODEL: ${RERANKER_MODEL:-}
-      RAG_ENABLED: ${RAG_ENABLED:-false}
-      MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
-    volumes:
-      - ai-memories:/app/memories
-      - ai-uploads:/app/uploads
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    networks: [sino-net]
-
-  frontend:
-    image: ${REGISTRY:-ghcr.io/sinocli/sino_website}/frontend:${TAG:-latest}
-    container_name: sino_frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - ai
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: Root@123
+      POSTGRES_DB: sinounion
+      TZ: Asia/Shanghai
     ports:
-      - "${HTTP_PORT:-80}:80"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    networks: [sino-net]
-
-volumes:
-  postgres-data:
-  redis-data:
-  backend-uploads:
-  backend-public:
-  ai-memories:
-  ai-uploads:
-
+      - "5432:5432"
+    volumes:
+      - ./docker/data/postgres-data:/var/lib/postgresql/pgdata
+      - ./backend/src/main/resources/sinounion.sql:/docker-entrypoint-initdb.d/sinounion.sql:ro
+    networks:
+      - sino-website
+  sino-website-redis:
+    image: redis:8.8.0
+    container_name: sino-website-redis
+    restart: always
+    command: redis-server --requirepass sinodata
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./docker/data/redis-data:/data
+    networks:
+      - sino-website
+  sino-website-python:
+    image: sino-website-python:latest
+    container_name: sino-website-python
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      TZ: Asia/Shanghai
+      # 容器内必须监听所有网卡，容器间通过服务名访问
+      PYTHON_HOST: 0.0.0.0
+      PYTHON_PORT: 8000
+    volumes:
+      - ./data/app:/app
+      - ./.env:/app/.env:ro
+    networks:
+      - sino-website
+  sino-website-backend:
+    image: sino-website-backend:latest
+    container_name: sino-website-backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Shanghai
+      # 后端监听：容器内必须监听所有网卡
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8080
+      # 容器间互通：通过 compose 服务名访问，而非 .env 中的 localhost
+      PYTHON_HOST: sino-website-python
+      PYTHON_PORT: 8000
+      PG_HOST: sino-website-postgresql
+      PG_PORT: 5432
+      REDIS_HOST: sino-website-redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./data/app:/app
+      - ./.env:/app/.env:ro
+    networks:
+      - sino-website
+  sino-website-frontend:
+    image: nginx:latest
+    container_name: sino-website-frontend
+    restart: always
+    ports:
+      - "80:80"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./nginx.conf.d:/etc/nginx/conf.d
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    networks:
+      - sino-website
 networks:
-  sino-net:
-    driver: bridge
+  sino-website:

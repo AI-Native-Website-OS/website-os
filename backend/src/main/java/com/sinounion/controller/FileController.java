@@ -1,5 +1,6 @@
 package com.sinounion.controller;
 
+import com.sinounion.util.UploadPathResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,8 +30,9 @@ public class FileController {
         String prefix = "/files/" + type + "/";
         String relativePath = pathInApp.substring(prefix.length());
 
-        File file = new File(uploadPath + File.separator + type, relativePath.replace("/", File.separator)).getCanonicalFile();
-        String canonicalUploadPath = new File(uploadPath).getCanonicalPath();
+        String absoluteUploadPath = UploadPathResolver.resolve(uploadPath);
+        File file = new File(absoluteUploadPath + File.separator + type, relativePath.replace("/", File.separator)).getCanonicalFile();
+        String canonicalUploadPath = new File(absoluteUploadPath).getCanonicalPath();
         if (!file.getCanonicalPath().startsWith(canonicalUploadPath + File.separator)) {
             response.setStatus(403);
             response.getWriter().write("禁止访问");

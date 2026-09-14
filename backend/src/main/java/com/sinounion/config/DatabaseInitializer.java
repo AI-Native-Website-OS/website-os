@@ -224,48 +224,7 @@ public class DatabaseInitializer {
         return null;
     }
 
-    /**
-     * 为内置解决方案/资源模块预置默认分类（仅全新安装且不存在旧表时执行）。
-     * 旧库已有 products 等旧表时，由 ContentUnificationMigrator 负责迁移分类。
-     */
-    private void seedDefaultContentCategories() {
-        try {
-            Integer oldTables = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('industries','resource_categories')",
-                    Integer.class);
-            if (oldTables != null && oldTables > 0) {
-                return;
-            }
-            seedCategoryIfMissing("solutions", "政务服务", "政府及公共服务行业");
-            seedCategoryIfMissing("solutions", "金融行业", "银行、证券、保险等金融行业");
-            seedCategoryIfMissing("solutions", "通用行业", "适用于多个行业的通用解决方案");
-            seedCategoryIfMissing("solutions", "其他行业", "其他各行业定制化方案");
-            seedCategoryIfMissing("resources", "深度资料", "行业深度研究报告、白皮书等专业资料");
-            seedCategoryIfMissing("resources", "咨询动态", "行业资讯、公司动态、市场洞察");
-        } catch (Exception e) {
-            log.warn("Failed to seed default content categories: {}", e.getMessage());
-        }
-    }
-
-    private void seedCategoryIfMissing(String moduleKey, String name, String description) {
-        try {
-            Integer c = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM content_categories WHERE module_key = ? AND name = ? AND deleted = 0",
-                    Integer.class, moduleKey, name);
-            if (c == null || c == 0) {
-                jdbcTemplate.update(
-                        "INSERT INTO content_categories (module_key, name, description, status) VALUES (?, ?, ?, 1)",
-                        moduleKey, name, description);
-                log.info("Seeded default content category: {}/{}", moduleKey, name);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to seed content category {}/{}: {}", moduleKey, name, e.getMessage());
-        }
-    }
-
     private void migrateMissingColumns() {
-        seedDefaultContentCategories();
-
         String[][] columnsToAdd = {
             {"content_items", "category_id", "BIGINT"},
             {"content_items", "is_top", "INT DEFAULT 0"},

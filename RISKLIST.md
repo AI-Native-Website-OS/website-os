@@ -115,7 +115,7 @@
 | H6 | 运行时用共享特权 DB 账号执行 DDL（`CREATE EXTENSION vector`、`ALTER … embedding TYPE vector(dim)`） | 生产表锁/整表重写 | `AI_consultant/knowledge.py:566-589`、`main.py` | 迁移与运行账号分离 |
 | H2 | `AdminRelatedContentController.batch` 对非数字 `ids` 抛 `NumberFormatException` → 500 并回显 | 应 400 | `AdminRelatedContentController.java:53-56` | 参数校验 |
 | H3 | `AuthController /auth/me` 用户被删后 `user` 为 null → NPE | 应 401/404 | `AuthController.java:57-61` | 判空 |
-| H7 | `db.py` `int(DB_PORT)` 于 import 时报错崩溃；Redis 助手吞连接异常返回 `None` | 调用方须处处判空（已导致限流/会话降级行为） | `AI_consultant/db.py:20-33,88-111` | 启动校验配置；连接失败明确报错 |
+| H7 | `db.py` `int(PG_PORT)` 于 import 时报错崩溃；Redis 助手吞连接异常返回 `None` | 调用方须处处判空（已导致限流/会话降级行为） | `AI_consultant/db.py:20-33,88-111` | 启动校验配置；连接失败明确报错 |
 | H8 | `AdminEnvConfigController` / `AdminConfigFileController` 允许在线写任意 `application.yml`/`.env` 内容 | config 权限持有者 ≈ 配置篡改/近 RCE 面，仅靠固定路径约束 | `AdminConfigFileController.java:63-77` | 收紧权限与内容校验、审计日志 |
 
 ---
@@ -167,7 +167,7 @@
 | 编号 | 问题项 | 现状与影响 | 整改建议 |
 | --- | --- | --- | --- |
 | O-01 | 缺少 Docker 方式部署说明 | 部署流程不完整（README 未补充生产 Compose 部署章节） | 补充 Docker 部署文档/脚本 |
-| O-02 | 容器间互通未充分验证 | `docker-compose.yml` 已增加 `AI_HOST=0.0.0.0`、healthcheck 与 `depends_on`；**残留**：未做实际连通性验证 | 逐一验证并固化：后端↔前端、后端↔python、前端↔python |
+| O-02 | 容器间互通未充分验证 | `docker-compose.yml` 已增加 `PYTHON_HOST=0.0.0.0`、healthcheck 与 `depends_on`；**残留**：未做实际连通性验证 | 逐一验证并固化：后端↔前端、后端↔python、前端↔python |
 
 ---
 

@@ -15,7 +15,7 @@ from typing import Optional, List, Dict, Any, Callable
 from sqlalchemy import select, func, delete as sa_delete, update as sa_update
 
 from db import get_db, get_redis, cache_active_session, cache_short_term, clear_short_term_cache
-from models import AiSession, AiMessage, AiTokenUsage
+from models import AiSession, AiMessage, AiTokenUsage, AiPromptConfig
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -93,13 +93,18 @@ class Config:
         self.reranker_top_k = _int("RERANK_TOP_K", 6)
 
         # ── 媒体文件（图片/附件文档向量化用）──
-        self.upload_path = _str("AI_UPLOAD_PATH", _str("UPLOAD_PATH", "uploads"))
-        self.backend_base_url = _str("BACKEND_BASE_URL", "")
+        # 媒体根目录直接复用 UPLOAD_PATH；对话附件存于其 temp 子目录，代码中按需组合 UPLOAD_PATH + "/temp"
+        self.upload_path = _str("UPLOAD_PATH", "uploads")
+        # 后端兜底拉取地址（BACKEND_SERVER_URL）：默认由 BACKEND_HOST/BACKEND_PORT 推导；特殊场景可显式覆盖
+        self.backend_base_url = _str("BACKEND_SERVER_URL", "") or (
+            f"http://{_str('BACKEND_HOST', 'localhost')}:{_str('BACKEND_PORT', '8080')}"
+        )
 
         # ── 知识库关闭时推荐跳转链接的来源（SEO/GEO 配置 seo_configs 的 Canonical URL，见 intent_recognizer）──
 
         # ── Internal defaults (no longer exposed as model config) ──
-        self.system_prompt = os.getenv("AI_SYSTEM_PROMPT", "")
+        # 系统提示词持久化于 ai_prompt_config 表，启动时由 build_system_prompt() 从数据库加载
+        self.system_prompt = ""
         self.session_auto_save = True
         self.session_max_history = 100
         self.memory_short_term_size = 20
@@ -109,7 +114,7 @@ class Config:
         self.memory_dedup_threshold = _float("MEMORY_DEDUP_THRESHOLD", 0.90)
         self.memory_recall_top_k = _int("MEMORY_RECALL_TOP_K", 8)
         self.memory_extract_max_interval = _int("MEMORY_EXTRACT_MAX_INTERVAL", 16)
-        self.memory_warmup_enabled = (os.getenv("MEMORY_WARMUP_ENABLED") or "").strip().lower() != "false"
+        self.memory_warmup_enabled = True
         self.token_log_enabled = True
         self.token_model_pricing = {}
 
@@ -1441,18 +1446,26 @@ class ChatGPT:
 
     # ── Prompt 配置（数据库）───────────────────────────────
     def _load_prompt_config(self) -> Dict:
-        """system_prompt 从 env 读取，suggestions、banned_words 从数据库加载"""
-        sys_prompt = os.getenv("AI_SYSTEM_PROMPT", "")
+        """system_prompt、suggestions、banned_words 均从数据库加载。
+
+        system_prompt 以 ai_prompt_config(type='system_prompt') 为唯一持久化来源；
+        仅当库中无记录时回退到环境变量，用于历史 .env 数据的兼容迁移。
+        """
+        sys_prompt = ""
         suggestions = []
         banned_words = []
         banned_threshold = 0.82
         try:
             with get_db() as db:
                 rows = db.execute(
-                    select(_APC).where(_APC.type.in_(["suggestion", "banned_word", "banned_threshold"])).order_by(_APC.type, _APC.sort_order)
+                    select(AiPromptConfig).where(
+                        AiPromptConfig.type.in_(["system_prompt", "suggestion", "banned_word", "banned_threshold"])
+                    ).order_by(AiPromptConfig.type, AiPromptConfig.sort_order)
                 ).scalars().all()
                 for r in rows:
-                    if r.type == "suggestion":
+                    if r.type == "system_prompt":
+                        sys_prompt = r.content or ""
+                    elif r.type == "suggestion":
                         suggestions.append(r.content)
                     elif r.type == "banned_word":
                         banned_words.append(r.content)
@@ -1859,6 +1872,6 @@ timeline: 事件及时间
 
 if __name__ == "__main__":
     import uvicorn
-    host = os.getenv("AI_HOST", "127.0.0.1")
-    port = int(os.getenv("AI_PORT", "8000"))
+    host = os.getenv("PYTHON_HOST", "127.0.0.1")
+    port = int(os.getenv("PYTHON_PORT", "8000"))
     uvicorn.run("api:app", host=host, port=port, reload=True)

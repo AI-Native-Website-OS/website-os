@@ -88,7 +88,7 @@ function LoginForm() {
 
   return (
     <>
-      <SeoHead title={t('auth.loginTitle')} description="登录圣诺联合账号，访问采购平台、数据空间、AI 应用等企业数字基础设施服务。" path="/login" />
+      <SeoHead title={t('auth.loginTitle')} description="登录账号。" path="/login" />
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">

@@ -5,7 +5,7 @@ import AdminLayout from './admin-layout';
 export const metadata: Metadata = {
   title: {
     default: '后台管理',
-    template: '%s - 圣诺江苏官网',
+    template: '%s',
   },
 };
 

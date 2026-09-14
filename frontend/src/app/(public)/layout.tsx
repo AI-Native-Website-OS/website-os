@@ -4,7 +4,7 @@ import PublicLayout from './public-layout';
 export const metadata: Metadata = {
   title: {
     default: '首页',
-    template: '%s - 圣诺江苏官网',
+    template: '%s',
   },
 };
 

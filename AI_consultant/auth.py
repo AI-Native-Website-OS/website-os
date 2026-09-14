@@ -30,12 +30,41 @@ def _b64url_decode(seg: str) -> bytes:
     return base64.urlsafe_b64decode(seg + pad)
 
 
+_B64_ALPHABET = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+)
+
+
+def _jaxb_base64_decode(secret: str) -> bytes:
+    """复刻 JDK `DatatypeConverter.parseBase64Binary` 的语义（jjwt 0.9.x 对 String 密钥的默认解释）。
+
+    与标准 Base64 解码器的关键差异：
+    - 仅接受标准 Base64 字母表字符（`-`/`_` 等 URL-safe 字符被丢弃）；
+    - 按 4 字符一组解码，末尾不足 4 字符的残缺分组直接忽略（即使有足够位可解出字节）。
+    例如含 `-`/`_` 的密钥，Java 端得到的字节数会比 Python `b64decode` 少，导致 HMAC 验签失败。
+    """
+    filtered = "".join(ch for ch in secret if ch in _B64_ALPHABET or ch == "=")
+    out = bytearray()
+    for i in range(0, len(filtered) - len(filtered) % 4, 4):
+        chunk = filtered[i:i + 4]
+        try:
+            out.extend(base64.b64decode(chunk))
+        except Exception:
+            return bytes(out)
+        if "=" in chunk:
+            break
+    return bytes(out)
+
+
 def _candidate_keys(secret: str) -> list:
     """HMAC 密钥候选：jjwt 0.9.x 对 JWT_SECRET 字符串先做 Base64 解码再签名，
     而旧版本/其他实现可能直接使用原始 UTF-8 字节或 Base64URL 解码；逐一尝试以兼容 Java 端。"""
     keys = [secret.encode("utf-8")]
-    candidates = []
-    # 标准 Base64（宽松：忽略非法字符，匹配 JAXB DatatypeConverter 行为）
+    candidates = [
+        # jjwt 0.9.x 实际行为（JAXB DatatypeConverter），必须优先匹配
+        _jaxb_base64_decode(secret),
+    ]
+    # 标准 Base64（宽松：忽略非法字符）
     try:
         candidates.append(base64.b64decode(secret + "=" * (-len(secret) % 4), validate=False))
     except Exception:

@@ -5,6 +5,7 @@ import { adminApi } from '@/lib/adminApi';
 import { Permission, Role } from '@/types';
 import { useSearchParams } from 'next/navigation';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function AdminPermissions() {
   return (
@@ -202,6 +203,8 @@ function RoleModal({ open, editing, onClose, onSaved }: { open: boolean; editing
 
 function PermissionsContent() {
   const { t } = useI18n();
+  const { hasRole } = useAuth();
+  const isSuperAdmin = hasRole('SUPER_ADMIN');
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [rolePerms, setRolePerms] = useState<Record<string, number[]>>({});
@@ -293,13 +296,13 @@ function PermissionsContent() {
 
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{t('admin.page.permissions')}</h1>
-        <div className="flex gap-2">
+        {isSuperAdmin && <div className="flex gap-2">
           <button onClick={() => setPermModalOpen(true)} className="px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">{t('admin.ui.permissions.managePermissions')}</button>
           <button onClick={openCreateRole} className="px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">{t('admin.ui.permissions.addRole')}</button>
           <button onClick={handleSave} disabled={saving} className="px-6 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50">
             {saving ? t('common.saving') : t('common.saveConfig')}
           </button>
-        </div>
+        </div>}
       </div>
 
       <div className="flex gap-4">
@@ -315,6 +318,7 @@ function PermissionsContent() {
                   {r.userCount > 0 && <span className={`ml-1.5 text-xs ${selectedRole === r.code ? 'text-gray-300' : 'text-gray-400'}`}>{r.userCount}</span>}
                 </button>
                 <div className={`flex pr-2 ${selectedRole === r.code ? '' : ''}`}>
+                  {isSuperAdmin && <>
                   <button
                     onClick={() => openEditRole(r)}
                     className={`px-1.5 py-1 text-xs rounded hover:opacity-70 ${selectedRole === r.code ? 'text-gray-200' : 'text-gray-400'}`}
@@ -325,6 +329,7 @@ function PermissionsContent() {
                     className={`px-1.5 py-1 text-xs rounded hover:opacity-70 ${selectedRole === r.code ? 'text-gray-200' : 'text-gray-400'}`}
                     title={t('admin.ui.permissions.deleteRole')}
                   >✕</button>
+                  </>}
                 </div>
               </div>
             ))}
@@ -343,10 +348,11 @@ function PermissionsContent() {
                     return (
                       <button
                         key={perm.id}
-                        onClick={() => togglePermission(perm.id)}
-                        className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                        onClick={() => isSuperAdmin && togglePermission(perm.id)}
+                        disabled={!isSuperAdmin}
+                        className={`px-3 py-1.5 rounded-lg text-sm border transition-colors disabled:cursor-not-allowed ${
                           checked ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
-                        }`}
+                        } ${!isSuperAdmin ? 'opacity-60' : ''}`}
                       >
                         {perm.name}
                       </button>

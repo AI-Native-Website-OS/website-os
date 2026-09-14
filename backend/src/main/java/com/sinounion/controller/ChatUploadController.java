@@ -33,7 +33,7 @@ public class ChatUploadController {
         absoluteUploadPath = UploadPathResolver.resolve(uploadPath);
     }
 
-    @Value("${UPLOAD_ALLOWED_TYPES}")
+    @Value("${upload.allowed-types}")
     private String allowedTypesConfig;
 
     @Operation(summary = "上传聊天文件")

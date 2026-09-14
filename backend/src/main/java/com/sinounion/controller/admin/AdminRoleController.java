@@ -38,21 +38,21 @@ public class AdminRoleController {
 
     @Operation(summary = "创建角色")
     @PostMapping
-    @PreAuthorize("hasAuthority('user:create')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<RoleVO> createRole(@Valid @RequestBody CreateRoleDTO dto) {
         return Result.success(roleService.createRole(dto));
     }
 
     @Operation(summary = "更新角色")
     @PutMapping("/{code}")
-    @PreAuthorize("hasAuthority('user:update')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<RoleVO> updateRole(@PathVariable String code, @Valid @RequestBody UpdateRoleDTO dto) {
         return Result.success(roleService.updateRole(code, dto));
     }
 
     @Operation(summary = "删除角色")
     @DeleteMapping("/{code}")
-    @PreAuthorize("hasAuthority('user:delete')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<Void> deleteRole(@PathVariable String code) {
         roleService.deleteRole(code);
         return Result.success(null);

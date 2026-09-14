@@ -279,9 +279,9 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
   return (
     <>
       <SeoHead
-        title={`${title} - 圣诺联合`}
-        description={description || `${title} - 圣诺联合`}
-        keywords={`${title},企业软件,数字化解决方案`}
+        title={title}
+        description={description || ''}
+        keywords={title}
         path={listUrl(resolvedKey)}
         breadcrumbs={[
           { name: '首页', url: '/' },

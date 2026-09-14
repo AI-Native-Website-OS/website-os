@@ -138,7 +138,7 @@ export default function AboutPage() {
 
   return (
     <>
-      <SeoHead title={t('about.title')} description="河北圣诺联合科技有限公司——企业数字基础设施服务商" keywords="关于我们,圣诺联合" path="/about" />
+      <SeoHead title={t('about.title')} description="" keywords="关于我们" path="/about" />
       <div className="bg-white min-h-screen">
         {/* 1. 公司介绍 */}
         <section className="pt-28 pb-24 bg-gradient-to-b from-gray-50 to-white">

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHand
 import { motion, AnimatePresence } from 'framer-motion';
 import { adminApi } from '@/lib/adminApi';
 import { SeoConfig, SyncProgress } from '@/types';
-import { SITE_URL } from '@/lib/seo';
+import { getSiteConfig } from '@/hooks/useSiteConfig';
 import { useI18n } from '@/i18n/I18nProvider';
 import { Plus, Pencil, Trash2, X, Save, RefreshCw, Check, AlertCircle, Search, ExternalLink, FileText, LayoutGrid } from 'lucide-react';
 
@@ -162,6 +162,13 @@ export default function AdminSeo() {
   const [faqs, setFaqs] = useState<{ question: string; answer: string }[]>([]);
   const geoFileRefs = useRef<Record<string, GeoFileEditorHandle | null>>({});
   const [geoSaving, setGeoSaving] = useState(false);
+  const [siteUrl, setSiteUrl] = useState('https://example.com');
+
+  useEffect(() => {
+    getSiteConfig()
+      .then((cfg) => { if (cfg.url) setSiteUrl((cfg.url || '').replace(/\/+$/, '')); })
+      .catch(() => {});
+  }, []);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -519,7 +526,7 @@ export default function AdminSeo() {
                 </Field>
 
                 <Field label={t('admin.ui.seo.fieldCanonical')} required>
-                  <input value={form.canonicalUrl || ''} onChange={e => setForm({ ...form, canonicalUrl: e.target.value })} placeholder={`${SITE_URL}/list/category?moduleKey=products`} className={inputCls} />
+                  <input value={form.canonicalUrl || ''} onChange={e => setForm({ ...form, canonicalUrl: e.target.value })} placeholder={`${siteUrl}/list/category?moduleKey=products`} className={inputCls} />
                 </Field>
 
                 <Field label={t('admin.ui.seo.fieldDesc')} hint={t('admin.ui.seo.descHint')}>

@@ -101,7 +101,7 @@ export default function UserCenterPage() {
 
   return (
     <>
-      <SeoHead title="用户中心" description="圣诺联合用户中心" keywords="用户中心" path="/user-center" />
+      <SeoHead title="用户中心" description="" keywords="用户中心" path="/user-center" />
       <div className="bg-white min-h-screen">
         <div className="max-w-[90rem] mx-auto px-6 pt-20 pb-12">
           <div className="max-w-4xl mx-auto space-y-6">

@@ -29,6 +29,7 @@ public class SiteConfigService {
         Map<String, Object> defaults = new LinkedHashMap<>();
         defaults.put("siteName", "示例科技");
         defaults.put("siteFullName", "示例科技有限公司");
+        defaults.put("siteDescription", "");
         defaults.put("copyright", "示例科技有限公司 版权所有");
         defaults.put("companyName", "示例科技有限公司");
         defaults.put("contactPhone", "010-00000000");
@@ -52,26 +53,63 @@ public class SiteConfigService {
 
     public Map<String, Object> getSiteConfig() {
         Map<String, Object> config = defaultConfig();
+        config.putAll(getDbConfig());
+        return config;
+    }
+
+    /** 仅读取 DB 中 site_brand 已配置的键值（不含默认值）；未配置或解析失败返回空。 */
+    private Map<String, Object> getDbConfig() {
         try {
             SystemConfig cfg = systemConfigMapper.findByKey(SITE_BRAND_KEY);
             if (cfg != null && StringUtils.hasText(cfg.getConfigValue())) {
                 Map<String, Object> parsed = objectMapper.readValue(
                         cfg.getConfigValue(), new TypeReference<Map<String, Object>>() {});
                 if (parsed != null) {
-                    config.putAll(parsed);
+                    return parsed;
                 }
             }
         } catch (Exception ignored) {
         }
-        return config;
+        return new LinkedHashMap<>();
     }
 
+    private String getDbString(String key) {
+        Object value = getDbConfig().get(key);
+        return value != null && StringUtils.hasText(value.toString()) ? value.toString().trim() : "";
+    }
+
+    /** SEO/GEO 面向的站点身份：仅取 DB 已配置值，未配置返回空，不注入占位文案。 */
     public String getSiteName() {
-        return getString("siteName", "示例科技");
+        return getDbString("siteName");
     }
 
     public String getFullName() {
-        return getString("siteFullName", "示例科技有限公司");
+        return getDbString("siteFullName");
+    }
+
+    public String getSiteDescription() {
+        return getDbString("siteDescription");
+    }
+
+    public String getSiteUrl() {
+        return getDbString("url");
+    }
+
+    /** 以下 getter 供管理后台/UI 使用，保留中性默认值。 */
+    public String getCopyright() {
+        return getString("copyright", "");
+    }
+
+    public String getCompanyName() {
+        return getString("companyName", "");
+    }
+
+    public String getContactPhone() {
+        return getString("contactPhone", "");
+    }
+
+    public String getContactEmail() {
+        return getString("contactEmail", "");
     }
 
     private String getString(String key, String fallback) {

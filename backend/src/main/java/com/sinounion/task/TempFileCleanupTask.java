@@ -1,5 +1,6 @@
 package com.sinounion.task;
 
+import com.sinounion.util.UploadPathResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.DependsOn;
@@ -18,7 +19,7 @@ public class TempFileCleanupTask {
 
     @Scheduled(cron = "0 0 0 * * ?")
     public void cleanupTempFiles() {
-        File tempDir = new File(uploadPath + "/temp");
+        File tempDir = new File(UploadPathResolver.resolve(uploadPath), "temp");
         if (!tempDir.exists() || !tempDir.isDirectory()) {
             return;
         }

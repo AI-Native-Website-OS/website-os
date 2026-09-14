@@ -1,20 +1,10 @@
-// AI 服务地址：优先使用构建期环境变量 NEXT_PUBLIC_AI_API_BASE_URL（如 http://<host>:8000/ai）；
-// 未设置时保留默认行为：localhost 环境直连 http://localhost:8000/ai，其它环境走 nginx 反代相对路径 /ai。
-const configuredAiBaseUrl = process.env.NEXT_PUBLIC_AI_API_BASE_URL;
-let aiBaseUrl = '/ai';
-if (configuredAiBaseUrl) {
-  aiBaseUrl = configuredAiBaseUrl.replace(/\/+$/, '');
-} else if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-  aiBaseUrl = 'http://localhost:8000/ai';
-}
+// AI 服务地址：固定走相对路径 /ai（本地经 dev 代理 / nginx 反代转发到 AI 服务）。
+const aiBaseUrl = '/ai';
 
-// 客户端直连后端（绕过 nginx 反代）时可在此指定后端可访问地址，例如 http://<host>:8081。
-// 注意：`NEXT_PUBLIC_` 前缀的变量会在 next build 时内联进客户端包；不带前缀的仅构建期可用。
-const apiBaseUrl =
-  process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || '/api';
+// 后端基础地址：固定相对路径 /api（与后端 context-path 一致，本地经 dev 代理 / nginx 反代转发）。
+const apiBaseUrl = '/api';
 
-// 与 lib/static-build.ts 约定一致：外部传入的是后端主机地址（如 http://host:8081），
-// 后端 context-path 为 /api，需补上 /api 前缀；默认相对路径 /api 保持不变。
+// 后端 context-path 固定为 /api；保留 normalizeApiBase 处理外部完整地址时的拼接。
 function normalizeApiBase(base: string): string {
   const trimmed = base.replace(/\/+$/, '');
   if (trimmed === '/api' || trimmed.endsWith('/api')) return trimmed;
@@ -33,11 +23,11 @@ const config = {
   },
 
   upload: {
-    baseUrl: normalizeApiBase(process.env.UPLOAD_BASE_URL || apiBaseUrl),
+    baseUrl: normalizeApiBase(apiBaseUrl),
   },
 
   app: {
-    name: '圣诺联合科技有限公司',
+    name: '官网',
   },
 };
 
