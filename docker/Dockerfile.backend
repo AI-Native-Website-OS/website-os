@@ -1,5 +1,0 @@
-FROM sino-website-base:latest
-WORKDIR /app
-EXPOSE 8080
-ADD sinounion-website.jar /app/backend/sinounion-website.jar
-CMD ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/backend/sinounion-website.jar"]
