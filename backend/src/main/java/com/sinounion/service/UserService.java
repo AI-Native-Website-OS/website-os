@@ -13,6 +13,7 @@ import com.sinounion.vo.UserVO;
 public interface UserService {
     LoginVO login(LoginDTO dto);
     LoginVO loginByCode(SmsLoginDTO dto);
+    LoginVO refresh(String refreshToken);
     UserVO register(RegisterDTO dto);
     UserVO getUserById(Long id);
     User getUserByUsername(String username);

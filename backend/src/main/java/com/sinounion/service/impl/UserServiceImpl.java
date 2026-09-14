@@ -78,18 +78,37 @@ public class UserServiceImpl implements UserService {
 
         userMapper.updateLastLoginTime(user.getId());
 
-        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), user.getTokenVersion());
-
         List<Permission> permissions = permissionMapper.findByRole(user.getRole());
         List<String> permissionCodes = permissions.stream()
                 .map(Permission::getCode)
                 .collect(Collectors.toList());
 
+        return buildLoginVO(user, permissionCodes);
+    }
+
+    /** 构造登录返回（含 access + refresh 双令牌），供 login / loginByCode / refresh 复用。 */
+    private LoginVO buildLoginVO(User user, List<String> permissionCodes) {
+        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), user.getTokenVersion());
+        String refreshToken = jwtUtils.generateRefreshToken(user.getId(), user.getUsername(), user.getRole(), user.getTokenVersion());
         LoginVO loginVO = new LoginVO();
         loginVO.setToken(token);
+        loginVO.setRefreshToken(refreshToken);
         loginVO.setUser(toUserVO(user, permissionCodes));
         loginVO.setPermissions(permissionCodes);
         return loginVO;
+    }
+
+    @Override
+    public LoginVO refresh(String refreshToken) {
+        User user = userMapper.findByUsername(jwtUtils.getUsername(refreshToken));
+        if (user == null) {
+            throw new BusinessException("用户不存在或已被删除");
+        }
+        List<Permission> permissions = permissionMapper.findByRole(user.getRole());
+        List<String> permissionCodes = permissions.stream()
+                .map(Permission::getCode)
+                .collect(Collectors.toList());
+        return buildLoginVO(user, permissionCodes);
     }
 
     @Override
@@ -119,18 +138,13 @@ public class UserServiceImpl implements UserService {
         }
 
         userMapper.updateLastLoginTime(user.getId());
-        String token = jwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), user.getTokenVersion());
 
         List<Permission> permissions = permissionMapper.findByRole(user.getRole());
         List<String> permissionCodes = permissions.stream()
                 .map(Permission::getCode)
                 .collect(Collectors.toList());
 
-        LoginVO loginVO = new LoginVO();
-        loginVO.setToken(token);
-        loginVO.setUser(toUserVO(user, permissionCodes));
-        loginVO.setPermissions(permissionCodes);
-        return loginVO;
+        return buildLoginVO(user, permissionCodes);
     }
 
     private String RandomString() {

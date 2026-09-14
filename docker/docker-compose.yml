@@ -74,6 +74,10 @@ services:
       SPRING_REDIS_PORT: 6379
       SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD:-sinoredis}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      # access token 有效期（毫秒），默认 24 小时 = 86400000；JwtUtils 按毫秒计算
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      # 刷新令牌有效期（毫秒），默认 7 天 = 604800000；过期后需重新登录
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-604800000}
       # 敏感配置 AES 落盘密钥（必须与 ai 服务一致，否则无法互相解密）
       CONFIG_CRYPTO_AES_KEY: ${CONFIG_CRYPTO_AES_KEY:-}
       # AI 服务地址：application.yml 中 ai.service.url 读取 PYTHON_SERVICE_URL

@@ -19,25 +19,48 @@ public class JwtUtils {
     @Value("${jwt.expiration}")
     private Long expiration;
 
+    @Value("${jwt.refresh-expiration:604800000}")
+    private Long refreshExpiration;
+
     public String generateToken(Long userId, String username, String role, Integer tokenVersion) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
         claims.put("role", role);
         claims.put("tokenVersion", tokenVersion != null ? tokenVersion : 0);
-        return createToken(claims, username);
+        return createToken(claims, username, expiration);
+    }
+
+    /** 生成长效刷新令牌（type=refresh），用于前端过期后静默续期。 */
+    public String generateRefreshToken(Long userId, String username, String role, Integer tokenVersion) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", userId);
+        claims.put("username", username);
+        claims.put("role", role);
+        claims.put("tokenVersion", tokenVersion != null ? tokenVersion : 0);
+        claims.put("type", "refresh");
+        return createToken(claims, username, refreshExpiration);
+    }
+
+    /** 读取令牌中的自定义声明（type 等）；解析失败返回 null。 */
+    public String getClaim(String token, String claim) {
+        try {
+            return parseToken(token).get(claim, String.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public String generateToken(Long userId, String username, String role) {
         return generateToken(userId, username, role, 0);
     }
 
-    private String createToken(Map<String, Object> claims, String subject) {
+    private String createToken(Map<String, Object> claims, String subject, long exp) {
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(subject)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .setExpiration(new Date(System.currentTimeMillis() + exp))
                 .signWith(SignatureAlgorithm.HS512, secret)
                 .compact();
     }

@@ -67,6 +67,7 @@ public class SecurityConfig {
                     "/auth/register",
                     "/auth/send-code",
                     "/auth/login-by-code",
+                    "/auth/refresh",
                     "/products/**",
                     "/solutions/**",
                     "/cases/**",

@@ -57,8 +57,10 @@ mybatis-plus:
 # JWT配置
 jwt:
   secret: ${JWT_SECRET}
-  # 有效期固定 24 小时（毫秒）
+  # access token 有效期，单位为毫秒（JwtUtils 中 new Date(now + expiration)）；默认 24 小时
   expiration: 86400000
+  # refresh token 有效期，单位为毫秒；默认 7 天
+  refresh-expiration: 604800000
 
 # 文件上传配置
 upload:

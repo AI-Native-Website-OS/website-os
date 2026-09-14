@@ -1,5 +1,6 @@
 import axios from 'axios';
 import config from '@/config';
+import { refreshAuthToken, clearAuthStorage } from './tokenRefresh';
 
 const api = axios.create({
   baseURL: config.api.baseUrl,
@@ -21,19 +22,25 @@ api.interceptors.request.use(
 
 api.interceptors.response.use(
   (response) => response.data,
-  (error) => {
-    if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('permissions');
-        document.cookie = 'token=; path=/; max-age=0; SameSite=Lax';
-        if (!window.location.pathname.startsWith('/login')) {
+  async (error) => {
+    const original = error.config;
+    const status = error.response?.status;
+    // access token 过期：用 refresh token 静默续期后重试原请求（仅重试一次）
+    if (status === 401 && original && !(original as any)._retry) {
+      (original as any)._retry = true;
+      try {
+        const newToken = await refreshAuthToken();
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api(original);
+      } catch (e) {
+        clearAuthStorage();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
           window.location.href = '/login';
         }
+        return Promise.reject(error.response?.data || error);
       }
     }
-    if (error.response?.status === 403) {
+    if (status === 403) {
       return Promise.reject({ message: '无权限执行此操作', code: 403 });
     }
     return Promise.reject(error.response?.data || error);

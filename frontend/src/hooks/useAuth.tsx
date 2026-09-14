@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, LoginResponse } from '@/types';
 import api from '@/lib/api';
+import { registerTokenUpdater } from '@/lib/tokenRefresh';
 
 interface AuthContextType {
   user: User | null;
@@ -50,11 +51,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
+  // 静默刷新成功后同步 React 状态（tokenRefresh 模块刷新完会回调这里）
+  useEffect(() => {
+    registerTokenUpdater((newToken) => {
+      setToken(newToken);
+    });
+  }, []);
+
   const applyLogin = useCallback((data: LoginResponse) => {
     setToken(data.token);
     setUser(data.user);
     setPermissions(data.permissions || []);
     localStorage.setItem('token', data.token);
+    if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
     localStorage.setItem('user', JSON.stringify(data.user));
     localStorage.setItem('permissions', JSON.stringify(data.permissions || []));
     document.cookie = `token=${data.token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
@@ -96,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setPermissions([]);
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     localStorage.removeItem('permissions');
     document.cookie = 'token=; path=/; max-age=0; SameSite=Lax';
