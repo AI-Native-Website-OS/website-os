@@ -1,0 +1,38 @@
+name: Release
+
+# 触发：本地打 tag 并推送，例如
+#   git tag v1.0.0
+#   git push origin v1.0.0
+# 检测到 v* tag 即触发本工作流，自动生成带分类变更日志的 GitHub Release。
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 创建 Release 需要写仓库内容权限
+permissions:
+  contents: write
+
+jobs:
+  # 解析版本 + 读取 .github/release-config.yml 生成变更日志，创建 GitHub Release
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # release-drafter 需要完整历史来归类 PR
+          fetch-depth: 0
+
+      - name: Generate notes & create Release
+        uses: release-drafter/release-drafter@v6
+        with:
+          # 复用已有的 release 配置模板（按 label 分类生成 What's Changed）
+          config-name: release-config.yml
+          tag: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          version: ${{ github.ref_name }}
+          commitish: ${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
