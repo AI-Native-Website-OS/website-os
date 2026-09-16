@@ -1,0 +1,24 @@
+name: Mirror to Gitee
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push mirror to Gitee
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -e
+          git clone --mirror "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo.git
+          cd repo.git
+          git push --mirror "https://oauth2:${GITEE_TOKEN}@gitee.com/AI-Native-Website-OS/website-os.git"
