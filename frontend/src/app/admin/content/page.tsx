@@ -103,6 +103,7 @@ function AdminContent() {
   const [catSorting, setCatSorting] = useState(false);
   const dragCatItem = useRef<number | null>(null);
   const dragCatOverItem = useRef<number | null>(null);
+  const [itemSorting, setItemSorting] = useState(false);
 
   const isNested = moduleMeta?.moduleType === 1;
   const filterCategoryId = selectedCat?.id ?? (view === 'detail' ? 0 : undefined);
@@ -310,6 +311,19 @@ function AdminContent() {
     }
   };
 
+  const handleItemMove = async (id: number, targetId: number, position: 'before' | 'after') => {
+    setItemSorting(true);
+    try {
+      await adminApi.content.move(moduleKey, id, targetId, position, filterCategoryId);
+      await load();
+    } catch (err) {
+      console.error(err);
+      await load();
+    } finally {
+      setItemSorting(false);
+    }
+  };
+
   if (!moduleKey) {
     return (
       <div className="text-center py-16">
@@ -409,7 +423,7 @@ function AdminContent() {
         <ContentList
           isNested={isNested}
           view={view}
-          selectedCat={selectedCat}
+          categories={categories}
           items={items}
           loading={loading}
           selected={selected}
@@ -434,6 +448,8 @@ function AdminContent() {
           onBatchDelete={handleBatchDelete}
           onBatchStatus={handleBatchStatus}
           onPageChange={setPage}
+          itemSorting={itemSorting}
+          onMoveItem={handleItemMove}
         />
       )}
     </div>
@@ -551,10 +567,10 @@ function CategoryList({ categories, catLoading, catSorting, uncategorizedTotal, 
   );
 }
 
-function ContentList({ isNested, view, selectedCat, items, loading, selected, keyword, page, batchLoading, showForm, editing, saving, moduleKey, filterCategoryId, t, onKeywordChange, onSearch, onToggleSelect, onToggleSelectAll, onToggleStatus, onDelete, onEdit, onCloseForm, onSave, onBatchDelete, onBatchStatus, onPageChange }: {
+function ContentList({ isNested, view, categories, items, loading, selected, keyword, page, batchLoading, showForm, editing, saving, moduleKey, filterCategoryId, t, onKeywordChange, onSearch, onToggleSelect, onToggleSelectAll, onToggleStatus, onDelete, onEdit, onCloseForm, onSave, onBatchDelete, onBatchStatus, onPageChange, itemSorting, onMoveItem }: {
   isNested: boolean;
   view: 'list' | 'detail';
-  selectedCat: ContentModuleCategory | null;
+  categories: ContentModuleCategory[];
   items: PageResult<any> | null;
   loading: boolean;
   selected: Set<number>;
@@ -579,7 +595,105 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
   onBatchDelete: () => void;
   onBatchStatus: (status: number) => void;
   onPageChange: (page: number) => void;
+  itemSorting: boolean;
+  onMoveItem: (id: number, targetId: number, position: 'before' | 'after') => void;
 }) {
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [draggingTitle, setDraggingTitle] = useState('');
+  const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 });
+  const [overId, setOverId] = useState<number | null>(null);
+  const [dropPos, setDropPos] = useState<'before' | 'after'>('after');
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ id: number; overId: number | null; pos: 'before' | 'after' } | null>(null);
+  const flipRef = useRef<{ dir: number; timer: number } | null>(null);
+  const pageRef = useRef(page);
+  const pagesRef = useRef(items?.pages ?? 1);
+  const onPageChangeRef = useRef(onPageChange);
+  const onMoveItemRef = useRef(onMoveItem);
+  pageRef.current = page;
+  pagesRef.current = items?.pages ?? 1;
+  onPageChangeRef.current = onPageChange;
+  onMoveItemRef.current = onMoveItem;
+
+  const clearFlip = () => {
+    if (flipRef.current) {
+      window.clearInterval(flipRef.current.timer);
+      flipRef.current = null;
+    }
+  };
+
+  const startDrag = (e: React.PointerEvent, item: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = { id: item.id, overId: null, pos: 'after' };
+    setDraggingId(item.id);
+    setOverId(null);
+    setDropPos('after');
+    document.body.style.userSelect = 'none';
+    setDraggingTitle(item.title || '');
+    setPreviewPos({ x: e.clientX + 14, y: e.clientY + 10 });
+
+    function onMove(ev: PointerEvent) {
+      setPreviewPos({ x: ev.clientX + 14, y: ev.clientY + 10 });
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const rowEl = el?.closest('[data-row-id]') as HTMLElement | null;
+      if (rowEl) {
+        const id = Number(rowEl.getAttribute('data-row-id'));
+        const rect = rowEl.getBoundingClientRect();
+        const pos: 'before' | 'after' = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        if (dragRef.current) { dragRef.current.overId = id; dragRef.current.pos = pos; }
+        setOverId(id);
+        setDropPos(pos);
+      } else {
+        if (dragRef.current) dragRef.current.overId = null;
+        setOverId(null);
+      }
+
+      const box = listRef.current;
+      if (!box) return;
+      const rect = box.getBoundingClientRect();
+      const EDGE = 56;
+      let dir = 0;
+      if (ev.clientY < rect.top + EDGE) dir = -1;
+      else if (ev.clientY > rect.bottom - EDGE) dir = 1;
+      const cur = flipRef.current;
+      if (dir === 0) {
+        clearFlip();
+      } else if (!cur || cur.dir !== dir) {
+        clearFlip();
+        const timer = window.setInterval(() => {
+          const next = pageRef.current + dir;
+          if (next < 1 || next > pagesRef.current) { clearFlip(); return; }
+          onPageChangeRef.current(next);
+        }, 700);
+        flipRef.current = { dir, timer };
+      }
+    }
+
+    function finish(commit: boolean) {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      document.body.style.userSelect = '';
+      clearFlip();
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDraggingId(null);
+      setDraggingTitle('');
+      setOverId(null);
+      if (commit && d && d.overId != null && d.overId !== d.id) {
+        onMoveItemRef.current(d.id, d.overId, d.pos);
+      }
+    }
+
+    function onUp() { finish(true); }
+    function onCancel() { finish(false); }
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+  };
+
   return (
     <>
       <div className="flex gap-3 mb-4">
@@ -597,7 +711,7 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
       </div>
 
       <Modal open={showForm} onClose={onCloseForm} title={editing ? t('admin.ui.content.editContent') : t('admin.ui.content.addContent')} width="w-[920px]">
-        <ContentForm item={editing} moduleKey={moduleKey} saving={saving} onSave={onSave} categoryId={filterCategoryId} categoryName={isNested && view === 'detail' ? selectedCat?.name : undefined} nested={isNested} />
+        <ContentForm item={editing} moduleKey={moduleKey} saving={saving} onSave={onSave} categoryId={filterCategoryId} categories={categories} nested={isNested} />
       </Modal>
 
       {selected.size > 0 && (
@@ -610,10 +724,17 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
         />
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div ref={listRef} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className={`relative ${itemSorting ? 'pointer-events-none opacity-70' : ''}`}>
+          {itemSorting && (
+            <div className="absolute inset-x-0 top-0 z-10 bg-black/80 text-white text-xs text-center py-1.5">
+              {t('admin.ui.content.savingOrder')}
+            </div>
+          )}
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="w-8 py-3 px-2" title={t('admin.ui.content.dragSort')} />
               <th className="w-10 py-3 px-2">
                 <input type="checkbox"
                   checked={(items?.records?.length ?? 0) > 0 && selected.size === (items?.records?.length ?? 0)}
@@ -632,7 +753,24 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
           </thead>
           <tbody>
             {items?.records?.map((item) => (
-              <tr key={item.id} className="border-b border-gray-100">
+              <tr
+                key={item.id}
+                data-row-id={item.id}
+                style={draggingId !== null && overId === item.id && item.id !== draggingId
+                  ? { boxShadow: dropPos === 'before' ? 'inset 0 2px 0 0 #000' : 'inset 0 -2px 0 0 #000' }
+                  : undefined}
+                className={`border-b border-gray-100 hover:bg-gray-50/50 ${item.id === draggingId ? 'opacity-50' : ''}`}
+              >
+                <td className="py-3 px-2 text-center">
+                  <span
+                    onPointerDown={(e) => startDrag(e, item)}
+                    style={{ touchAction: 'none' }}
+                    className="inline-flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500"
+                    title={t('admin.ui.content.dragSort')}
+                  >
+                    <GripVertical className="w-4 h-4" />
+                  </span>
+                </td>
                 <td className="py-3 px-2">
                   <input type="checkbox"
                     checked={selected.has(item.id)}
@@ -672,11 +810,21 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
               </tr>
             ))}
             {(!items?.records || items.records.length === 0) && (
-              <tr><td colSpan={isNested ? 9 : 6} className="py-8 text-center text-gray-400">{loading ? t('common.loading') : t('admin.ui.content.noContent')}</td></tr>
+              <tr><td colSpan={isNested ? 10 : 7} className="py-8 text-center text-gray-400">{loading ? t('common.loading') : t('admin.ui.content.noContent')}</td></tr>
             )}
           </tbody>
         </table>
+        </div>
       </div>
+
+      {draggingId !== null && (
+        <div
+          style={{ transform: `translate(${previewPos.x}px, ${previewPos.y}px)` }}
+          className="fixed left-0 top-0 z-[60] pointer-events-none px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-lg text-sm text-gray-800 max-w-[240px] truncate"
+        >
+          {draggingTitle}
+        </div>
+      )}
 
       {items && items.pages > 1 && (
         <div className="flex justify-center gap-2 mt-4">
@@ -750,11 +898,11 @@ function initSections(item: any | null): SectionEntry[] {
   return [{ sectionType: 'rich_text', data: { content: '' } }];
 }
 
-function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName, nested }: { item: any | null; moduleKey: string; saving: boolean; onSave: (data: any) => void; categoryId?: number; categoryName?: string; nested: boolean }) {
+function ContentForm({ item, moduleKey, saving, onSave, categoryId, categories, nested }: { item: any | null; moduleKey: string; saving: boolean; onSave: (data: any) => void; categoryId?: number; categories: ContentModuleCategory[]; nested: boolean }) {
   const { t } = useI18n();
   const [form, setForm] = useState({
     title: item?.title || '',
-    categoryId: item?.categoryId ?? (categoryId === 0 ? null : categoryId ?? null),
+    categoryId: item?.categoryId ?? (categoryId && categoryId !== 0 ? categoryId : (categories[0]?.id ?? null)),
     groupName: item?.groupName || '',
     summary: item?.summary || '',
     coverImage: item?.coverImage || '',
@@ -903,11 +1051,15 @@ function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName
         {nested ? (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.category')}</label>
-            <input
-              value={categoryName || (item?.categoryId ? t('adminPages.content.categoryFallback', { id: item.categoryId }) : t('admin.ui.content.uncategorized'))}
-              disabled
-              className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-gray-50 text-gray-500"
-            />
+            <select
+              value={form.categoryId ?? ''}
+              onChange={(e) => update('categoryId', Number(e.target.value))}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+            >
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
           </div>
         ) : null}
         <div>

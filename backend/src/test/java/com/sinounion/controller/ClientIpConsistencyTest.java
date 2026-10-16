@@ -26,7 +26,7 @@ class ClientIpConsistencyTest {
 
     @Test
     void pageViewAndLeadResolveIdenticalClientIp() {
-        ClientIpResolver resolver = spy(new ClientIpResolver("127.0.0.0/8,::1/128", ""));
+        ClientIpResolver resolver = spy(new ClientIpResolver());
 
         StatsService statsService = mock(StatsService.class);
         LeadService leadService = mock(LeadService.class);
@@ -39,12 +39,12 @@ class ClientIpConsistencyTest {
         StatsController statsController = new StatsController(statsService, ipLocationService, resolver);
         LeadController leadController = new LeadController(leadService, ipLocationService, userMapper, resolver);
 
-        statsController.recordPageView("home", null, "/", "visitor-1", "ua", "", trustedProxyRequest(), null);
+        statsController.recordPageView("home", null, "/", "visitor-1", "ua", "", proxyRequest(), null);
 
         Lead lead = new Lead();
         lead.setPhone("13800000000");
         lead.setSource("form");
-        leadController.createLead(lead, trustedProxyRequest(), null);
+        leadController.createLead(lead, proxyRequest(), null);
 
         ArgumentCaptor<String> ipCaptor = ArgumentCaptor.forClass(String.class);
         verify(statsService).recordPageView(any(), any(), any(), anyString(), anyString(),
@@ -58,10 +58,10 @@ class ClientIpConsistencyTest {
         verify(resolver, times(2)).resolve(any());
     }
 
-    private static MockHttpServletRequest trustedProxyRequest() {
+    private static MockHttpServletRequest proxyRequest() {
         MockHttpServletRequest req = new MockHttpServletRequest();
         req.setRemoteAddr("127.0.0.1");
-        req.addHeader("X-Forwarded-For", "203.0.113.5");
+        req.addHeader("X-Real-IP", "203.0.113.5");
         return req;
     }
 }

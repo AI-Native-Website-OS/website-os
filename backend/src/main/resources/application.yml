@@ -5,7 +5,7 @@ server:
   servlet:
     context-path: /api
   # 容器级转发头解析策略：固定 NONE（不信任任何 X-Forwarded-*，防伪造）。
-  # 客户端 IP 由 ClientIpResolver 按 app.trusted-proxies 手动、受控地解析，不受此值影响。
+  # 客户端 IP 由 ClientIpResolver 从 X-Real-IP 头解析（缺失时回退直连来源），不受此值影响。
   forward-headers-strategy: none
 
 spring:
@@ -93,21 +93,9 @@ app:
   frontend-dist-dir: ../frontend/dist
   # 在线编辑配置文件路径（固定为空，由 AdminConfigFileController 按环境探测兜底）
   config-file-path:
-  # ── 可信反向代理（客户端 IP / 地域分布）──
-  # 仅当请求的 TCP 直连来源属于“可信代理”时，才解析 X-Forwarded-For / X-Real-IP 代理链，
-  # 从右向左跳过可信代理得到真实客户端 IP；否则一律使用 TCP 直连地址，防止伪造。
-  #
-  # trusted-proxy-hosts：项目自带部署中代理服务的固定主机名（逗号分隔）。
-  #   Docker Compose 内部 DNS 会把服务名 sino-website-frontend（项目自带 nginx）解析为其容器 IP，
-  #   后端据此精确信任该代理，无需公网 IP、无需手工填写代理地址，也不信任整个容器网段。
-  #   非容器环境解析不到该主机时自动退化，仅使用直连地址。
-  trusted-proxy-hosts: ${TRUSTED_PROXY_HOSTS:sino-website-frontend}
-  #
-  # trusted-proxies：可选的自定义可信代理 IP/CIDR（逗号分隔，支持 IPv4/IPv6 与 CIDR），
-  #   用于外部 Nginx / 云负载均衡器 / K8s Ingress 等项目无法控制的上游代理。默认仅本机回环。
-  #   未配置该项且上游为不可控代理时，将记录到该代理自身 IP（属安全默认，需在部署侧显式配置）。
-  #   禁止使用 0.0.0.0/0（代码会拒绝加载 catch-all 条目）。
-  trusted-proxies: "${TRUSTED_PROXIES:127.0.0.0/8,::1/128}"
+  # ── 客户端 IP（地域分布 / 线索）──
+  # ClientIpResolver 只取反向代理写入的 X-Real-IP 头；缺失或非法时回退 TCP 直连地址。
+  # 部署侧需确保上游代理正确设置 X-Real-IP（本仓库 docker/nginx.conf.d 已设置 X-Real-IP $remote_addr）。
   # IP 归属地解析来源：offline=仅离线 ip2region（默认，零 GEO 配额、无 GEO 外呼）；
   # online=仅在线；auto=在线优先、失败回退离线。ipwho 作为 online 的历史别名仍兼容。
   # 注：本机/内网兜底在所有模式下均可用——仅需一次轻量 IP 回显探出口公网 IP + 离线库定位，不消耗 GEO 配额。

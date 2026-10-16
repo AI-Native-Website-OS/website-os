@@ -7,22 +7,7 @@ import api from '@/lib/api';
 import type { Lead } from '@/types';
 import { useI18n } from '@/i18n/I18nProvider';
 import { t as translate } from '@/i18n/translate';
-
-const SOURCE_LABEL_KEYS: Record<string, string> = {
-  'ai_chat': 'adminComp.leads.source.ai_chat',
-  'page_click': 'adminComp.leads.source.page_click',
-  'whitepaper': 'adminComp.leads.source.whitepaper',
-  'registration': 'adminComp.leads.source.registration',
-  'form': 'adminComp.leads.source.form',
-  'cta-form': 'adminComp.leads.source.cta-form',
-  'product-cta': 'adminComp.leads.source.product-cta',
-  'solution-cta': 'adminComp.leads.source.solution-cta',
-  'case-cta': 'adminComp.leads.source.case-cta',
-  'whitepaper-cta': 'adminComp.leads.source.whitepaper-cta',
-  'demo-booking': 'adminComp.leads.source.demo-booking',
-  'solution': 'adminComp.leads.source.solution',
-  'contact': 'adminComp.leads.source.contact',
-};
+import { urlToDisplayTitle } from '@/lib/pageDisplay';
 
 export default function NotificationBell() {
   const { t } = useI18n();
@@ -80,22 +65,21 @@ export default function NotificationBell() {
             {leads.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-400">{t('adminComp.leads.noRecords')}</div>
             ) : (
-              leads.map((lead) => (
-                <div key={lead.id} className="px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="inline-block px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-medium text-gray-600 mb-1">
-                        {SOURCE_LABEL_KEYS[lead.source] ? t(SOURCE_LABEL_KEYS[lead.source]) : (lead.source || t('adminComp.unknownSource'))}
+              leads.map((lead) => {
+                const sourcePage = urlToDisplayTitle(lead.sourcePage, t('admin.ui.dashboard.pageType.home'));
+                const detail = lead.requirement?.trim() || lead.interestArea?.trim() || '';
+                const summary = `${lead.name || t('common.guest')}：${sourcePage}${detail ? ` · ${detail}` : ''}`;
+                return (
+                  <div key={lead.id} className="px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm text-gray-900 truncate min-w-0" title={summary}>{summary}</p>
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                        {formatTime(lead.createdAt)}
                       </span>
-                      <p className="text-sm font-medium text-gray-900 truncate">{lead.name}</p>
-                      <p className="text-xs text-gray-500 truncate">{lead.company || lead.phone}</p>
                     </div>
-                    <span className="text-[10px] text-gray-400 whitespace-nowrap">
-                      {formatTime(lead.createdAt)}
-                    </span>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
           <Link href="/admin/leads" className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs text-gray-500 hover:text-black border-t border-gray-100 transition-colors" onClick={() => setOpen(false)}>
