@@ -70,12 +70,41 @@ public class StatsServiceImpl implements StatsService {
 
     @Override
     public List<Map<String, Object>> getWeeklyTrend() {
-        return pageViewMapper.findWeeklyTrend();
+        return fillDailyTrend(pageViewMapper.findWeeklyTrend(), 7);
     }
 
     @Override
     public List<Map<String, Object>> getTrafficTrend30d() {
-        return pageViewMapper.findTrafficTrend30Days();
+        return fillDailyTrend(pageViewMapper.findTrafficTrend30Days(), 30);
+    }
+
+    /**
+     * 补齐指定天数的每日序列：数据库缺失的日期以 0 填充，
+     * 保证「7天」「30天」即使数据不足也分别完整展示对应天数。
+     */
+    private List<Map<String, Object>> fillDailyTrend(List<Map<String, Object>> rows, int days) {
+        Map<String, long[]> buckets = new LinkedHashMap<>();
+        LocalDate since = LocalDate.now().minusDays(days - 1);
+        for (int i = 0; i < days; i++) buckets.put(since.plusDays(i).toString(), new long[2]);
+        for (Map<String, Object> r : rows) {
+            Object d = r.get("date");
+            if (d == null) continue;
+            String key = d.toString();
+            if (key.length() > 10) key = key.substring(0, 10);
+            long[] arr = buckets.get(key);
+            if (arr == null) continue;
+            arr[0] += toLong(r.get("pageViews"));
+            arr[1] += toLong(r.get("uniqueVisitors"));
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map.Entry<String, long[]> e : buckets.entrySet()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("date", e.getKey());
+            m.put("pageViews", e.getValue()[0]);
+            m.put("uniqueVisitors", e.getValue()[1]);
+            result.add(m);
+        }
+        return result;
     }
 
     @Override

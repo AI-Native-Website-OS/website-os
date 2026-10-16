@@ -69,9 +69,17 @@ function displayTypeLabel(record?: { extraData?: string } | null, t?: (k: string
 export default function AdminContentPage() {
   return (
     <Suspense fallback={<div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div></div>}>
-      <AdminContent />
+      <AdminContentRoute />
     </Suspense>
   );
+}
+
+// 切换模块（仅 module 查询参数变化）时强制重挂载，避免上一个模块的
+// 分类视图状态（selectedCat / view）残留导致新模块内容被错误过滤为空。
+function AdminContentRoute() {
+  const searchParams = useSearchParams();
+  const moduleKey = searchParams.get('module') || '';
+  return <AdminContent key={moduleKey} />;
 }
 
 function AdminContent() {

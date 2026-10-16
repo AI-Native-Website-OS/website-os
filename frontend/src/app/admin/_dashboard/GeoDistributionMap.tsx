@@ -6,6 +6,7 @@ import { adminApi } from '@/lib/adminApi';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 import { normalizeProvince, normalizeCountry } from './geoNameMap';
+import { loadGeoMap } from './geoData';
 
 type Source = 'all' | 'visit' | 'lead';
 type Scope = 'china' | 'world';
@@ -84,8 +85,8 @@ export default function GeoDistributionMap() {
     (async () => {
       try {
         if (!registeredRef.current[scope]) {
-          const geo = await (await fetch(`/geo/${scope}.json`)).json();
-          echarts.registerMap(scope, geo);
+          const geo = await loadGeoMap(scope);
+          echarts.registerMap(scope, geo as any);
           registeredRef.current[scope] = true;
         }
       } catch {
