@@ -20,6 +20,7 @@ import NotificationBell from '@/components/NotificationBell';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { adminApi } from '@/lib/adminApi';
 import { useI18n } from '@/i18n/I18nProvider';
+import { t as tStatic } from '@/i18n/translate';
 import type { CoreModule } from '@/types';
 
 const BUILTIN_KEYS = ['products', 'solutions', 'cases', 'resources'];
@@ -37,62 +38,62 @@ type NavItem =
   | { type: 'group'; name: string; i18nKey: string; icon: any; permission: null; children: NavLink[] };
 
 const menuTemplate: NavItem[] = [
-  { type: 'link', name: '总览仪表盘', i18nKey: 'admin.dashboard', href: '/admin', icon: LayoutDashboard, permission: 'stats:view' },
+  { type: 'link', name: tStatic('admin.dashboard'), i18nKey: 'admin.dashboard', href: '/admin', icon: LayoutDashboard, permission: 'stats:view' },
   {
     type: 'group',
-    name: '内容管理',
+    name: tStatic('admin.content'),
     i18nKey: 'admin.content',
     icon: FileText,
     permission: null,
     children: [
-      { name: '首页管理', i18nKey: 'admin.homeManage', href: '/admin/home', icon: Home, permission: 'home_section:view' },
-      { name: '关于管理', i18nKey: 'admin.aboutManage', href: '/admin/about', icon: Info, permission: 'about_section:view' },
-      { name: '核心模块管理', i18nKey: 'admin.modulesManage', href: '/admin/modules', icon: Database, permission: 'core_module:view' },
-      { name: '产品管理', i18nKey: 'admin.productManage', href: '/admin/content?module=products', icon: Package, permission: 'core_module:view' },
-      { name: '方案管理', i18nKey: 'admin.solutionManage', href: '/admin/content?module=solutions', icon: Lightbulb, permission: 'core_module:view' },
-      { name: '案例管理', i18nKey: 'admin.caseManage', href: '/admin/content?module=cases', icon: FileCheck, permission: 'core_module:view' },
-      { name: '资源管理', i18nKey: 'admin.resourceManage', href: '/admin/content?module=resources', icon: BookOpen, permission: 'core_module:view' },
-      { name: 'FAQ管理', i18nKey: 'admin.faqManage', href: '/admin/faqs', icon: HelpCircle, permission: 'page:config:view' },
-      { name: '版本管理', i18nKey: 'admin.versionManage', href: '/admin/ai-website', icon: FileCheck, permission: 'page:config:view' },
+      { name: tStatic('admin.homeManage'), i18nKey: 'admin.homeManage', href: '/admin/home', icon: Home, permission: 'home_section:view' },
+      { name: tStatic('admin.aboutManage'), i18nKey: 'admin.aboutManage', href: '/admin/about', icon: Info, permission: 'about_section:view' },
+      { name: tStatic('admin.modulesManage'), i18nKey: 'admin.modulesManage', href: '/admin/modules', icon: Database, permission: 'core_module:view' },
+      { name: tStatic('admin.productManage'), i18nKey: 'admin.productManage', href: '/admin/content?module=products', icon: Package, permission: 'core_module:view' },
+      { name: tStatic('admin.solutionManage'), i18nKey: 'admin.solutionManage', href: '/admin/content?module=solutions', icon: Lightbulb, permission: 'core_module:view' },
+      { name: tStatic('admin.caseManage'), i18nKey: 'admin.caseManage', href: '/admin/content?module=cases', icon: FileCheck, permission: 'core_module:view' },
+      { name: tStatic('admin.resourceManage'), i18nKey: 'admin.resourceManage', href: '/admin/content?module=resources', icon: BookOpen, permission: 'core_module:view' },
+      { name: tStatic('admin.faqManage'), i18nKey: 'admin.faqManage', href: '/admin/faqs', icon: HelpCircle, permission: 'page:config:view' },
+      { name: tStatic('admin.versionManage'), i18nKey: 'admin.versionManage', href: '/admin/ai-website', icon: FileCheck, permission: 'page:config:view' },
     ],
   },
   {
     type: 'group',
-    name: 'AI管理',
+    name: tStatic('admin.aiManage'),
     i18nKey: 'admin.aiManage',
     icon: Bot,
     permission: null,
     children: [
-      { name: '知识库管理', i18nKey: 'admin.knowledgeBase', href: '/admin/ai/knowledge', icon: BookOpen, permission: 'ai:knowledge:view' },
-      { name: '记忆系统', i18nKey: 'admin.memorySystem', href: '/admin/ai/memory', icon: Database, permission: 'ai:knowledge:view' },
-      { name: '对话记录', i18nKey: 'admin.chatRecords', href: '/admin/ai/chats', icon: MessageSquare, permission: 'ai:chat:view' },
-      { name: '提示词配置', i18nKey: 'admin.promptConfig', href: '/admin/ai/prompts', icon: Terminal, permission: 'ai:config:edit' },
-      { name: '模型参数配置', i18nKey: 'admin.modelConfig', href: '/admin/ai/model-config', icon: Sliders, permission: 'ai:config:edit' },
+      { name: tStatic('admin.knowledgeBase'), i18nKey: 'admin.knowledgeBase', href: '/admin/ai/knowledge', icon: BookOpen, permission: 'ai:knowledge:view' },
+      { name: tStatic('admin.memorySystem'), i18nKey: 'admin.memorySystem', href: '/admin/ai/memory', icon: Database, permission: 'ai:knowledge:view' },
+      { name: tStatic('admin.chatRecords'), i18nKey: 'admin.chatRecords', href: '/admin/ai/chats', icon: MessageSquare, permission: 'ai:chat:view' },
+      { name: tStatic('admin.promptConfig'), i18nKey: 'admin.promptConfig', href: '/admin/ai/prompts', icon: Terminal, permission: 'ai:config:edit' },
+      { name: tStatic('admin.modelConfig'), i18nKey: 'admin.modelConfig', href: '/admin/ai/model-config', icon: Sliders, permission: 'ai:config:edit' },
     ],
   },
   {
     type: 'group',
-    name: '线索与推广',
+    name: tStatic('admin.leadMarketing'),
     i18nKey: 'admin.leadMarketing',
     icon: Megaphone,
     permission: null,
     children: [
-      { name: '线索管理', i18nKey: 'admin.leadManage', href: '/admin/leads', icon: Users, permission: 'lead:view' },
-      { name: 'SEO/GEO配置', i18nKey: 'admin.seoConfig', href: '/admin/seo', icon: FileText, permission: 'seo:view' },
+      { name: tStatic('admin.leadManage'), i18nKey: 'admin.leadManage', href: '/admin/leads', icon: Users, permission: 'lead:view' },
+      { name: tStatic('admin.seoConfig'), i18nKey: 'admin.seoConfig', href: '/admin/seo', icon: FileText, permission: 'seo:view' },
     ],
   },
   {
     type: 'group',
-    name: '系统',
+    name: tStatic('admin.system'),
     i18nKey: 'admin.system',
     icon: Settings,
     permission: null,
     children: [
-      { name: '账号管理', i18nKey: 'admin.accountManage', href: '/admin/users', icon: UserCog, permission: 'user:view' },
-      { name: '角色管理', i18nKey: 'admin.roleManage', href: '/admin/roles', icon: Shield, permission: 'user:view' },
-      { name: '权限管理', i18nKey: 'admin.permissionManage', href: '/admin/permissions', icon: KeyRound, permission: 'user:view' },
-      { name: '系统配置', i18nKey: 'admin.systemConfig', href: '/admin/settings', icon: Sliders, permission: 'user:view' },
-      { name: '接口文档', i18nKey: 'admin.apiDocs', href: '/admin/api-docs', icon: Terminal, permission: 'system:api-docs:view' },
+      { name: tStatic('admin.accountManage'), i18nKey: 'admin.accountManage', href: '/admin/users', icon: UserCog, permission: 'user:view' },
+      { name: tStatic('admin.roleManage'), i18nKey: 'admin.roleManage', href: '/admin/roles', icon: Shield, permission: 'user:view' },
+      { name: tStatic('admin.permissionManage'), i18nKey: 'admin.permissionManage', href: '/admin/permissions', icon: KeyRound, permission: 'user:view' },
+      { name: tStatic('admin.systemConfig'), i18nKey: 'admin.systemConfig', href: '/admin/settings', icon: Sliders, permission: 'user:view' },
+      { name: tStatic('admin.apiDocs'), i18nKey: 'admin.apiDocs', href: '/admin/api-docs', icon: Terminal, permission: 'system:api-docs:view' },
     ],
   },
 ];
@@ -111,9 +112,44 @@ function moduleKeyOf(href: string): string | null {
   return href.split('module=')[1] || null;
 }
 
+const TITLE_KEYS: Array<[string, string]> = [
+  ['/admin/ai/knowledge', 'admin.knowledgeBase'],
+  ['/admin/ai/memory', 'admin.memorySystem'],
+  ['/admin/ai/chats', 'admin.chatRecords'],
+  ['/admin/ai/prompts', 'admin.promptConfig'],
+  ['/admin/ai/model-config', 'admin.modelConfig'],
+  ['/admin/ai', 'admin.aiManage'],
+  ['/admin/home', 'admin.homeManage'],
+  ['/admin/modules', 'admin.modulesManage'],
+  ['/admin/about', 'admin.aboutManage'],
+  ['/admin/content', 'admin.content'],
+  ['/admin/faqs', 'admin.faqManage'],
+  ['/admin/leads', 'admin.leadManage'],
+  ['/admin/seo', 'admin.seoConfig'],
+  ['/admin/users', 'admin.accountManage'],
+  ['/admin/roles', 'admin.roleManage'],
+  ['/admin/permissions', 'admin.permissionManage'],
+  ['/admin/settings', 'admin.systemConfig'],
+  ['/admin/ai-website', 'admin.versionManage'],
+  ['/admin/api-docs', 'admin.apiDocs'],
+  ['/admin/stats', 'admin.dashboard'],
+];
+
+function titleKeyForPath(pathname: string): string {
+  let best = '';
+  let key = '';
+  for (const [path, k] of TITLE_KEYS) {
+    if ((pathname === path || pathname.startsWith(path + '/')) && path.length > best.length) {
+      best = path;
+      key = k;
+    }
+  }
+  return key || 'admin.dashboard';
+}
+
 function splitModules(modules: CoreModule[]) {
   const custom = modules.filter(
-    (m) => !BUILTIN_KEYS.includes(m.moduleKey) && m.status === 1
+    (m) => !BUILTIN_KEYS.includes(m.moduleKey) && m.isSystem !== 1 && m.status === 1
   );
   const enabledBuiltinKeys = modules
     .filter((m) => BUILTIN_KEYS.includes(m.moduleKey) && m.status === 1)
@@ -206,6 +242,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     }
   }, [pathname, moduleParam, menuItems]);
+
+  useEffect(() => {
+    document.title = t(titleKeyForPath(pathname));
+  }, [pathname, t]);
 
   const toggleGroup = (groupName: string) => {
     setExpandedGroup(prev => prev === groupName ? null : groupName);

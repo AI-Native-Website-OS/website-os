@@ -41,7 +41,8 @@ def _or_default(value, fallback):
 def _get_http_client() -> httpx.Client:
     global _HTTP_CLIENT
     if _HTTP_CLIENT is None:
-        _HTTP_CLIENT = httpx.Client(timeout=120, headers={"Content-Type": _JSON_MEDIA_TYPE})
+        # 不设超时：一键同步时大批量向量化可能耗时较久，避免 ReadTimeout 中断
+        _HTTP_CLIENT = httpx.Client(timeout=None, headers={"Content-Type": _JSON_MEDIA_TYPE})
     return _HTTP_CLIENT
 
 
@@ -579,8 +580,94 @@ def _find_boundary(text: str, pos: int, separators: Optional[List[str]] = None) 
     return pos
 
 
+# ── Token 计数（优先 tiktoken，缺失时回退到 CJK 感知启发式）──
+_TOKEN_ENCODER = None
+_TOKEN_ENCODER_FAILED = False
+
+
+def _get_token_encoder():
+    global _TOKEN_ENCODER, _TOKEN_ENCODER_FAILED
+    if _TOKEN_ENCODER is not None or _TOKEN_ENCODER_FAILED:
+        return _TOKEN_ENCODER
+    try:
+        import tiktoken
+        _TOKEN_ENCODER = tiktoken.get_encoding("cl100k_base")
+    except Exception as e:
+        logger.warning("tiktoken unavailable, using heuristic token counter: %s", e)
+        _TOKEN_ENCODER_FAILED = True
+    return _TOKEN_ENCODER
+
+
+def _heuristic_tokens(text: str) -> int:
+    """无 tokenizer 时的近似：CJK 字符约 1 token，其余约 4 字符/token。"""
+    cjk = 0
+    for ch in text:
+        o = ord(ch)
+        if (0x4E00 <= o <= 0x9FFF or 0x3040 <= o <= 0x30FF
+                or 0xAC00 <= o <= 0xD7A3 or 0xF900 <= o <= 0xFAFF):
+            cjk += 1
+    return cjk + (len(text) - cjk + 3) // 4
+
+
+def count_tokens(text: str) -> int:
+    if not text:
+        return 0
+    enc = _get_token_encoder()
+    if enc is not None:
+        try:
+            return len(enc.encode(text, disallowed_special=()))
+        except Exception:
+            pass
+    return _heuristic_tokens(text)
+
+
 def estimate_tokens(text: str) -> int:
-    return len(text) // 2
+    """chunk 入库 token 计数（与 count_tokens 一致，保留旧名兼容）。"""
+    return count_tokens(text)
+
+
+def _truncate_chars_to_tokens(text: str, budget: int) -> str:
+    """按字符二分截断，保证 count_tokens 结果 <= budget（超长单行兜底）。"""
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if count_tokens(text[:mid]) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
+
+
+def trim_to_tokens(text: str, budget: int, mode: str = "head") -> str:
+    """按行把文本裁剪到 token 预算内。
+
+    mode="head"：保留前面行；"tail"：保留后面行。逐行贪心，绝不超预算。
+    """
+    if budget <= 0 or not text:
+        return ""
+    if count_tokens(text) <= budget:
+        return text
+    lines = text.splitlines()
+    line_tokens = [count_tokens(ln) + 1 for ln in lines]
+    if mode == "tail":
+        start = len(lines)
+        total = 0
+        while start > 0 and total + line_tokens[start - 1] <= budget:
+            start -= 1
+            total += line_tokens[start]
+        result = "\n".join(lines[start:]).strip()
+    else:
+        kept: List[str] = []
+        total = 0
+        for ln, t in zip(lines, line_tokens):
+            if kept and total + t > budget:
+                break
+            kept.append(ln)
+            total += t
+        result = "\n".join(kept).strip()
+    if count_tokens(result) > budget:
+        result = _truncate_chars_to_tokens(result, budget).strip()
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -661,6 +748,7 @@ class KnowledgeEngine:
 
     # ── 知识库 CRUD ──────────────────────────────────────────
     def create_kb(self, name: str, description: str = "",
+                  code: Optional[str] = None,
                   chunk_size: int = DEFAULT_CHUNK_SIZE,
                   chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
                   chunk_separator: str = DEFAULT_CHUNK_SEPARATOR,
@@ -674,7 +762,7 @@ class KnowledgeEngine:
                   reranker_enabled: bool = False) -> KnowledgeBase:
         with get_db() as db:
             kb = KnowledgeBase(
-                name=name, description=description,
+                name=name, code=code, description=description,
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap,
                 chunk_separator=chunk_separator,
                 text_preprocessing_rules=text_preprocessing_rules or [],
@@ -719,9 +807,62 @@ class KnowledgeEngine:
                 select(KnowledgeBase).where(KnowledgeBase.id == kb_id)
             ).scalar_one_or_none()
 
+    def get_kb_by_code(self, code: str) -> Optional[KnowledgeBase]:
+        if not code:
+            return None
+        with get_db() as db:
+            return db.execute(
+                select(KnowledgeBase).where(KnowledgeBase.code == code)
+            ).scalar_one_or_none()
+
+    def upsert_kb_by_code(self, code: str, name: str, description: str = "") -> KnowledgeBase:
+        """按 code 查找知识库；不存在则创建，存在则同步名称/描述（模块/分类改名时保持同一库）。"""
+        with get_db() as db:
+            kb = db.execute(
+                select(KnowledgeBase).where(KnowledgeBase.code == code)
+            ).scalar_one_or_none()
+            if kb:
+                if name and kb.name != name:
+                    kb.name = name
+                if description is not None:
+                    kb.description = description
+                db.flush()
+                db.refresh(kb)
+                return kb
+            kb = KnowledgeBase(name=name, code=code, description=description or "")
+            db.add(kb)
+            db.flush()
+            db.refresh(kb)
+            return kb
+
     def delete_kb(self, kb_id: int):
         with get_db() as db:
             db.execute(sa_delete(KnowledgeBase).where(KnowledgeBase.id == kb_id))
+
+    def delete_kb_by_code(self, code: str) -> bool:
+        if not code:
+            return False
+        with get_db() as db:
+            kb = db.execute(
+                select(KnowledgeBase).where(KnowledgeBase.code == code)
+            ).scalar_one_or_none()
+            if not kb:
+                return False
+            db.execute(sa_delete(KnowledgeBase).where(KnowledgeBase.id == kb.id))
+            return True
+
+    def clear_kb_documents(self, kb_id: int) -> int:
+        """清空某知识库下的全部文档（chunk 由外键级联删除）。返回删除的文档数。"""
+        with get_db() as db:
+            docs = db.execute(
+                select(KnowledgeDocument.id).where(KnowledgeDocument.knowledge_base_id == kb_id)
+            ).scalars().all()
+            if not docs:
+                return 0
+            db.execute(
+                sa_delete(KnowledgeDocument).where(KnowledgeDocument.knowledge_base_id == kb_id)
+            )
+            return len(docs)
 
     def _kb_to_dict(self, kb: KnowledgeBase) -> Dict:
         rules = kb.text_preprocessing_rules
@@ -733,6 +874,7 @@ class KnowledgeEngine:
         return {
             "id": kb.id,
             "name": kb.name,
+            "code": kb.code or "",
             "description": _or_default(kb.description, ""),
             "status": kb.status,
             "chunk_size": _or_default(kb.chunk_size, DEFAULT_CHUNK_SIZE),
@@ -986,6 +1128,8 @@ class KnowledgeEngine:
                     kc.tokens,
                     kc.document_id,
                     kd.title as doc_title,
+                    kd.source_type,
+                    kd.source_id,
                     {similarity_expr} AS similarity
                 FROM knowledge_chunks kc
                 JOIN knowledge_documents kd ON kd.id = kc.document_id
@@ -1006,7 +1150,9 @@ class KnowledgeEngine:
                     "tokens": r[4],
                     "document_id": r[5],
                     "doc_title": r[6],
-                    "similarity": round(float(r[7]), 4),
+                    "source_type": r[7],
+                    "source_id": r[8],
+                    "similarity": round(float(r[9]), 4),
                 })
             return results
 
@@ -1037,6 +1183,8 @@ class KnowledgeEngine:
                     kd.title as doc_title,
                     kb.name as kb_name,
                     kc.knowledge_base_id,
+                    kd.source_type,
+                    kd.source_id,
                     {similarity_expr} AS similarity
                 FROM knowledge_chunks kc
                 JOIN knowledge_documents kd ON kd.id = kc.document_id
@@ -1059,9 +1207,41 @@ class KnowledgeEngine:
                     "doc_title": r[6],
                     "kb_name": r[7],
                     "knowledge_base_id": r[8],
-                    "similarity": round(float(r[9]), 4),
+                    "source_type": r[9],
+                    "source_id": r[10],
+                    "similarity": round(float(r[11]), 4),
                 })
             return results
+
+    def sample_chunks(self, kb_ids: Optional[List[int]] = None, limit: int = 200) -> List[Dict]:
+        """随机抽样带向量的文本片段（用于推荐话术提取）。
+
+        kb_ids 为空时跨全部知识库抽样。
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        where = "kc.embedding IS NOT NULL AND COALESCE(kc.media_type, 'text') IN ('text', 'doc')"
+        if kb_ids:
+            where += " AND kc.knowledge_base_id = ANY(:kb_ids)"
+            params["kb_ids"] = list(kb_ids)
+        with get_db() as db:
+            rows = db.execute(sa_text(f"""
+                SELECT kc.id, kc.content, kc.document_id, kd.title as doc_title,
+                       kb.name as kb_name, kc.knowledge_base_id
+                FROM knowledge_chunks kc
+                JOIN knowledge_documents kd ON kd.id = kc.document_id
+                JOIN knowledge_bases kb ON kb.id = kc.knowledge_base_id
+                WHERE {where}
+                ORDER BY random()
+                LIMIT :limit
+            """), params).fetchall()
+        return [{
+            "id": r[0],
+            "content": (r[1] or "").strip(),
+            "document_id": r[2],
+            "doc_title": r[3] or "",
+            "kb_name": r[4] or "",
+            "knowledge_base_id": r[5],
+        } for r in rows]
 
     # ── RAG 上下文构建 ────────────────────────────────────────
     def _gather_rag_results(self, query: str, kb_ids: Optional[List[int]],
@@ -1095,27 +1275,89 @@ class KnowledgeEngine:
                 seen.add(idx)
         return reranked_results or results
 
+    _MEDIA_LABELS = {"text": "文本", "doc": "文档", "image": "图片"}
+
     def _format_rag_context(self, results: List[Dict]) -> str:
-        parts = []
+        """按文档分组、标注片段类型与相似度，避免平铺堆砌。"""
+        groups: Dict[Any, List[Dict]] = {}
         for r in results:
-            source = r.get("doc_title", "") or f"Doc#{r['document_id']}"
-            parts.append(f"[来源: {source} (相似度: {r['similarity']:.2f})]\n{r['content']}")
-        return "\n\n---\n\n".join(parts)
+            key = (r.get("knowledge_base_id"), r.get("document_id"))
+            groups.setdefault(key, []).append(r)
+        sections = []
+        for items in groups.values():
+            first = items[0]
+            title = first.get("doc_title", "") or f"Doc#{first.get('document_id')}"
+            kb_name = first.get("kb_name", "") or "默认知识库"
+            lines = [f"### 文档：{title}（知识库：{kb_name}）"]
+            for i, r in enumerate(items, 1):
+                media = self._MEDIA_LABELS.get(r.get("media_type") or "text", "文本")
+                sim = r.get("similarity", 0.0)
+                lines.append(f"[{i}][{media}|相似度 {sim:.2f}] {(r.get('content') or '').strip()}")
+            sections.append("\n".join(lines))
+        return "\n\n".join(sections)
+
+    def gather_structured_results(self, query: str, kb_ids: Optional[List[int]] = None,
+                                  top_k: Optional[int] = None, threshold: Optional[float] = None,
+                                  max_threshold: Optional[float] = None,
+                                  use_reranker: Optional[bool] = None,
+                                  budget_tokens: Optional[int] = None) -> List[Dict]:
+        """检索并返回结构化命中（含 source_type/source_id）。
+
+        供答案上下文与「内容推荐」共用同一次检索，避免重复 embedding 调用。
+        """
+        results = self._gather_rag_results(query, kb_ids, top_k, threshold, max_threshold)
+        if not results:
+            return []
+        results = self._maybe_rerank_results(query, results, top_k, use_reranker)
+        return self._budget_rag_results(results, budget_tokens)
 
     def build_rag_context(self, query: str, kb_ids: Optional[List[int]] = None,
                           top_k: Optional[int] = None, threshold: Optional[float] = None,
                           max_threshold: Optional[float] = None,
-                          use_reranker: Optional[bool] = None) -> str:
-        results = self._gather_rag_results(query, kb_ids, top_k, threshold, max_threshold)
+                          use_reranker: Optional[bool] = None,
+                          budget_tokens: Optional[int] = None) -> str:
+        results = self.gather_structured_results(
+            query, kb_ids, top_k, threshold, max_threshold, use_reranker, budget_tokens)
         if not results:
             return ""
-        results = self._maybe_rerank_results(query, results, top_k, use_reranker)
         return self._format_rag_context(results)
 
+    @staticmethod
+    def _budget_rag_results(results: List[Dict], budget_tokens: Optional[int]) -> List[Dict]:
+        """按相关度顺序累加 content token，超过预算即丢弃后续低分片段。"""
+        if not budget_tokens or budget_tokens <= 0:
+            return results
+        kept: List[Dict] = []
+        total = 0
+        for r in results:
+            t = count_tokens((r.get("content") or "").strip())
+            if not kept:
+                if t > budget_tokens:
+                    r = dict(r)
+                    r["content"] = trim_to_tokens(r.get("content") or "", budget_tokens)
+                    t = count_tokens(r["content"].strip())
+                kept.append(r)
+                total += t
+                continue
+            if total + t > budget_tokens:
+                break
+            kept.append(r)
+            total += t
+        return kept
+
     # ── 通过 source_type/source_id 来同步文档（upsert）───
-    def sync_document(self, kb_id: int, source_type: str, source_id: int,
-                      title: str, content: str,
-                      file_path: str = "", images: Optional[List[Dict]] = None) -> Dict:
+    def sync_document(self, kb_id: Optional[int] = None, source_type: str = "", source_id: int = 0,
+                      title: str = "", content: str = "",
+                      file_path: str = "", images: Optional[List[Dict]] = None,
+                      kb_code: Optional[str] = None, kb_name: Optional[str] = None,
+                      kb_description: str = "") -> Dict:
+        # 按 code find-or-create 知识库；模块/分类改名时复用同一库
+        if kb_code:
+            kb = self.upsert_kb_by_code(kb_code, kb_name or kb_code, kb_description or "")
+            kb_id = kb.id
+        elif kb_id is None:
+            kb_id = 1
+
         with get_db() as db:
             existing = db.execute(
                 select(KnowledgeDocument)
@@ -1126,6 +1368,8 @@ class KnowledgeEngine:
             if existing:
                 existing.title = title
                 existing.content = content
+                # 允许随分类/模块调整把文档迁移到新库
+                existing.knowledge_base_id = kb_id
                 if file_path:
                     existing.file_path = file_path
                 if images is not None:

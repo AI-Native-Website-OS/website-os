@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { aiService } from '@/lib/aiService';
-import type { MemoryFileInfo } from '@/types';
 import { Database, FileText, Save, Loader2, Folder, File, ChevronDown, Eye, Edit3 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +9,7 @@ import remarkBreaks from 'remark-breaks';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface FileEntry {
+  role: string;
   username: string;
   filename: string;
   line_count: number;
@@ -19,8 +19,9 @@ interface FileEntry {
 export default function AdminAiMemory() {
   const { t } = useI18n();
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [expanded, setExpanded] = useState<string[]>([]);
-  const [selected, setSelected] = useState<{ username: string; filename: string } | null>(null);
+  const [expandedRoles, setExpandedRoles] = useState<string[]>([]);
+  const [expandedUsers, setExpandedUsers] = useState<string[]>([]);
+  const [selected, setSelected] = useState<{ role: string; username: string; filename: string } | null>(null);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,24 +39,27 @@ export default function AdminAiMemory() {
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
-  const users = [...new Set(files.map(f => f.username))].sort((a, b) => a.localeCompare(b));
+  const roles = [...new Set(files.map(f => f.role))].sort((a, b) => a.localeCompare(b));
+  const usersOfRole = (role: string) =>
+    [...new Set(files.filter(f => f.role === role).map(f => f.username))].sort((a, b) => a.localeCompare(b));
+  const filesOfUser = (role: string, username: string) =>
+    files.filter(f => f.role === role && f.username === username);
 
-  const toggleUser = (username: string) => {
-    setExpanded(prev =>
-      prev.includes(username)
-        ? prev.filter(u => u !== username)
-        : [...prev, username]
-    );
+  const toggleRole = (role: string) =>
+    setExpandedRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
+
+  const userKey = (role: string, username: string) => `${role}/${username}`;
+  const toggleUser = (role: string, username: string) => {
+    const key = userKey(role, username);
+    setExpandedUsers(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
 
-  const userFiles = (username: string) => files.filter(f => f.username === username);
-
-  const selectFile = async (username: string, filename: string) => {
-    setSelected({ username, filename });
+  const selectFile = async (role: string, username: string, filename: string) => {
+    setSelected({ role, username, filename });
     setError('');
     setPreview(true);
     try {
-      const res: any = await aiService.memory.getFile(username, filename);
+      const res: any = await aiService.memory.getFile(username, filename, role);
       setContent(res.content || '');
     } catch {
       setError(t('common.loadFail'));
@@ -68,14 +72,14 @@ export default function AdminAiMemory() {
     setSaving(true);
     setError('');
     try {
-      await aiService.memory.saveFile(selected.username, { content }, selected.filename);
+      await aiService.memory.saveFile(selected.username, { content }, selected.filename, selected.role);
       await loadFiles();
     } catch { setError(t('common.saveFail')); }
     finally { setSaving(false); }
   };
 
-  const isSelected = (username: string, filename: string) =>
-    selected?.username === username && selected?.filename === filename;
+  const isSelected = (role: string, username: string, filename: string) =>
+    selected?.role === role && selected?.username === username && selected?.filename === filename;
 
   return (
     <div className="h-[calc(100vh-7rem)] flex gap-6">
@@ -90,7 +94,7 @@ export default function AdminAiMemory() {
         <div className="flex-1 overflow-y-auto p-2">
           {loading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-gray-300" /></div>
-          ) : users.length === 0 ? (
+          ) : roles.length === 0 ? (
             <div className="text-center py-8 text-gray-400 text-sm">{t('admin.ui.memory.noFiles')}</div>
           ) : (
             <div className="space-y-0.5">
@@ -99,41 +103,63 @@ export default function AdminAiMemory() {
                 memories/
               </div>
               <div className="ml-3 border-l border-gray-200 space-y-0.5">
-                {users.map(username => {
-                  const open = expanded.includes(username);
-                  const ufs = userFiles(username);
+                {roles.map(role => {
+                  const roleOpen = expandedRoles.includes(role);
+                  const users = usersOfRole(role);
                   return (
-                    <div key={username}>
+                    <div key={role}>
                       <button
-                        onClick={() => toggleUser(username)}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 hover:text-black transition-colors text-left"
+                        onClick={() => toggleRole(role)}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 hover:text-black transition-colors text-left"
                       >
-                        <ChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${open ? 'rotate-0' : '-rotate-90'}`} />
-                        <Folder className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
-                        <span className="font-medium">{username}</span>
-                        <span className="text-xs text-gray-300 ml-auto">{ufs.length}</span>
+                        <ChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${roleOpen ? 'rotate-0' : '-rotate-90'}`} />
+                        <Folder className="w-3.5 h-3.5 flex-shrink-0 text-amber-500" />
+                        <span className="font-semibold">{role}</span>
+                        <span className="text-xs text-gray-300 ml-auto">{users.length}</span>
                       </button>
-                      {open && (
-                        <div className="ml-5 space-y-0.5">
-                          {ufs.map(f => (
-                            <button
-                              key={f.filename}
-                              onClick={() => selectFile(username, f.filename)}
-                              className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
-                                isSelected(username, f.filename)
-                                  ? 'bg-black text-white'
-                                  : 'text-gray-500 hover:bg-gray-50 hover:text-black'
-                              }`}
-                            >
-                              <File className={`w-3 h-3 flex-shrink-0 ${
-                                isSelected(username, f.filename) ? 'text-white/60' : 'text-gray-300'
-                              }`} />
-                              <span className="truncate">{f.filename}</span>
-                              <span className={`text-xs ml-auto ${
-                                isSelected(username, f.filename) ? 'text-white/40' : 'text-gray-300'
-                              }`}>{t('admin.ui.memory.lines').replace('{n}', String(f.line_count))}</span>
-                            </button>
-                          ))}
+                      {roleOpen && (
+                        <div className="ml-4 border-l border-gray-200 space-y-0.5">
+                          {users.map(username => {
+                            const key = userKey(role, username);
+                            const userOpen = expandedUsers.includes(key);
+                            const ufs = filesOfUser(role, username);
+                            return (
+                              <div key={key}>
+                                <button
+                                  onClick={() => toggleUser(role, username)}
+                                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-50 hover:text-black transition-colors text-left"
+                                >
+                                  <ChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${userOpen ? 'rotate-0' : '-rotate-90'}`} />
+                                  <Folder className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+                                  <span className="truncate">{username}</span>
+                                  <span className="text-xs text-gray-300 ml-auto">{ufs.length}</span>
+                                </button>
+                                {userOpen && (
+                                  <div className="ml-4 border-l border-gray-200 space-y-0.5">
+                                    {ufs.map(f => (
+                                      <button
+                                        key={f.filename}
+                                        onClick={() => selectFile(role, username, f.filename)}
+                                        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                                          isSelected(role, username, f.filename)
+                                            ? 'bg-black text-white'
+                                            : 'text-gray-500 hover:bg-gray-50 hover:text-black'
+                                        }`}
+                                      >
+                                        <File className={`w-3 h-3 flex-shrink-0 ${
+                                          isSelected(role, username, f.filename) ? 'text-white/60' : 'text-gray-300'
+                                        }`} />
+                                        <span className="truncate">{f.filename}</span>
+                                        <span className={`text-xs ml-auto ${
+                                          isSelected(role, username, f.filename) ? 'text-white/40' : 'text-gray-300'
+                                        }`}>{t('admin.ui.memory.lines').replace('{n}', String(f.line_count))}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -151,7 +177,9 @@ export default function AdminAiMemory() {
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <FileText className="w-4 h-4 text-gray-500" />
-                <h3 className="text-sm font-semibold text-gray-900">memories/{selected.username}/{selected.filename}</h3>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  memories/{selected.role}/{selected.username}/{selected.filename}
+                </h3>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setPreview(!preview)} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">

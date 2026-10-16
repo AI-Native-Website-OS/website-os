@@ -2,15 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
-import { HomeSection, FooterConfig } from '@/types';
-import { Plus, Pencil, Trash2, GripVertical, Globe, RefreshCw, Copyright, SaveAll } from 'lucide-react';
-import { useSyncProgress } from '@/hooks/useSyncProgress';
+import { HomeSection, FooterConfig, FooterQrcodeItem, FooterLinkItem } from '@/types';
+import { Plus, Pencil, Trash2, GripVertical, RefreshCw, Copyright, SaveAll } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
 
 import Modal from '@/components/Modal';
 import { useConfirm } from '@/components/ConfirmDialog';
 import BlockForm from '@/components/BlockForm';
 import ImageUploader from '@/components/ImageUploader';
+import { QR_IMAGE_RULES } from '@/lib/uploadRules';
 
 const typeLabelKeys: Record<string, string> = {
   list: 'admin.ui.sections.type.list',
@@ -21,21 +21,25 @@ const typeLabelKeys: Record<string, string> = {
   carousel: 'admin.ui.sections.type.carousel',
 };
 
-const defaultFooter: FooterConfig = {
-  logo: '',
-  copyright: '',
-  policeIcon: '',
-  icpNumber: '',
-  icpUrl: '',
-  policeNumber: '',
-  policeUrl: '',
-  extra: [
-    { label: '公司名称', value: '' },
-    { label: '公司地址', value: '' },
-    { label: '联系电话', value: '' },
-    { label: '邮箱', value: '' },
-  ],
-};
+function buildDefaultFooter(t: (key: string, params?: Record<string, string | number>) => string): FooterConfig {
+  return {
+    logo: '',
+    copyright: '',
+    policeIcon: '',
+    icpNumber: '',
+    icpUrl: '',
+    policeNumber: '',
+    policeUrl: '',
+    extra: [
+      { label: t('adminPages.homeFooter.defaultCompanyLabel'), value: '' },
+      { label: t('adminPages.homeFooter.defaultAddressLabel'), value: '' },
+      { label: t('adminPages.homeFooter.defaultPhoneLabel'), value: '' },
+      { label: t('adminPages.homeFooter.defaultEmailLabel'), value: '' },
+    ],
+    qrcodes: [],
+    links: [],
+  };
+}
 
 const fieldCls =
   'w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400';
@@ -44,6 +48,8 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
   const { t } = useI18n();
   const [newLabel, setNewLabel] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [newLinkName, setNewLinkName] = useState('');
+  const [newLinkUrl, setNewLinkUrl] = useState('');
 
   const set = (patch: Partial<FooterConfig>) => onChange({ ...config, ...patch });
 
@@ -63,29 +69,55 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
 
   const removeExtra = (i: number) => set({ extra: config.extra.filter((_, j) => j !== i) });
 
+  const qrcodes = config.qrcodes || [];
+
+  const addQrcode = () => set({ qrcodes: [...qrcodes, { image: '', label: '' }] });
+
+  const updateQrcode = (i: number, field: keyof FooterQrcodeItem, val: string) => {
+    set({ qrcodes: qrcodes.map((it, j) => (j === i ? { ...it, [field]: val } : it)) });
+  };
+
+  const removeQrcode = (i: number) => set({ qrcodes: qrcodes.filter((_, j) => j !== i) });
+
+  const links = config.links || [];
+
+  const addLink = () => {
+    const name = newLinkName.trim();
+    const url = newLinkUrl.trim();
+    if (name || url) {
+      set({ links: [...links, { name, url }] });
+      setNewLinkName('');
+      setNewLinkUrl('');
+    }
+  };
+
+  const updateLink = (i: number, field: keyof FooterLinkItem, val: string) => {
+    set({ links: links.map((it, j) => (j === i ? { ...it, [field]: val } : it)) });
+  };
+
+  const removeLink = (i: number) => set({ links: links.filter((_, j) => j !== i) });
+
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
       <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
         <div className="flex items-center gap-2 mb-4">
           <span className="text-xs font-semibold text-gray-900">{t('admin.ui.homeFooter.copyrightTitle')}</span>
           <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px]">{t('admin.ui.homeFooter.fixedItems')}</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-x-6 gap-y-5">
+        <div className="grid grid-cols-1 gap-y-5">
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.logo')}</label>
             <ImageUploader value={config.logo} onChange={(url) => set({ logo: url })} autoUpload uploadType="image" subPath="footer" size="sm" objectFit="contain" />
           </div>
-          <div className="grid gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.copyrightLabel')}</label>
-              <input value={config.copyright} onChange={(e) => set({ copyright: e.target.value })} className={fieldCls} placeholder={t('admin.ui.homeFooter.copyrightPlaceholder')} maxLength={200} />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.copyrightLabel')}</label>
+            <input value={config.copyright} onChange={(e) => set({ copyright: e.target.value })} className={fieldCls} placeholder={t('admin.ui.homeFooter.copyrightPlaceholder')} maxLength={200} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.policeIcon')}</label>
             <ImageUploader value={config.policeIcon} onChange={(url) => set({ policeIcon: url })} autoUpload uploadType="image" subPath="footer" size="sm" objectFit="contain" fallbackSrc="/police.png" />
           </div>
-          <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.policeNumber')}</label>
               <input value={config.policeNumber} onChange={(e) => set({ policeNumber: e.target.value })} className={fieldCls} placeholder={t('admin.ui.homeFooter.policeNumberPlaceholder')} maxLength={100} />
@@ -94,6 +126,8 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
               <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.policeUrl')}</label>
               <input value={config.policeUrl} onChange={(e) => set({ policeUrl: e.target.value })} className={fieldCls} placeholder="https://..." maxLength={500} />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.icpNumber')}</label>
               <input value={config.icpNumber} onChange={(e) => set({ icpNumber: e.target.value })} className={fieldCls} placeholder={t('admin.ui.homeFooter.icpNumberPlaceholder')} maxLength={100} />
@@ -106,7 +140,7 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
         </div>
       </div>
 
-      <div>
+      <div className="order-1">
         <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.otherFooter')}</label>
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <table className="w-full text-xs">
@@ -125,7 +159,7 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
                       value={it.label}
                       onChange={(e) => updateExtra(i, 'label', e.target.value)}
                       className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400"
-                      maxLength={50}
+                      maxLength={5}
                     />
                   </td>
                   <td className="py-1.5 px-3">
@@ -152,9 +186,97 @@ function FooterEditor({ config, onChange }: { config: FooterConfig; onChange: (v
           </table>
         </div>
         <div className="flex items-center gap-2 mt-2">
-          <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder={t('admin.ui.homeFooter.labelPlaceholder')} className="w-40 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400" maxLength={50} />
+          <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder={t('admin.ui.homeFooter.labelPlaceholder')} className="w-40 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400" maxLength={5} />
           <input value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder={t('admin.ui.homeFooter.valuePlaceholder')} className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400" maxLength={200} />
           <button onClick={addExtra} className="px-3 py-1.5 text-xs font-medium text-white bg-black rounded-lg hover:bg-gray-800 transition-colors cursor-pointer">
+            {t('admin.ui.homeFooter.add')}
+          </button>
+        </div>
+      </div>
+
+      <div className="order-3">
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-semibold text-gray-700">{t('admin.ui.homeFooter.qrcodeTitle')}</label>
+          <button onClick={addQrcode} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-black rounded-lg hover:bg-gray-800 transition-colors cursor-pointer">
+            <Plus className="w-3.5 h-3.5" />{t('admin.ui.homeFooter.addQrcode')}
+          </button>
+        </div>
+        {qrcodes.length === 0 ? (
+          <p className="text-xs text-gray-400 py-3 text-center border border-dashed border-gray-200 rounded-lg">{t('admin.ui.homeFooter.noQrcode')}</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {qrcodes.map((it, i) => (
+              <div key={i} className="border border-gray-200 rounded-lg p-3 bg-gray-50/50 flex gap-3">
+                <ImageUploader value={it.image} onChange={(url) => updateQrcode(i, 'image', url)} autoUpload uploadType="image" subPath="footer" size="sm" objectFit="contain" rules={QR_IMAGE_RULES} uploadLabel={t('admin.ui.homeFooter.qrcodeUpload')} />
+                <div className="flex-1 min-w-0 flex flex-col">
+                  <label className="block text-[10px] font-semibold text-gray-500 mb-1">{t('admin.ui.homeFooter.qrcodeLabel')}</label>
+                  <input
+                    value={it.label}
+                    onChange={(e) => updateQrcode(i, 'label', e.target.value)}
+                    className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400"
+                    placeholder={t('admin.ui.homeFooter.qrcodeLabelPlaceholder')}
+                    maxLength={50}
+                  />
+                  <button onClick={() => removeQrcode(i)} className="mt-auto self-start inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title={t('common.delete')}>
+                    <Trash2 className="w-3.5 h-3.5" />{t('common.delete')}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="order-2">
+        <label className="block text-xs font-semibold text-gray-700 mb-1.5">{t('admin.ui.homeFooter.linksTitle')}</label>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="text-left py-2 px-3 font-semibold text-gray-900 w-40">{t('admin.ui.homeFooter.linkColName')}</th>
+                <th className="text-left py-2 px-3 font-semibold text-gray-900">{t('admin.ui.homeFooter.linkColUrl')}</th>
+                <th className="w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {links.map((it, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="py-1.5 px-3">
+                    <input
+                      value={it.name}
+                      onChange={(e) => updateLink(i, 'name', e.target.value)}
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400"
+                      maxLength={10}
+                    />
+                  </td>
+                  <td className="py-1.5 px-3">
+                    <input
+                      value={it.url}
+                      onChange={(e) => updateLink(i, 'url', e.target.value)}
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400"
+                      placeholder="https://..."
+                      maxLength={500}
+                    />
+                  </td>
+                  <td className="py-1.5 px-3 text-center">
+                    <button onClick={() => removeLink(i)} className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title={t('common.delete')}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {links.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="py-4 text-center text-gray-400">{t('admin.ui.homeFooter.noLinks')}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <input value={newLinkName} onChange={(e) => setNewLinkName(e.target.value)} placeholder={t('admin.ui.homeFooter.linkNamePlaceholder')} className="w-40 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400" maxLength={10} />
+          <input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://..." className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400" maxLength={500} />
+          <button onClick={addLink} className="px-3 py-1.5 text-xs font-medium text-white bg-black rounded-lg hover:bg-gray-800 transition-colors cursor-pointer">
             {t('admin.ui.homeFooter.add')}
           </button>
         </div>
@@ -170,13 +292,12 @@ export default function AdminHome() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<HomeSection | null>(null);
   const [saving, setSaving] = useState(false);
-  const { progress, syncing, startSync, stopSync } = useSyncProgress();
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const { confirm, ConfirmDialog } = useConfirm();
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
-  const [footerConfig, setFooterConfig] = useState<FooterConfig>(defaultFooter);
+  const [footerConfig, setFooterConfig] = useState<FooterConfig>(() => buildDefaultFooter(t));
   const [footerLoading, setFooterLoading] = useState(true);
   const [savingFooter, setSavingFooter] = useState(false);
 
@@ -210,7 +331,7 @@ export default function AdminHome() {
             extra.push({ label, value: parsed[key] });
           }
         });
-        setFooterConfig({ ...defaultFooter, ...parsed, extra });
+        setFooterConfig({ ...buildDefaultFooter(t), ...parsed, extra });
       }
     } catch {
       // 保持默认配置
@@ -244,7 +365,7 @@ export default function AdminHome() {
   };
 
   const handleDelete = async (item: HomeSection) => {
-    if (!(await confirm(t('admin.ui.sections.deleteConfirm').replace('{name}', item.title || '未命名')))) return;
+    if (!(await confirm(t('admin.ui.sections.deleteConfirm').replace('{name}', item.title || t('adminPages.untitled'))))) return;
     try {
       await adminApi.homeSections.delete(item.id);
       setMessage({ type: 'success', text: t('common.deleteSuccess') });
@@ -254,14 +375,10 @@ export default function AdminHome() {
     }
   };
 
-  useEffect(() => () => stopSync(), [stopSync]);
-
-  const handleSync = () => {
-    startSync('home');
-  };
-
   const handleSaveFooter = async () => {
-    const emailItem = footerConfig.extra.find((it) => it.label === '邮箱');
+    const emailItem = footerConfig.extra.find(
+      (it) => it.label === '邮箱' || it.label === t('adminPages.homeFooter.defaultEmailLabel')
+    );
     if (emailItem?.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailItem.value)) {
       setMessage({ type: 'error', text: t('admin.ui.home.emailInvalid') });
       return;
@@ -347,15 +464,6 @@ export default function AdminHome() {
           <p className="text-sm text-gray-500 mt-1">{t('admin.ui.home.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer"
-            title={t('admin.ui.sections.syncTitle')}
-          >
-            {syncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-            {syncing ? t('common.syncing') : t('common.syncAll')}
-          </button>
           <button
             onClick={() => {
               setEditing(null);

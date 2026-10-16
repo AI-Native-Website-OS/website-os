@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useSiteConfig } from '@/hooks/useSiteConfig';
@@ -9,43 +9,45 @@ import type { AiWebsiteConfig, AiWebsiteVersionItem, AiWebsiteComparisonRow } fr
 
 const CONFIG_KEY = 'ai_website_config';
 
-const DEFAULT_CONFIG: AiWebsiteConfig = {
-  title: 'AI 企业官网 · 版本介绍',
-  subtitle: '从内容管理到 AI 顾问，选择适合您企业规模的版本',
-  comparisonTitle: '功能对比',
-  versions: [
-    {
-      key: 'basic', name: '基础版', tagline: '适合个人与初创团队', price: '¥0', priceNote: '开源免费',
-      description: '快速搭建品牌官网，内置内容管理与 AI 顾问体验。',
-      features: ['官网内容管理（产品/方案/案例/资源）', 'AI 智能顾问（每日限量）', '中英双语界面', '线索采集与后台管理'],
-      highlight: false, ctaLabel: '免费体验', ctaUrl: '/#chat',
-    },
-    {
-      key: 'pro', name: '专业版', tagline: '适合成长型企业', price: '¥399', priceNote: '每月',
-      description: '在基础版之上，解锁完整 AI 能力与营销分析。',
-      features: ['基础版全部功能', 'AI 顾问不限量 + 知识库 RAG', 'AI 长期记忆与意图识别', '用户行为追踪与转化分析', 'SEO / GEO 自动优化', '优先技术支持'],
-      highlight: true, ctaLabel: '立即升级', ctaUrl: '/#chat',
-    },
-    {
-      key: 'enterprise', name: '旗舰版', tagline: '适合大型企业 / 集团', price: '定制', priceNote: '联系我们',
-      description: '专属私有化部署，多站点多语言与深度定制。',
-      features: ['专业版全部功能', '私有化部署（本地/专有云）', '多站点 / 多语言 / 品牌定制', '专属模型微调与知识库', '专属客户成功经理'],
-      highlight: false, ctaLabel: '联系我们', ctaUrl: '/about#contact',
-    },
-  ],
-  comparisonRows: [
-    { feature: '官网内容管理', values: { basic: '✓', pro: '✓', enterprise: '✓' } },
-    { feature: 'AI 智能顾问', values: { basic: '每日限量', pro: '不限量', enterprise: '不限量' } },
-    { feature: '知识库 RAG 检索', values: { basic: '—', pro: '✓', enterprise: '✓' } },
-    { feature: 'AI 长期记忆', values: { basic: '—', pro: '✓', enterprise: '✓' } },
-    { feature: '用户行为追踪', values: { basic: '基础', pro: '✓', enterprise: '✓' } },
-    { feature: '中英双语', values: { basic: '✓', pro: '✓', enterprise: '✓' } },
-    { feature: 'SEO / GEO 优化', values: { basic: '—', pro: '✓', enterprise: '✓' } },
-    { feature: '私有化部署', values: { basic: '—', pro: '—', enterprise: '✓' } },
-    { feature: '专属模型定制', values: { basic: '—', pro: '—', enterprise: '✓' } },
-    { feature: '技术支持', values: { basic: '社区', pro: '优先', enterprise: '专属' } },
-  ],
-};
+function buildDefaultConfig(t: (key: string, params?: Record<string, string | number>) => string): AiWebsiteConfig {
+  return {
+    title: t('adminPages.aiWebsite.defaultTitle'),
+    subtitle: t('adminPages.aiWebsite.defaultSubtitle'),
+    comparisonTitle: t('adminPages.aiWebsite.defaultComparisonTitle'),
+    versions: [
+      {
+        key: 'basic', name: t('adminPages.aiWebsite.basicName'), tagline: t('adminPages.aiWebsite.basicTagline'), price: '¥0', priceNote: t('adminPages.aiWebsite.basicPriceNote'),
+        description: t('adminPages.aiWebsite.basicDesc'),
+        features: t('adminPages.aiWebsite.basicFeatures').split('\n'),
+        highlight: false, ctaLabel: t('adminPages.aiWebsite.basicCta'), ctaUrl: '/#chat',
+      },
+      {
+        key: 'pro', name: t('adminPages.aiWebsite.proName'), tagline: t('adminPages.aiWebsite.proTagline'), price: '¥399', priceNote: t('adminPages.aiWebsite.proPriceNote'),
+        description: t('adminPages.aiWebsite.proDesc'),
+        features: t('adminPages.aiWebsite.proFeatures').split('\n'),
+        highlight: true, ctaLabel: t('adminPages.aiWebsite.proCta'), ctaUrl: '/#chat',
+      },
+      {
+        key: 'enterprise', name: t('adminPages.aiWebsite.entName'), tagline: t('adminPages.aiWebsite.entTagline'), price: t('adminPages.aiWebsite.entPrice'), priceNote: t('adminPages.aiWebsite.entPriceNote'),
+        description: t('adminPages.aiWebsite.entDesc'),
+        features: t('adminPages.aiWebsite.entFeatures').split('\n'),
+        highlight: false, ctaLabel: t('adminPages.aiWebsite.entCta'), ctaUrl: '/about#contact',
+      },
+    ],
+    comparisonRows: [
+      { feature: t('adminPages.aiWebsite.cmpContent'), values: { basic: '✓', pro: '✓', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpAi'), values: { basic: t('adminPages.aiWebsite.valDailyLimit'), pro: t('adminPages.aiWebsite.valUnlimited'), enterprise: t('adminPages.aiWebsite.valUnlimited') } },
+      { feature: t('adminPages.aiWebsite.cmpKbRag'), values: { basic: '—', pro: '✓', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpMemory'), values: { basic: '—', pro: '✓', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpTracking'), values: { basic: t('adminPages.aiWebsite.valBasic'), pro: '✓', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpBilingual'), values: { basic: '✓', pro: '✓', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpSeo'), values: { basic: '—', pro: '✓', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpPrivate'), values: { basic: '—', pro: '—', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpCustomModel'), values: { basic: '—', pro: '—', enterprise: '✓' } },
+      { feature: t('adminPages.aiWebsite.cmpSupport'), values: { basic: t('adminPages.aiWebsite.valCommunity'), pro: t('adminPages.aiWebsite.valPriority'), enterprise: t('adminPages.aiWebsite.valExclusive') } },
+    ],
+  };
+}
 
 function inputCls(dark: boolean, extra = '') {
   return `${dark ? 'border-gray-600 bg-transparent text-gray-100 placeholder:text-gray-400' : 'border-gray-300'} w-full px-3 py-2 border rounded-lg text-sm ${extra}`;
@@ -60,11 +62,12 @@ function remapRowValues(row: AiWebsiteComparisonRow, keys: string[]): AiWebsiteC
 export default function AdminAiWebsitePage() {
   const { t } = useI18n();
   const { siteConfig } = useSiteConfig();
+  const defaults = useMemo(() => buildDefaultConfig(t), [t]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [config, setConfig] = useState<AiWebsiteConfig>(DEFAULT_CONFIG);
+  const [config, setConfig] = useState<AiWebsiteConfig>(() => buildDefaultConfig(t));
 
   const versionEnabled = siteConfig.versionEnabled !== false;
 
@@ -119,8 +122,8 @@ export default function AdminAiWebsitePage() {
     setConfig(prev => ({
       ...prev,
       versions: [...(prev.versions || []), {
-        key: `v${Date.now()}`, name: '新版本', tagline: '', price: '', priceNote: '',
-        description: '', features: [], highlight: false, ctaLabel: '了解更多', ctaUrl: '/#chat',
+        key: `v${Date.now()}`, name: t('adminPages.aiWebsite.newVersionName'), tagline: '', price: '', priceNote: '',
+        description: '', features: [], highlight: false, ctaLabel: t('adminPages.aiWebsite.newVersionCta'), ctaUrl: '/#chat',
       }],
     }));
   };
@@ -155,7 +158,7 @@ export default function AdminAiWebsitePage() {
       const keys = (prev.versions || []).map(v => v.key);
       const values: Record<string, string> = {};
       keys.forEach(k => { values[k] = '✓'; });
-      return { ...prev, comparisonRows: [...(prev.comparisonRows || []), { feature: '新功能', values }] };
+      return { ...prev, comparisonRows: [...(prev.comparisonRows || []), { feature: t('adminPages.aiWebsite.newFeature'), values }] };
     });
   };
 
@@ -184,8 +187,8 @@ export default function AdminAiWebsitePage() {
     }
   };
 
-  const versions = config.versions || DEFAULT_CONFIG.versions || [];
-  const rows = config.comparisonRows || DEFAULT_CONFIG.comparisonRows || [];
+  const versions = config.versions || defaults.versions || [];
+  const rows = config.comparisonRows || defaults.comparisonRows || [];
 
   return (
     <div>

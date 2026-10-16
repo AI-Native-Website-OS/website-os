@@ -1,26 +1,31 @@
+import { t } from '@/i18n/translate';
+
 export interface BlockTypeOption {
   type: string;
   label: string;
   desc: string;
 }
 
-export const BLOCK_TYPES: BlockTypeOption[] = [
-  { type: 'list', label: '列表', desc: '新闻列表、产品列表、文章列表等' },
-  { type: 'module', label: '模块', desc: '服务介绍、功能展示等' },
-  { type: 'image_text', label: '图文', desc: '产品展示、案例展示等' },
-  { type: 'timeline', label: '时间线', desc: '发展历程、大事记等' },
-  { type: 'rich_text', label: '富文本', desc: '公司简介、详细说明等' },
-  { type: 'html', label: 'HTML代码', desc: '粘贴 HTML 源码，前台原样渲染' },
-  { type: 'carousel', label: '轮播图', desc: 'Banner、广告位等' },
-];
+export const BLOCK_TYPE_TYPES = ['list', 'module', 'image_text', 'timeline', 'rich_text', 'html', 'carousel'] as const;
 
-export const BLOCK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  BLOCK_TYPES.map((t) => [t.type, t.label])
-);
+/** 展示类型选项（label/desc 按当前语言实时解析）。 */
+export function blockTypes(): BlockTypeOption[] {
+  return BLOCK_TYPE_TYPES.map((type) => ({
+    type,
+    label: t(`libUi.block.types.${type}.label`),
+    desc: t(`libUi.block.types.${type}.desc`),
+  }));
+}
 
 export function blockTypeLabel(type?: string): string {
-  if (!type) return '富文本';
-  return BLOCK_TYPE_LABELS[type] || type;
+  if (!type) return t('libUi.block.defaultType');
+  if (!(BLOCK_TYPE_TYPES as readonly string[]).includes(type)) return type;
+  return t(`libUi.block.types.${type}.label`);
+}
+
+export function blockTypeDesc(type?: string): string {
+  if (!type || !(BLOCK_TYPE_TYPES as readonly string[]).includes(type)) return '';
+  return t(`libUi.block.types.${type}.desc`);
 }
 
 /**
@@ -124,7 +129,7 @@ function validateListData(data: any): Record<string, string> {
   const rows = data.rows || [];
   const cols = (data.columns && data.columns.length > 0) ? data.columns : ['key', 'value'];
   if (rows.length === 0 || rows.every((r: any) => cols.every((c: string) => !r[c]?.trim())))
-    errs.rows = '至少需要一条有效数据行';
+    errs.rows = t('libUi.block.errListRows');
   return errs;
 }
 
@@ -132,14 +137,14 @@ function validateModuleData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
   const items = data.items || [];
   if (items.length === 0 && (data.title || data.description)) {
-    if (!data.title?.trim()) errs.moduleTitle = '模块标题不能为空';
-    if (data.description?.length > 200) errs.moduleDesc = '最多200个字符';
+    if (!data.title?.trim()) errs.moduleTitle = t('libUi.block.errModuleTitle');
+    if (data.description?.length > 200) errs.moduleDesc = t('libUi.block.errMaxChars', { n: 200 });
   } else if (items.length === 0) {
-    errs.moduleItems = '至少需要一个模块';
+    errs.moduleItems = t('libUi.block.errModuleItems');
   } else {
     items.forEach((mod: any, i: number) => {
-      if (!mod.title?.trim()) errs[`mod_title_${i}`] = `模块${i + 1}标题不能为空`;
-      if (mod.description?.length > 200) errs[`mod_desc_${i}`] = `模块${i + 1}最多200个字符`;
+      if (!mod.title?.trim()) errs[`mod_title_${i}`] = t('libUi.block.errModuleItemTitle', { n: i + 1 });
+      if (mod.description?.length > 200) errs[`mod_desc_${i}`] = t('libUi.block.errModuleItemMax', { n: i + 1 });
     });
   }
   return errs;
@@ -148,11 +153,11 @@ function validateModuleData(data: any): Record<string, string> {
 function validateImageTextData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
   const groups = data.groups || [];
-  if (groups.length === 0) errs.imageText = '至少需要一组图文';
+  if (groups.length === 0) errs.imageText = t('libUi.block.errImageText');
   else {
     groups.forEach((g: any, i: number) => {
-      if (!g.image) errs[`img_group_img_${i}`] = `第${i + 1}组图片不能为空`;
-      if (g.description?.length > 200) errs[`img_group_desc_${i}`] = `第${i + 1}组最多200个字符`;
+      if (!g.image) errs[`img_group_img_${i}`] = t('libUi.block.errGroupImage', { n: i + 1 });
+      if (g.description?.length > 200) errs[`img_group_desc_${i}`] = t('libUi.block.errGroupMax', { n: i + 1 });
     });
   }
   return errs;
@@ -161,11 +166,11 @@ function validateImageTextData(data: any): Record<string, string> {
 function validateTimelineData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
   const timeline = data.timeline || [];
-  if (timeline.length === 0) errs.timeline = '至少需要一个时间节点';
+  if (timeline.length === 0) errs.timeline = t('libUi.block.errTimeline');
   else {
     timeline.forEach((node: any, i: number) => {
-      if (!node.date) errs[`tl_date_${i}`] = `第${i + 1}行日期不能为空`;
-      if (node.content?.length > 200) errs[`tl_content_${i}`] = `第${i + 1}行最多200个字符`;
+      if (!node.date) errs[`tl_date_${i}`] = t('libUi.block.errTimelineDate', { n: i + 1 });
+      if (node.content?.length > 200) errs[`tl_content_${i}`] = t('libUi.block.errTimelineMax', { n: i + 1 });
     });
   }
   return errs;
@@ -175,7 +180,7 @@ function validateRichTextData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
   const html = data.content || '';
   const stripped = html.replace(/<[^>]*>/g, '').trim();
-  if (!stripped) errs.richText = '富文本内容不能为空';
+  if (!stripped) errs.richText = t('libUi.block.errRichText');
   return errs;
 }
 
@@ -183,17 +188,17 @@ function validateHtmlData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
   const html = data.html || '';
   const stripped = html.replace(/<[^>]*>/g, '').trim();
-  if (!stripped) errs.html = 'HTML 代码不能为空';
+  if (!stripped) errs.html = t('libUi.block.errHtml');
   return errs;
 }
 
 function validateCarouselData(data: any): Record<string, string> {
   const errs: Record<string, string> = {};
   const items = data.items || [];
-  if (items.length === 0) errs.carousel = '至少需要一个轮播项';
+  if (items.length === 0) errs.carousel = t('libUi.block.errCarousel');
   else {
     items.forEach((item: any, i: number) => {
-      if (!item.image) errs[`car_img_${i}`] = `第${i + 1}项图片不能为空`;
+      if (!item.image) errs[`car_img_${i}`] = t('libUi.block.errCarouselImage', { n: i + 1 });
     });
   }
   return errs;

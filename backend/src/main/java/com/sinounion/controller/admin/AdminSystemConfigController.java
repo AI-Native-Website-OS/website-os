@@ -1,11 +1,13 @@
 package com.sinounion.controller.admin;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sinounion.common.Result;
 import com.sinounion.config.SecretCryptoService;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
-import com.sinounion.service.KnowledgeSyncService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "管理后台-系统配置", description = "系统配置管理")
 @RestController
@@ -22,8 +25,10 @@ import java.util.List;
 public class AdminSystemConfigController {
 
     private final SystemConfigMapper systemConfigMapper;
-    private final KnowledgeSyncService knowledgeSyncService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
     private final SecretCryptoService secretCryptoService;
+    private final TranslationEnqueueService translationEnqueueService;
+    private final ObjectMapper objectMapper;
 
     @Operation(summary = "获取所有系统配置")
     @GetMapping
@@ -76,17 +81,49 @@ public class AdminSystemConfigController {
             existing.setDescription(description);
             existing.setConfigType(configType);
             systemConfigMapper.updateById(existing);
-            if ("about_page".equals(key)) {
-                knowledgeSyncService.syncAboutPage(valueToStore);
-            }
+            syncPageConfig(key, valueToStore);
+            enqueueConfigTranslation(key, valueToStore);
             return Result.success(maskEntity(existing));
         }
         config.setConfigValue(valueToStore);
         systemConfigMapper.insert(config);
-        if ("about_page".equals(key)) {
-            knowledgeSyncService.syncAboutPage(valueToStore);
-        }
+        syncPageConfig(key, valueToStore);
+        enqueueConfigTranslation(key, valueToStore);
         return Result.success(maskEntity(config));
+    }
+
+    /** 页面整体配置（about_page / home_page / ai_website_config）变更后同步到知识库。 */
+    private void syncPageConfig(String key, String value) {
+        if ("about_page".equals(key)) {
+            knowledgeSyncDispatcher.syncAboutPage(value);
+        } else if ("home_page".equals(key)) {
+            knowledgeSyncDispatcher.syncHomePage(value);
+        } else if ("ai_website_config".equals(key)) {
+            knowledgeSyncDispatcher.syncVersionConfig(value);
+        }
+    }
+
+    /** 可译配置项：JSON 解析后入队翻译（site_brand 按登记字段，其余递归全部中文字段）。 */
+    private static final List<String> TRANSLATABLE_CONFIG_KEYS =
+            java.util.Arrays.asList("site_brand", "ai_website_config", "site_notices");
+
+    private void enqueueConfigTranslation(String key, String value) {
+        if (value == null || value.trim().isEmpty() || !TRANSLATABLE_CONFIG_KEYS.contains(key)) {
+            return;
+        }
+        try {
+            Object parsed = objectMapper.readValue(value, Object.class);
+            if ("site_brand".equals(key)) {
+                if (parsed instanceof Map) {
+                    translationEnqueueService.enqueueConfig("site_brand",
+                            (Map<String, Object>) parsed);
+                }
+            } else {
+                translationEnqueueService.enqueueConfigValue(key, parsed);
+            }
+        } catch (Exception ignored) {
+            // 解析失败忽略，不影响配置保存
+        }
     }
 
     @Operation(summary = "删除配置")

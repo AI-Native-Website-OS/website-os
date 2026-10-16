@@ -53,8 +53,8 @@ export default function FaqsPage() {
     <>
       <SeoHead
         title={t('faq.title')}
-        description="常见问题解答：了解产品功能、服务流程、技术支持和价格方案等常见问题。"
-        keywords="常见问题,FAQ,产品咨询,技术支持,服务流程"
+        description={t('publicPages.faqs.seoDescription')}
+        keywords={t('publicPages.faqs.seoKeywords')}
         path="/faqs"
         breadcrumbs={[
           { name: t('common.home'), url: '/' },

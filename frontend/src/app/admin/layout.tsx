@@ -1,10 +1,11 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import AdminLayout from './admin-layout';
+import { t } from '@/i18n/translate';
 
 export const metadata: Metadata = {
   title: {
-    default: '后台管理',
+    default: t('common.admin'),
     template: '%s',
   },
 };

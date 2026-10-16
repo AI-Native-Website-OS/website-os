@@ -39,6 +39,9 @@ AI_consultant/memories/
 **/__pycache__/
 **/*.pyc
 **/surefire-reports/
+graphify-out/
+AGENTS.md
+docs/
 
 # ─── 用户上传文件 ───
 uploads/

@@ -1,10 +1,11 @@
 'use client';
 
 import { forwardRef, useImperativeHandle, useState, useEffect } from 'react';
-import { BLOCK_TYPES } from '@/lib/blockData';
+import { blockTypes } from '@/lib/blockData';
 import { parseBlockExtraData, serializeBlockData, getRecordSectionType, validateBlockTypeData } from '@/lib/blockData';
 import BlockTypeEditor from './BlockTypeEditor';
 import RichTextEditor from './RichTextEditor';
+import { useI18n } from '@/i18n/I18nProvider';
 
 export interface BlockContentFieldHandle {
   validate: () => boolean;
@@ -20,6 +21,7 @@ interface Props {
  * 供产品/方案/案例/资源弹窗复用（与内容中心 ContentForm 的区块逻辑一致）。
  */
 const BlockContentField = forwardRef<BlockContentFieldHandle, Props>(function BlockContentField({ item }, ref) {
+  const { t } = useI18n();
   const [sectionType, setSectionType] = useState<string>(getRecordSectionType(item));
   const [blockData, setBlockData] = useState<any>(parseBlockExtraData(item?.extraData).data || {});
   const [blockErrors, setBlockErrors] = useState<Record<string, string>>({});
@@ -51,16 +53,16 @@ const BlockContentField = forwardRef<BlockContentFieldHandle, Props>(function Bl
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">展示类型 <span className="text-red-400">*</span></label>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{t('adminComp.blockForm.displayType')} <span className="text-red-400">*</span></label>
       <select value={sectionType} onChange={(e) => handleTypeChange(e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
-        {BLOCK_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label} — {t.desc}</option>)}
+        {blockTypes().map((bt) => <option key={bt.type} value={bt.type}>{bt.label} — {bt.desc}</option>)}
       </select>
-      <p className="text-xs text-gray-400 mt-1">前台详情页将按此类型渲染内容，「富文本」为默认文章形式</p>
+      <p className="text-xs text-gray-400 mt-1">{t('adminComp.blockContentField.hint')}</p>
       <div className="mt-3">
         {sectionType === 'rich_text' ? (
           <>
-            <label className="block text-sm font-medium text-gray-700 mb-1">正文内容</label>
-            <RichTextEditor value={blockData.content || ''} onChange={(v) => updateBlockData('content', v)} placeholder="请输入正文内容..." />
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('adminComp.blockContentField.body')}</label>
+            <RichTextEditor value={blockData.content || ''} onChange={(v) => updateBlockData('content', v)} placeholder={t('adminComp.blockContentField.bodyPlaceholder')} />
           </>
         ) : (
           <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/40">

@@ -29,7 +29,7 @@ interface PageOption {
 function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-xs text-gray-500 mb-1">{label}{required && <span className="text-red-500 ml-0.5">*</span>}{hint && <span className="text-gray-400 font-normal ml-1">（{hint}）</span>}</span>
+      <span className="block text-xs text-gray-500 mb-1">{label}{required && <span className="text-red-500 ml-0.5">*</span>}{hint && <span className="text-gray-400 font-normal ml-1">({hint})</span>}</span>
       {children}
     </label>
   );

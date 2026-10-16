@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2, AlertCircle, Inbox } from 'lucide-react';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface PageStateProps {
   loading?: boolean;
@@ -10,13 +11,14 @@ interface PageStateProps {
   children?: React.ReactNode;
 }
 
-export default function PageState({ loading, error, empty, emptyMessage = '暂无数据', children }: PageStateProps) {
+export default function PageState({ loading, error, empty, emptyMessage, children }: PageStateProps) {
+  const { t } = useI18n();
   if (loading) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-gray-400">
           <Loader2 className="w-8 h-8 animate-spin" />
-          <p className="text-sm">加载中...</p>
+          <p className="text-sm">{t('publicComp.loading')}</p>
         </div>
       </div>
     );
@@ -38,7 +40,7 @@ export default function PageState({ loading, error, empty, emptyMessage = '暂�
       <div className="min-h-[50vh] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-gray-400">
           <Inbox className="w-10 h-10" />
-          <p className="text-sm">{emptyMessage}</p>
+          <p className="text-sm">{emptyMessage || t('publicComp.noData')}</p>
         </div>
       </div>
     );

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Search } from 'lucide-react';
 import api from '@/lib/api';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type ContentItem = { id: number; title: string; slug: string; summary: string; coverImage: string; type: string };
 
@@ -14,10 +15,12 @@ interface Props {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  product: '产品', solution: '方案', case: '案例', resource: '资源',
+  product: 'adminComp.contentType.product', solution: 'adminComp.contentType.solution', case: 'adminComp.contentType.case', resource: 'adminComp.contentType.resource',
 };
 
 export default function RelatedContentPicker({ value, onChange, types, label }: Props) {
+  const { t } = useI18n();
+  const typeLabel = (type: string) => (TYPE_LABELS[type] ? t(TYPE_LABELS[type]) : type);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -94,31 +97,31 @@ export default function RelatedContentPicker({ value, onChange, types, label }: 
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
       <div className="flex flex-wrap gap-2 p-2 border border-gray-300 rounded-md min-h-[38px]">
-        {loading && <span className="text-xs text-gray-400">加载中...</span>}
+        {loading && <span className="text-xs text-gray-400">{t('adminComp.loading')}</span>}
         {preloaded.map(item => (
           <span key={`${item.type}-${item.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
-            <span className="text-[10px] opacity-60">{TYPE_LABELS[item.type]}</span>
+            <span className="text-[10px] opacity-60">{typeLabel(item.type)}</span>
             {item.title}
           </span>
         ))}
-        {!loading && ids.length === 0 && <span className="text-xs text-gray-400">未选择</span>}
+        {!loading && ids.length === 0 && <span className="text-xs text-gray-400">{t('adminComp.notSelected')}</span>}
       </div>
       <button type="button" onClick={() => setOpen(true)} className="mt-1 text-xs text-blue-600 hover:text-blue-800 cursor-pointer">
-        选择{label}
+        {t('adminComp.relatedPicker.select', { label })}
       </button>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="bg-white rounded-xl shadow-xl w-[680px] max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h3 className="text-base font-semibold">选择{label}</h3>
+              <h3 className="text-base font-semibold">{t('adminComp.relatedPicker.select', { label })}</h3>
               <button onClick={() => setOpen(false)} className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
 
             <div className="flex gap-1 px-5 pt-3 border-b border-gray-200">
               {allTypes.map(t => (
                 <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs rounded-t cursor-pointer ${tab === t ? 'bg-blue-50 text-blue-700 font-medium border border-b-white border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}>
-                  {TYPE_LABELS[t] || t}
+                  {typeLabel(t)}
                 </button>
               ))}
             </div>
@@ -126,14 +129,14 @@ export default function RelatedContentPicker({ value, onChange, types, label }: 
             <div className="flex gap-2 px-5 py-3 border-b border-gray-100">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="搜索..." className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md text-xs" />
+                <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder={t('adminComp.searchPlaceholder')} className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md text-xs" />
               </div>
-              <button onClick={search} className="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">搜索</button>
+              <button onClick={search} className="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">{t('adminComp.search')}</button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-2">
-              {tabLoading && <div className="py-8 text-center text-xs text-gray-400">加载中...</div>}
-              {!tabLoading && data.records.length === 0 && <div className="py-8 text-center text-xs text-gray-400">暂无数据</div>}
+              {tabLoading && <div className="py-8 text-center text-xs text-gray-400">{t('adminComp.loading')}</div>}
+              {!tabLoading && data.records.length === 0 && <div className="py-8 text-center text-xs text-gray-400">{t('adminComp.empty')}</div>}
               {!tabLoading && data.records.map(item => (
                 <label key={item.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-gray-50 cursor-pointer">
                   <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} className="rounded border-gray-300" />
@@ -141,7 +144,7 @@ export default function RelatedContentPicker({ value, onChange, types, label }: 
                     <div className="text-sm font-medium truncate">{item.title}</div>
                     {item.summary && <div className="text-xs text-gray-400 truncate">{item.summary}</div>}
                   </div>
-                  <span className="text-[10px] text-gray-400 shrink-0">{TYPE_LABELS[item.type]}</span>
+                  <span className="text-[10px] text-gray-400 shrink-0">{typeLabel(item.type)}</span>
                 </label>
               ))}
             </div>
@@ -155,10 +158,10 @@ export default function RelatedContentPicker({ value, onChange, types, label }: 
             )}
 
             <div className="flex items-center justify-between px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-xl">
-              <span className="text-xs text-gray-500">已选 {selected.size} 项</span>
+              <span className="text-xs text-gray-500">{t('adminComp.selectedCount', { n: selected.size })}</span>
               <div className="flex gap-2">
-                <button onClick={() => setOpen(false)} className="px-4 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">取消</button>
-                <button onClick={confirm} className="px-4 py-1.5 text-xs bg-black text-white rounded-md hover:bg-gray-800 cursor-pointer">确定</button>
+                <button onClick={() => setOpen(false)} className="px-4 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">{t('adminComp.cancel')}</button>
+                <button onClick={confirm} className="px-4 py-1.5 text-xs bg-black text-white rounded-md hover:bg-gray-800 cursor-pointer">{t('adminComp.confirm')}</button>
               </div>
             </div>
           </div>

@@ -22,6 +22,8 @@ def auto_upgrade(engine):
             additions.append("ALTER TABLE ai_message ADD COLUMN IF NOT EXISTS images JSON")
         if "display_content" not in cols:
             additions.append("ALTER TABLE ai_message ADD COLUMN IF NOT EXISTS display_content JSON")
+        if "error" not in cols:
+            additions.append("ALTER TABLE ai_message ADD COLUMN IF NOT EXISTS error JSON")
         if additions:
             with engine.begin() as conn:
                 for stmt in additions:
@@ -49,6 +51,7 @@ class AiMessage(Base):
     attachments = Column(JSON, nullable=True)
     images = Column(JSON, nullable=True)
     display_content = Column(JSON, nullable=True)
+    error = Column(JSON, nullable=True)
     timestamp = Column(Float, default=time.time, index=True)
 
 
@@ -102,6 +105,8 @@ class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
+    # 稳定标识（如 home / about / module:products / category:12），用于后台内容自动分库
+    code = Column(String(128), nullable=True, unique=True)
     description = Column(Text, default="")
     status = Column(Integer, default=1)
 
@@ -187,5 +192,50 @@ class KnowledgeChunk(Base):
     __table_args__ = (
         Index("idx_chunks_kb", "knowledge_base_id"),
         Index("idx_chunks_doc", "document_id"),
+    )
+
+
+class TranslationEntry(Base):
+    """内容译文表（运行时自动翻译）。表由 Java DatabaseInitializer / sinounion.sql 建，此处仅映射。"""
+    __tablename__ = "translation_entries"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    resource_type = Column(String(64), nullable=False)
+    resource_id = Column(BigInteger, nullable=False)
+    field = Column(String(64), nullable=False)
+    locale = Column(String(16), nullable=False)
+    source_hash = Column(String(64), nullable=False, default="")
+    source_text = Column(Text)
+    translated_text = Column(Text)
+    status = Column(String(16), nullable=False, default="final")
+    engine = Column(String(16), nullable=False, default="llm")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ux_translation_entries_key", "resource_type", "resource_id", "field", "locale", unique=True),
+        Index("idx_translation_entries_lookup", "resource_type", "resource_id", "locale"),
+    )
+
+
+class TranslationJob(Base):
+    """翻译异步任务表（后台预翻译）。表由 Java DatabaseInitializer / sinounion.sql 建，此处仅映射。"""
+    __tablename__ = "translation_jobs"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    resource_type = Column(String(64), nullable=False)
+    resource_id = Column(BigInteger, nullable=False)
+    field = Column(String(64), nullable=False)
+    locale = Column(String(16), nullable=False)
+    source_hash = Column(String(64), nullable=False, default="")
+    source_text = Column(Text)
+    kind = Column(String(16), nullable=False, default="translate")
+    status = Column(String(16), nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    error = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ux_translation_jobs_key", "resource_type", "resource_id", "field", "locale", "source_hash", "kind", unique=True),
+        Index("idx_translation_jobs_status", "status", "created_at"),
     )
 

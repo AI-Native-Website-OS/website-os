@@ -1,6 +1,8 @@
 import axios from 'axios';
 import config from '@/config';
 import { refreshAuthToken, clearAuthStorage } from './tokenRefresh';
+import { getLocale } from './localeStore';
+import { t } from '@/i18n/translate';
 
 const api = axios.create({
   baseURL: config.api.baseUrl,
@@ -12,6 +14,12 @@ api.interceptors.request.use(
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // 所有接口注入当前语言，后端按 locale 返回译文（管理后台同样按当前语言预览译文；
+    // 写请求由后端在保存时把未修改的译文还原为中文原文，避免覆盖中文源内容）。
+    config.params = { ...(config.params || {}) };
+    if (config.params.locale === undefined) {
+      config.params.locale = getLocale();
     }
     return config;
   },
@@ -41,7 +49,7 @@ api.interceptors.response.use(
       }
     }
     if (status === 403) {
-      return Promise.reject({ message: '无权限执行此操作', code: 403 });
+      return Promise.reject({ message: t('libUi.api.forbidden'), code: 403 });
     }
     return Promise.reject(error.response?.data || error);
   }
@@ -57,12 +65,12 @@ export async function uploadFile(file: File, type: string, subPath?: string, val
   if (validate) form.append('validate', validate);
   const res: any = await api.post('/upload', form);
   if (res.code !== 200) {
-    throw new Error(res.message || '上传失败');
+    throw new Error(res.message || t('libUi.api.uploadFailed'));
   }
   const url = res.data?.url || res.url;
   const name = res.data?.name || res.name || file.name;
   if (!url) {
-    throw new Error('上传返回数据异常，缺少文件地址');
+    throw new Error(t('libUi.api.uploadInvalid'));
   }
   return { url, name };
 }

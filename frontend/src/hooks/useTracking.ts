@@ -1,20 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
+import { trackPageDuration } from '@/lib/track';
 import { generateVisitorId } from '@/lib/utils';
 
 const LEAD_TRIGGER_KEY = 'sn_lead_triggered';
 const PAGE_VIEW_KEY = 'sn_page_views';
 const PAGE_HISTORY_KEY = 'sn_page_history';
-
-const MODULE_PAGE_TYPES: Record<string, string> = {
-  products: 'product',
-  solutions: 'solution',
-  cases: 'case',
-  resources: 'resource',
-};
 
 const TOP_PAGE_TYPES: Record<string, string> = {
   products: 'product',
@@ -55,7 +49,10 @@ export function useTracking(options: UseTrackingOptions = {}) {
   const [pageViews, setPageViews] = useState<number>(0);
   const [pageHistory, setPageHistory] = useState<PageVisit[]>([]);
   const lastUrlRef = useRef('');
+  const enterRef = useRef<{ key: string; time: number } | null>(null);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
 
   // Initialize visitor ID (only on mount)
   useEffect(() => {
@@ -73,29 +70,37 @@ export function useTracking(options: UseTrackingOptions = {}) {
     setPageHistory(storedHistory);
   }, []);
 
-  // Track page view on mount/route change (triggered by pathname, not state updates)
+  // Track page view on mount/route change (pathname or query change)
   useEffect(() => {
     if (!visitorId) return;
 
-    const currentPath = pathname;
+    const params = new URLSearchParams(search);
+    const effectiveUrl = search ? `${pathname}?${search}` : pathname;
+    const pageType = inferPageType(pathname, params);
 
-    let effectiveUrl = currentPath;
-    let pageType = inferPageType(currentPath);
-    let pageSlug: string | undefined;
-
-    if (currentPath.startsWith('/list/')) {
-      const parts = currentPath.split('/').filter(Boolean);
-      const detailIdx = parts.indexOf('detail');
-      if (detailIdx !== -1 && parts[detailIdx + 1]) {
-        pageSlug = parts[detailIdx + 1];
+    let pageSlug: string | undefined = params.get('slug') || undefined;
+    if (!pageSlug) {
+      if (pathname.startsWith('/list/')) {
+        const parts = pathname.split('/').filter(Boolean);
+        const detailIdx = parts.indexOf('detail');
+        if (detailIdx !== -1 && parts[detailIdx + 1]) {
+          pageSlug = parts[detailIdx + 1];
+        }
+      } else {
+        const match = pathname.match(/\/(?:products|solutions|cases|articles|resources)\/(.+)/);
+        pageSlug = match ? match[1] : undefined;
       }
-    } else {
-      const match = currentPath.match(/\/(?:products|solutions|cases|articles|resources)\/(.+)/);
-      pageSlug = match ? match[1] : undefined;
     }
 
     if (effectiveUrl === lastUrlRef.current) return;
     lastUrlRef.current = effectiveUrl;
+
+    // 记录上一页停留时长，再开始计时当前页
+    const prev = enterRef.current;
+    if (prev && prev.key !== effectiveUrl) {
+      trackPageDuration(visitorId, prev.key, Math.round((Date.now() - prev.time) / 1000));
+    }
+    enterRef.current = { key: effectiveUrl, time: Date.now() };
 
     recordPageView(pageType, effectiveUrl, pageSlug);
 
@@ -115,13 +120,34 @@ export function useTracking(options: UseTrackingOptions = {}) {
 
     checkAutoTrigger(pageType, newCount, newHistory);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visitorId, pathname]);
+  }, [visitorId, pathname, search]);
 
-  const inferPageType = (url: string): string => {
-    const parts = url.split('/').filter(Boolean);
+  // 页面隐藏/离开时上报当前页停留时长
+  useEffect(() => {
+    if (!visitorId) return;
+    const flush = () => {
+      const cur = enterRef.current;
+      if (!cur) return;
+      const secs = Math.round((Date.now() - cur.time) / 1000);
+      if (secs > 0) trackPageDuration(visitorId, cur.key, secs);
+      enterRef.current = { key: cur.key, time: Date.now() };
+    };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [visitorId]);
+
+  const inferPageType = (path: string, params: URLSearchParams): string => {
+    const parts = path.split('/').filter(Boolean);
     if (parts.length === 0) return 'home';
     if (parts[0] === 'list') {
-      return parts.length < 2 ? 'other' : (MODULE_PAGE_TYPES[parts[1]] || 'other');
+      // 内容模块 key 动态（如 demo-product / products），直接作为 pageType，
+      // 由后端按 core_modules(module_key, is_system=0) 判定是否内容页
+      return params.get('moduleKey') || parts[1] || 'other';
     }
     return TOP_PAGE_TYPES[parts[0]] || 'other';
   };
@@ -133,7 +159,6 @@ export function useTracking(options: UseTrackingOptions = {}) {
           pageType,
           pageUrl,
           visitorId,
-          ipAddress: '',
           userAgent: navigator.userAgent,
           referer: document.referrer || '',
         },

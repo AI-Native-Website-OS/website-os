@@ -17,9 +17,9 @@ import RelatedContentMultiPicker, { type RelatedTarget } from '@/components/Rela
 import { getImageUrl } from '@/lib/utils';
 import { uploadFile } from '@/lib/api';
 import { useConfirm } from '@/components/ConfirmDialog';
-import { COVER_IMAGE_RULES, BLOCK_IMAGE_RULES, DEFAULT_DOCUMENT_RULES, COVER_IMAGE_RULE_HINTS, DOCUMENT_RULE_HINTS } from '@/lib/uploadRules';
-import { COVER_SCALE_OPTIONS, DEFAULT_COVER_SCALE } from '@/lib/utils';
-import { BLOCK_TYPES, parseContentSections, validateBlockTypeData, isSectionDataEmpty, getRecordSectionType, blockTypeLabel, type SectionEntry } from '@/lib/blockData';
+import { COVER_IMAGE_RULES, BLOCK_IMAGE_RULES, DEFAULT_DOCUMENT_RULES, coverImageRuleHints, documentRuleHints } from '@/lib/uploadRules';
+import { coverScaleOptions, DEFAULT_COVER_SCALE } from '@/lib/utils';
+import { blockTypes, parseContentSections, validateBlockTypeData, isSectionDataEmpty, getRecordSectionType, blockTypeLabel, type SectionEntry } from '@/lib/blockData';
 import type { CoreModule, ContentModuleCategory, PageResult } from '@/types';
 
 // 关联内容选择目标：字段名 = content_items.extraData.relations 中的 moduleKey
@@ -622,9 +622,9 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
               </th>
               <th className="text-center py-3 px-4 font-medium text-gray-500 w-16">{t('admin.ui.content.colCover')}</th>
               <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colTitle')}</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colType')}</th>
+              {isNested && <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colType')}</th>}
               {isNested && <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colGroup')}</th>}
-              <th className="text-left py-3 px-4 font-medium text-gray-500">slug</th>
+              {isNested && <th className="text-left py-3 px-4 font-medium text-gray-500">slug</th>}
               <th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colStatus')}</th>
               <th className="text-center py-3 px-4 font-medium text-gray-500">{t('admin.ui.content.colViews')}</th>
               <th className="text-center py-3 px-4 font-medium text-gray-500">{t('common.actions')}</th>
@@ -650,13 +650,15 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
                   )}
                 </td>
                 <td className="py-3 px-4 font-medium">{item.title}</td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">
-                    {displayTypeLabel(item, t)}
-                  </span>
-                </td>
+                {isNested && (
+                  <td className="py-3 px-4">
+                    <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                      {displayTypeLabel(item, t)}
+                    </span>
+                  </td>
+                )}
                 {isNested && <td className="py-3 px-4 text-gray-500">{item.groupName || '-'}</td>}
-                <td className="py-3 px-4 text-gray-500"><span className="font-mono text-xs">{item.slug}</span></td>
+                {isNested && <td className="py-3 px-4 text-gray-500"><span className="font-mono text-xs">{item.slug}</span></td>}
                 <td className="py-3 px-4 text-center">
                   <button onClick={() => onToggleStatus(item)} className={`px-2 py-0.5 rounded text-xs cursor-pointer ${item.status === 1 ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{item.status === 1 ? t('common.enable') : t('common.disable')}</button>
                 </td>
@@ -670,7 +672,7 @@ function ContentList({ isNested, view, selectedCat, items, loading, selected, ke
               </tr>
             ))}
             {(!items?.records || items.records.length === 0) && (
-              <tr><td colSpan={isNested ? 9 : 8} className="py-8 text-center text-gray-400">{loading ? t('common.loading') : t('admin.ui.content.noContent')}</td></tr>
+              <tr><td colSpan={isNested ? 9 : 6} className="py-8 text-center text-gray-400">{loading ? t('common.loading') : t('admin.ui.content.noContent')}</td></tr>
             )}
           </tbody>
         </table>
@@ -714,7 +716,7 @@ function CategoryForm({ item, saving, onSave }: { item: ContentModuleCategory | 
     <div>
       <div className="space-y-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.catCover')} <FieldHint text={COVER_IMAGE_RULE_HINTS} /></label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.catCover')} <FieldHint text={coverImageRuleHints()} /></label>
           <ImageUploader value={form.coverImage} file={pendingImage} onFileSelect={setPendingImage} onChange={(v) => update('coverImage', v)} rules={COVER_IMAGE_RULES} />
         </div>
         <div>
@@ -883,7 +885,7 @@ function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName
     <div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
 <div className="md:col-span-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.cover')} <FieldHint text={COVER_IMAGE_RULE_HINTS} /></label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.cover')} <FieldHint text={coverImageRuleHints()} /></label>
             <ImageUploader value={form.coverImage} file={pendingImage} onFileSelect={setPendingImage} onChange={(v) => update('coverImage', v)} rules={COVER_IMAGE_RULES} />
             <div className="mt-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.coverScale')} <span className="text-red-400">*</span> <FieldHint text={[t('admin.ui.content.coverScaleHint')]} /></label>
@@ -892,7 +894,7 @@ function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName
                 onChange={(e) => update('coverScale', e.target.value)}
                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm"
               >
-                {COVER_SCALE_OPTIONS.map((opt) => (
+                {coverScaleOptions().map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
@@ -902,7 +904,7 @@ function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.category')}</label>
             <input
-              value={categoryName || (item?.categoryId ? `分类#${item.categoryId}` : t('admin.ui.content.uncategorized'))}
+              value={categoryName || (item?.categoryId ? t('adminPages.content.categoryFallback', { id: item.categoryId }) : t('admin.ui.content.uncategorized'))}
               disabled
               className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-gray-50 text-gray-500"
             />
@@ -916,7 +918,7 @@ function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName
           <RelatedContentMultiPicker targets={relationTargets} values={relations} onChange={setRelations} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.relatedDoc')} <FieldHint text={DOCUMENT_RULE_HINTS} /></label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.content.relatedDoc')} <FieldHint text={documentRuleHints()} /></label>
           <FileUploader
             filePath={form.filePath}
             fileName={form.fileName}
@@ -948,7 +950,7 @@ function ContentForm({ item, moduleKey, saving, onSave, categoryId, categoryName
                   onChange={(e) => handleSectionTypeChange(i, e.target.value)}
                   className="flex-1 min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
                 >
-                  {BLOCK_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label} — {t.desc}</option>)}
+                  {blockTypes().map((bt) => <option key={bt.type} value={bt.type}>{bt.label} — {bt.desc}</option>)}
                 </select>
                 <button onClick={() => moveSection(i, -1)} disabled={i === 0} title={t('admin.ui.content.moveUp')} className="p-1 text-gray-400 hover:text-black disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
                   <ChevronUp className="w-4 h-4" />

@@ -12,6 +12,7 @@ import type { CoreModule, ContentModuleCategory } from '@/types';
 import SeoHead from '@/components/SeoHead';
 import Breadcrumb from '@/components/Breadcrumb';
 import PageState from '@/components/PageState';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface FilterOption {
   label: string;
@@ -35,9 +36,11 @@ function buildCategoryFilterOptions(cats: ContentModuleCategory[]) {
     const value = String(c.id);
     const slug = c.slug || value;
     options.push({ label: c.name, value, slug });
-    if (slug) {
-      valueToSlug[value] = slug;
-      slugToVal[slug] = value;
+    if (slug) valueToSlug[value] = slug;
+    // 解析键兼容多个来源：分类 slug、分类 id、分类名称。
+    // 首页/导航/页脚在不同数据（如历史分类缺少 slug）下生成的链接都能命中并完成筛选。
+    for (const key of [slug, value, c.name ? String(c.name).trim() : '']) {
+      if (key) slugToVal[key] = value;
     }
   }
   return { options, valueToSlug, slugToVal, categoryMap };
@@ -89,6 +92,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ current: 1, total: 0 });
   const currentPage = pagination.current;
+  const { t } = useI18n();
 
   useEffect(() => {
     loadModule(moduleKey).then((m) => {
@@ -261,7 +265,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
             href={href}
             className="inline-flex items-center gap-1 text-black hover:text-gray-700 font-medium"
           >
-            {isResource ? '阅读全文' : isCases ? '查看详情' : '了解更多'} <ArrowRight className="w-4 h-4" />
+            {isResource ? t('publicPages.moduleList.readMore') : isCases ? t('publicPages.moduleList.viewDetail') : t('publicPages.moduleList.learnMore')} <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </motion.div>
@@ -269,12 +273,12 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
   };
 
   if (notFound) {
-    return <PageState error="页面不存在或模块已禁用" />;
+    return <PageState error={t('publicPages.moduleList.notFound')} />;
   }
 
-  const title = module?.moduleTitle || module?.moduleName || '内容中心';
+  const title = module?.moduleTitle || module?.moduleName || t('publicPages.moduleList.contentCenter');
   const description = module?.moduleDescription || '';
-  const searchPlaceholder = `搜索${module?.moduleName || '内容'}...`;
+  const searchPlaceholder = t('publicPages.moduleList.searchPlaceholder', { name: module?.moduleName || t('publicPages.moduleList.searchFallback') });
 
   return (
     <>
@@ -284,7 +288,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
         keywords={title}
         path={listUrl(resolvedKey)}
         breadcrumbs={[
-          { name: '首页', url: '/' },
+          { name: t('common.home'), url: '/' },
           { name: title, url: listUrl(resolvedKey) },
         ]}
       />
@@ -292,7 +296,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
         <section className="pt-28 pb-12 bg-gradient-to-b from-gray-50 to-white">
           <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
             <Breadcrumb items={[
-              { name: '首页', url: '/' },
+              { name: t('common.home'), url: '/' },
               { name: title, url: listUrl(resolvedKey) },
             ]} />
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-8 text-center">
@@ -329,7 +333,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
-                    全部
+                    {t('publicPages.moduleList.all')}
                   </Link>
                   {filterOptions.map((opt) => (
                     <Link
@@ -352,7 +356,7 @@ export function ModuleListView({ moduleKey, categorySlug }: { moduleKey: string;
 
         <section className="py-12">
           <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
-            <PageState loading={loading} empty={!loading && items.length === 0} emptyMessage={`暂无${module?.moduleName || '内容'}`}>
+            <PageState loading={loading} empty={!loading && items.length === 0} emptyMessage={t('publicPages.moduleList.empty', { name: module?.moduleName || t('publicPages.moduleList.searchFallback') })}>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {items.map((item, index) => renderCard(item, index))}
               </div>

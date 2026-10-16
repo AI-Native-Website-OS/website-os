@@ -34,6 +34,8 @@ public class CoreModule {
 
     private Integer moduleColumns;
 
+    private Integer isSystem;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

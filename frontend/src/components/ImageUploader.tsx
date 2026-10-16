@@ -5,6 +5,7 @@ import { Upload, X, ImageIcon, Clock } from 'lucide-react';
 import { getImageUrl } from '@/lib/utils';
 import { validateImageFile, type ImageUploadRules } from '@/lib/uploadRules';
 import api from '@/lib/api';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface ImageUploaderProps {
   value?: string;
@@ -18,9 +19,11 @@ interface ImageUploaderProps {
   objectFit?: 'cover' | 'contain';
   rules?: ImageUploadRules;
   fallbackSrc?: string;
+  uploadLabel?: string;
 }
 
-export default function ImageUploader({ value, file, onFileSelect, onChange, autoUpload, uploadType, subPath, size = 'md', objectFit = 'cover', rules, fallbackSrc }: ImageUploaderProps) {
+export default function ImageUploader({ value, file, onFileSelect, onChange, autoUpload, uploadType, subPath, size = 'md', objectFit = 'cover', rules, fallbackSrc, uploadLabel }: ImageUploaderProps) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [uploading, setUploading] = useState(false);
@@ -40,6 +43,7 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
 
   const performUpload = async (f: File, ut: string) => {
     setUploading(true);
+    setError('');
     try {
       const form = new FormData();
       form.append('file', f);
@@ -52,8 +56,11 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
       const res: any = await api.post('/upload', form);
       if (res.code === 200) {
         onChange?.(res.data?.url || res.url);
+      } else {
+        setError(res?.message || t('adminComp.upload.fail'));
       }
-    } catch (err) {
+    } catch (err: any) {
+      setError(err?.message || t('adminComp.upload.fail'));
       console.error('Upload failed:', err);
     } finally {
       setUploading(false);
@@ -97,10 +104,10 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
     <div>
       {displaySrc || showFallback ? (
         <div className="relative group inline-block">
-          <img src={displaySrc || fallbackSrc} alt="封面预览" className={`${dim} ${fit} rounded-md border border-gray-200`} />
+          <img src={displaySrc || fallbackSrc} alt={t('adminComp.upload.coverPreview')} className={`${dim} ${fit} rounded-md border border-gray-200`} />
           {file && (
             <div className="absolute top-1 left-1 flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">
-              <Clock className="w-3 h-3" />待上传
+              <Clock className="w-3 h-3" />{t('adminComp.pending')}
             </div>
           )}
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center gap-2">
@@ -120,7 +127,7 @@ export default function ImageUploader({ value, file, onFileSelect, onChange, aut
           onClick={() => inputRef.current?.click()}
           className={`flex items-center justify-center gap-2 ${dim} border border-dashed border-gray-300 rounded-md text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors`}
         >
-          <ImageIcon className="w-5 h-5" /><span>上传封面</span>
+          <ImageIcon className="w-5 h-5" /><span>{uploadLabel || t('adminComp.upload.cover')}</span>
         </button>
       )}
       <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />

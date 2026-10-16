@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Sparkles, RefreshCw } from 'lucide-react';
 import aiApi from '@/lib/aiApi';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface AiSummaryProps {
   content: string;
@@ -11,6 +12,7 @@ interface AiSummaryProps {
 }
 
 export default function AiSummary({ content, title, type }: AiSummaryProps) {
+  const { t } = useI18n();
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -24,9 +26,9 @@ export default function AiSummary({ content, title, type }: AiSummaryProps) {
       });
 
       const data = (response as any).data || response;
-      setSummary(data.content || data.message || '暂无摘要');
+      setSummary(data.content || data.message || t('publicComp.summaryEmpty'));
     } catch (error) {
-      setSummary('暂时无法生成摘要，请稍后再试');
+      setSummary(t('publicComp.summaryFailed'));
     } finally {
       setLoading(false);
     }
@@ -37,7 +39,7 @@ export default function AiSummary({ content, title, type }: AiSummaryProps) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-black" />
-          <h3 className="font-semibold text-black text-sm">AI 智能摘要</h3>
+          <h3 className="font-semibold text-black text-sm">{t('publicComp.aiSummaryTitle')}</h3>
         </div>
         <button
           onClick={generateSummary}
@@ -56,7 +58,7 @@ export default function AiSummary({ content, title, type }: AiSummaryProps) {
           disabled={loading}
           className="text-sm text-gray-500 hover:text-black transition-colors disabled:opacity-50"
         >
-          {loading ? '生成中...' : '点击生成AI摘要'}
+          {loading ? t('publicComp.generating') : t('publicComp.generateAiSummary')}
         </button>
       )}
     </div>

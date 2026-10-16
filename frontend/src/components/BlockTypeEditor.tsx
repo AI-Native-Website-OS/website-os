@@ -6,34 +6,35 @@ import * as LucideIcons from 'lucide-react';
 import ImageUploader from './ImageUploader';
 import MultiImageUploader from './MultiImageUploader';
 import FieldHint from './FieldHint';
-import { BLOCK_TYPES, blockTypeLabel } from '@/lib/blockData';
+import { blockTypeLabel, blockTypeDesc } from '@/lib/blockData';
 import type { ImageUploadRules } from '@/lib/uploadRules';
-import { BLOCK_IMAGE_RULE_HINTS, HTML_IMAGE_RULES, validateImageFile } from '@/lib/uploadRules';
+import { blockImageRuleHints, HTML_IMAGE_RULES, validateImageFile } from '@/lib/uploadRules';
 import { getImageUrl } from '@/lib/utils';
 import { HtmlBlockView } from '@/components/HtmlBlockView';
 import api from '@/lib/api';
+import { useI18n } from '@/i18n/I18nProvider';
 
 const ICON_OPTIONS = [
-  { value: '', label: '无图标' },
-  { value: 'Shield', label: 'Shield - 盾牌' },
-  { value: 'Zap', label: 'Zap - 闪电' },
-  { value: 'Globe', label: 'Globe - 地球' },
-  { value: 'Users', label: 'Users - 用户' },
-  { value: 'Heart', label: 'Heart - 爱心' },
-  { value: 'Star', label: 'Star - 星星' },
-  { value: 'Target', label: 'Target - 目标' },
-  { value: 'TrendingUp', label: 'TrendingUp - 增长' },
-  { value: 'Award', label: 'Award - 奖项' },
-  { value: 'BookOpen', label: 'BookOpen - 书本' },
-  { value: 'Cpu', label: 'Cpu - 芯片' },
-  { value: 'Cloud', label: 'Cloud - 云' },
-  { value: 'Lock', label: 'Lock - 锁' },
-  { value: 'Compass', label: 'Compass - 指南针' },
-  { value: 'Layers', label: 'Layers - 分层' },
-  { value: 'Settings', label: 'Settings - 设置' },
-  { value: 'Bell', label: 'Bell - 通知' },
-  { value: 'Calendar', label: 'Calendar - 日历' },
-  { value: 'Camera', label: 'Camera - 相机' },
+  { value: '', labelKey: 'adminComp.icon.none' },
+  { value: 'Shield', labelKey: 'adminComp.icon.shield' },
+  { value: 'Zap', labelKey: 'adminComp.icon.zap' },
+  { value: 'Globe', labelKey: 'adminComp.icon.globe' },
+  { value: 'Users', labelKey: 'adminComp.icon.users' },
+  { value: 'Heart', labelKey: 'adminComp.icon.heart' },
+  { value: 'Star', labelKey: 'adminComp.icon.star' },
+  { value: 'Target', labelKey: 'adminComp.icon.target' },
+  { value: 'TrendingUp', labelKey: 'adminComp.icon.trendingUp' },
+  { value: 'Award', labelKey: 'adminComp.icon.award' },
+  { value: 'BookOpen', labelKey: 'adminComp.icon.bookOpen' },
+  { value: 'Cpu', labelKey: 'adminComp.icon.cpu' },
+  { value: 'Cloud', labelKey: 'adminComp.icon.cloud' },
+  { value: 'Lock', labelKey: 'adminComp.icon.lock' },
+  { value: 'Compass', labelKey: 'adminComp.icon.compass' },
+  { value: 'Layers', labelKey: 'adminComp.icon.layers' },
+  { value: 'Settings', labelKey: 'adminComp.icon.settings' },
+  { value: 'Bell', labelKey: 'adminComp.icon.bell' },
+  { value: 'Calendar', labelKey: 'adminComp.icon.calendar' },
+  { value: 'Camera', labelKey: 'adminComp.icon.camera' },
 ];
 
 function IconPreview({ name, className = 'w-4 h-4' }: { name: string; className?: string }) {
@@ -52,12 +53,14 @@ function El({ errors, errorKey, children, className = '' }: { errors: Record<str
 }
 
 function ListCellInput({ value, rowIndex, col, onUpdate }: { value: string; rowIndex: number; col: string; onUpdate: (i: number, field: string, val: string) => void }) {
+  const { t } = useI18n();
   return (
-    <input value={value} onChange={(e) => onUpdate(rowIndex, col, e.target.value)} placeholder={`请输入${col}`} maxLength={200} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+    <input value={value} onChange={(e) => onUpdate(rowIndex, col, e.target.value)} placeholder={t('adminComp.blockList.cellPlaceholder', { col })} maxLength={200} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
   );
 }
 
 function ModuleIconPicker({ value, onSelect }: { value: string; onSelect: (v: string) => void }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap gap-1">
       {ICON_OPTIONS.filter((o) => o.value).map((opt) => (
@@ -66,7 +69,7 @@ function ModuleIconPicker({ value, onSelect }: { value: string; onSelect: (v: st
           type="button"
           onClick={() => onSelect(opt.value === value ? '' : opt.value)}
           className={`p-1.5 rounded border transition-colors ${value === opt.value ? 'border-black bg-gray-100' : 'border-gray-200 hover:border-gray-400'}`}
-          title={opt.label}
+          title={t(opt.labelKey)}
         >
           <IconPreview name={opt.value} className="w-4 h-4 text-gray-600" />
         </button>
@@ -91,6 +94,7 @@ interface BlockTypeEditorProps {
  * 抽取自 BlockForm，供首页/关于区块与内容管理新增内容复用。
  */
 export default function BlockTypeEditor({ type, data, errors, updateData, imageRules }: BlockTypeEditorProps) {
+  const { t } = useI18n();
   const switchRender = (): React.ReactNode | null => {
     switch (type) {
       case 'list': return renderListForm();
@@ -173,8 +177,8 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
-            数据行 <span className="text-red-400">*</span>
-            <span className="ml-2 text-xs text-gray-400">（{rows.length} 行，{columns.length} 字段）</span>
+            {t('adminComp.blockList.dataRows')} <span className="text-red-400">*</span>
+            <span className="ml-2 text-xs text-gray-400">{t('adminComp.blockList.rowsSummary', { rows: rows.length, cols: columns.length })}</span>
           </label>
         </div>
         <div className="overflow-x-auto border border-gray-300 rounded-md">
@@ -200,7 +204,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
                         <span
                           className="text-xs font-medium text-gray-500 cursor-pointer hover:text-black truncate flex-1"
                           onDoubleClick={() => setEditingCol(i)}
-                          title="双击修改字段名"
+                          title={t('adminComp.blockList.renameFieldHint')}
                         >
                           {col}
                         </span>
@@ -214,11 +218,11 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
                   </th>
                 ))}
                 <th className="w-12 px-2 py-2 text-center border-b border-gray-300">
-                  <button type="button" onClick={addColumn} className="p-0.5 text-gray-400 hover:text-black" title="添加字段">
+                  <button type="button" onClick={addColumn} className="p-0.5 text-gray-400 hover:text-black" title={t('adminComp.blockList.addField')}>
                     <Plus className="w-3.5 h-3.5" />
                   </button>
                 </th>
-                <th className="w-12 px-2 py-2 text-xs font-medium text-gray-500 text-center border-b border-gray-300">操作</th>
+                <th className="w-12 px-2 py-2 text-xs font-medium text-gray-500 text-center border-b border-gray-300">{t('adminComp.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -240,7 +244,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
           </table>
         </div>
         <button type="button" onClick={addRow} className="mt-2 text-xs text-gray-500 hover:text-black px-3 py-1.5 border border-dashed border-gray-300 rounded-md w-full flex items-center justify-center gap-1">
-          <Plus className="w-3 h-3" /> 添加数据行
+          <Plus className="w-3 h-3" /> {t('adminComp.blockList.addDataRow')}
         </button>
         <El errors={errors} errorKey="rows" />
       </div>
@@ -276,33 +280,33 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
-            模块列表 <span className="text-red-400">*</span>
-            <span className="ml-2 text-xs text-gray-400">（{moduleItems.length} 个模块）</span>
+            {t('adminComp.blockModule.list')} <span className="text-red-400">*</span>
+            <span className="ml-2 text-xs text-gray-400">{t('adminComp.blockModule.count', { n: moduleItems.length })}</span>
           </label>
         </div>
         <div className="space-y-4 max-h-[600px] overflow-y-auto">
           {moduleItems.map((mod: any, i: number) => (
             <div key={i} className="p-4 bg-gray-50 rounded-lg border border-gray-100">
               <div className="flex items-start justify-between mb-3">
-                <span className="text-xs text-gray-400 font-mono">模块 {i + 1}</span>
+                <span className="text-xs text-gray-400 font-mono">{t('adminComp.blockModule.itemN', { n: i + 1 })}</span>
                 <button type="button" onClick={() => removeItem(i)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
               </div>
               <div className="space-y-3">
                 <El errors={errors} errorKey={`mod_title_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">模块标题 <span className="text-red-400">*</span></label>
-                  <input value={mod.title || ''} onChange={(e) => updateItem(i, 'title', e.target.value)} placeholder="请输入模块标题" maxLength={100} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockModule.title')} <span className="text-red-400">*</span></label>
+                  <input value={mod.title || ''} onChange={(e) => updateItem(i, 'title', e.target.value)} placeholder={t('adminComp.blockModule.titlePlaceholder')} maxLength={100} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </El>
                 <El errors={errors} errorKey={`mod_subtitle_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">模块副标题</label>
-                  <input value={mod.subtitle || ''} onChange={(e) => updateItem(i, 'subtitle', e.target.value)} placeholder="选填" maxLength={100} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockModule.subtitle')}</label>
+                  <input value={mod.subtitle || ''} onChange={(e) => updateItem(i, 'subtitle', e.target.value)} placeholder={t('adminComp.optional')} maxLength={100} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </El>
                 <El errors={errors}>
-                  <label className="block text-xs text-gray-500 mb-0.5">图标</label>
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockModule.icon')}</label>
                   <ModuleIconPicker value={mod.icon} onSelect={(v) => updateItem(i, 'icon', v)} />
                 </El>
                 <El errors={errors} errorKey={`mod_desc_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">模块描述</label>
-                  <textarea value={mod.description || ''} onChange={(e) => updateItem(i, 'description', e.target.value)} placeholder="请输入模块描述" rows={3} maxLength={200} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm resize-none" />
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockModule.desc')}</label>
+                  <textarea value={mod.description || ''} onChange={(e) => updateItem(i, 'description', e.target.value)} placeholder={t('adminComp.blockModule.descPlaceholder')} rows={3} maxLength={200} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm resize-none" />
                   <p className="text-xs text-gray-400 mt-0.5 text-right">{(mod.description || '').length}/200</p>
                 </El>
               </div>
@@ -310,7 +314,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
           ))}
         </div>
         <button type="button" onClick={addItem} className="mt-3 text-xs text-gray-500 hover:text-black px-3 py-1.5 border border-dashed border-gray-300 rounded-md w-full flex items-center justify-center gap-1">
-          <Plus className="w-3 h-3" /> 添加模块
+          <Plus className="w-3 h-3" /> {t('adminComp.blockModule.add')}
         </button>
         <El errors={errors} errorKey="moduleItems" />
       </div>
@@ -332,25 +336,25 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
-            图文组 <span className="text-red-400">*</span>
-            <span className="ml-2 text-xs text-gray-400">（{groups.length} 组）</span>
+            {t('adminComp.blockImageText.group')} <span className="text-red-400">*</span>
+            <span className="ml-2 text-xs text-gray-400">{t('adminComp.blockImageText.count', { n: groups.length })}</span>
           </label>
         </div>
         <div className="space-y-4 max-h-[500px] overflow-y-auto">
           {groups.map((g: any, i: number) => (
             <div key={i} className="p-4 bg-gray-50 rounded-lg border border-gray-100">
               <div className="flex items-start justify-between mb-3">
-                <span className="text-xs text-gray-400 font-mono">图文组 {i + 1}</span>
+                <span className="text-xs text-gray-400 font-mono">{t('adminComp.blockImageText.groupN', { n: i + 1 })}</span>
                 <button type="button" onClick={() => removeGroup(i)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
               </div>
               <div className="space-y-3">
                 <El errors={errors} errorKey={`img_group_img_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">图片 <span className="text-red-400">*</span>{imageRules && <FieldHint text={BLOCK_IMAGE_RULE_HINTS} />}</label>
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockImageText.image')} <span className="text-red-400">*</span>{imageRules && <FieldHint text={blockImageRuleHints()} />}</label>
                   <ImageUploader value={g.image} onChange={(url) => updateGroup(i, 'image', url)} autoUpload uploadType="cases" rules={imageRules} />
                 </El>
                 <El errors={errors} errorKey={`img_group_desc_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">图片描述</label>
-                  <textarea value={g.description} onChange={(e) => updateGroup(i, 'description', e.target.value)} placeholder="请输入图片描述" rows={3} maxLength={200} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm resize-none" />
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockImageText.desc')}</label>
+                  <textarea value={g.description} onChange={(e) => updateGroup(i, 'description', e.target.value)} placeholder={t('adminComp.blockImageText.descPlaceholder')} rows={3} maxLength={200} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm resize-none" />
                   <p className="text-xs text-gray-400 mt-0.5 text-right">{(g.description || '').length}/200</p>
                 </El>
               </div>
@@ -358,7 +362,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
           ))}
         </div>
         <button type="button" onClick={addGroup} className="mt-3 text-xs text-gray-500 hover:text-black px-3 py-1.5 border border-dashed border-gray-300 rounded-md w-full flex items-center justify-center gap-1">
-          <Plus className="w-3 h-3" /> 添加图文组
+          <Plus className="w-3 h-3" /> {t('adminComp.blockImageText.add')}
         </button>
         <El errors={errors} errorKey="imageText" />
       </div>
@@ -380,37 +384,37 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-medium text-gray-700">
-            时间节点 <span className="text-red-400">*</span>
-            <span className="ml-2 text-xs text-gray-400">（{timeline.length} 个节点）</span>
+            {t('adminComp.blockTimeline.title')} <span className="text-red-400">*</span>
+            <span className="ml-2 text-xs text-gray-400">{t('adminComp.blockTimeline.count', { n: timeline.length })}</span>
           </label>
         </div>
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
           {timeline.map((node: any, i: number) => (
             <div key={i} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
               <div className="flex items-start justify-between mb-2">
-                <span className="text-xs text-gray-400 font-mono">节点 {i + 1}</span>
+                <span className="text-xs text-gray-400 font-mono">{t('adminComp.blockTimeline.nodeN', { n: i + 1 })}</span>
                 <button type="button" onClick={() => removeNode(i)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
               </div>
               <div className="space-y-2">
                 <El errors={errors} errorKey={`tl_date_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">日期 <span className="text-red-400">*</span></label>
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockTimeline.date')} <span className="text-red-400">*</span></label>
                   <input type="date" value={node.date} onChange={(e) => updateNode(i, 'date', e.target.value)} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </El>
                 <El errors={errors} errorKey={`tl_content_${i}`}>
-                  <label className="block text-xs text-gray-500 mb-0.5">描述内容</label>
-                  <textarea value={node.content} onChange={(e) => updateNode(i, 'content', e.target.value)} placeholder="请输入描述内容" rows={2} maxLength={200} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm resize-none" />
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockTimeline.content')}</label>
+                  <textarea value={node.content} onChange={(e) => updateNode(i, 'content', e.target.value)} placeholder={t('adminComp.blockTimeline.contentPlaceholder')} rows={2} maxLength={200} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm resize-none" />
                   <p className="text-xs text-gray-400 mt-0.5 text-right">{(node.content || '').length}/200</p>
                 </El>
                 <El errors={errors}>
-                  <label className="block text-xs text-gray-500 mb-0.5">标签</label>
-                  <input value={node.tag || ''} onChange={(e) => updateNode(i, 'tag', e.target.value)} placeholder="选填，如：里程碑、荣誉" maxLength={50} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                  <label className="block text-xs text-gray-500 mb-0.5">{t('adminComp.blockTimeline.tag')}</label>
+                  <input value={node.tag || ''} onChange={(e) => updateNode(i, 'tag', e.target.value)} placeholder={t('adminComp.blockTimeline.tagPlaceholder')} maxLength={50} className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </El>
               </div>
             </div>
           ))}
         </div>
         <button type="button" onClick={addNode} className="mt-2 text-xs text-gray-500 hover:text-black px-3 py-1.5 border border-dashed border-gray-300 rounded-md w-full flex items-center justify-center gap-1">
-          <Plus className="w-3 h-3" /> 添加时间节点
+          <Plus className="w-3 h-3" /> {t('adminComp.blockTimeline.add')}
         </button>
         <El errors={errors} errorKey="timeline" />
       </div>
@@ -444,12 +448,12 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
   }, [updateData]);
 
   const insertLink = () => {
-    const url = prompt('请输入链接地址：');
+    const url = prompt(t('adminComp.richText.promptLink'));
     if (url) execRichText('createLink', url);
   };
 
   const insertImage = () => {
-    const url = prompt('请输入图片地址：');
+    const url = prompt(t('adminComp.richText.promptImage'));
     if (url) execRichText('insertImage', url);
   };
 
@@ -459,12 +463,12 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
   };
 
   const setColor = () => {
-    const color = prompt('请输入颜色值（如 #ff0000）：');
+    const color = prompt(t('adminComp.richText.promptColor'));
     if (color) execRichText('foreColor', color);
   };
 
   const setBgColor = () => {
-    const color = prompt('请输入背景色（如 #ffff00）：');
+    const color = prompt(t('adminComp.richText.promptBgColor'));
     if (color) execRichText('hiliteColor', color);
   };
 
@@ -474,28 +478,28 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
     return (
       <div>
         <div className="flex items-center mb-2">
-          <label className="block text-sm font-medium text-gray-700">富文本内容 <span className="text-red-400">*</span></label>
+          <label className="block text-sm font-medium text-gray-700">{t('adminComp.richText.content')} <span className="text-red-400">*</span></label>
         </div>
         <div className="border border-gray-300 rounded-md overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
           <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 bg-gray-50 border-b border-gray-200">
-            <button type="button" className={btnClass} onClick={() => setHeading('<h1>')} title="标题1"><span className="text-xs font-bold">H1</span></button>
-            <button type="button" className={btnClass} onClick={() => setHeading('<h2>')} title="标题2"><span className="text-xs font-bold">H2</span></button>
-            <button type="button" className={btnClass} onClick={() => setHeading('<h3>')} title="标题3"><span className="text-xs font-bold">H3</span></button>
+            <button type="button" className={btnClass} onClick={() => setHeading('<h1>')} title={t('adminComp.richText.h1')}><span className="text-xs font-bold">H1</span></button>
+            <button type="button" className={btnClass} onClick={() => setHeading('<h2>')} title={t('adminComp.richText.h2')}><span className="text-xs font-bold">H2</span></button>
+            <button type="button" className={btnClass} onClick={() => setHeading('<h3>')} title={t('adminComp.richText.h3')}><span className="text-xs font-bold">H3</span></button>
             <span className="w-px h-4 bg-gray-300 mx-1" />
-            <button type="button" className={btnClass} onClick={() => execRichText('bold')} title="加粗"><Bold className="w-3.5 h-3.5" /></button>
-            <button type="button" className={btnClass} onClick={() => execRichText('italic')} title="斜体"><Italic className="w-3.5 h-3.5" /></button>
-            <button type="button" className={btnClass} onClick={() => execRichText('underline')} title="下划线"><Underline className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={() => execRichText('bold')} title={t('adminComp.richText.bold')}><Bold className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={() => execRichText('italic')} title={t('adminComp.richText.italic')}><Italic className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={() => execRichText('underline')} title={t('adminComp.richText.underline')}><Underline className="w-3.5 h-3.5" /></button>
             <span className="w-px h-4 bg-gray-300 mx-1" />
-            <button type="button" className={btnClass} onClick={setColor} title="文字颜色"><Palette className="w-3.5 h-3.5" /></button>
-            <button type="button" className={btnClass} onClick={setBgColor} title="背景色"><span className="inline-block w-3.5 h-3.5 rounded border border-gray-300" style={{ backgroundColor: '#ffff00' }} /></button>
+            <button type="button" className={btnClass} onClick={setColor} title={t('adminComp.richText.textColor')}><Palette className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={setBgColor} title={t('adminComp.richText.bgColor')}><span className="inline-block w-3.5 h-3.5 rounded border border-gray-300" style={{ backgroundColor: '#ffff00' }} /></button>
             <span className="w-px h-4 bg-gray-300 mx-1" />
-            <button type="button" className={btnClass} onClick={() => execRichText('insertUnorderedList')} title="无序列表"><List className="w-3.5 h-3.5" /></button>
-            <button type="button" className={btnClass} onClick={() => execRichText('insertOrderedList')} title="有序列表"><ListOrdered className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={() => execRichText('insertUnorderedList')} title={t('adminComp.richText.ul')}><List className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={() => execRichText('insertOrderedList')} title={t('adminComp.richText.ol')}><ListOrdered className="w-3.5 h-3.5" /></button>
             <span className="w-px h-4 bg-gray-300 mx-1" />
-            <button type="button" className={btnClass} onClick={insertLink} title="插入链接"><Link className="w-3.5 h-3.5" /></button>
-            <button type="button" className={btnClass} onClick={insertImage} title="插入图片"><ImageIconLucide className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={insertLink} title={t('adminComp.richText.insertLink')}><Link className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={insertImage} title={t('adminComp.richText.insertImage')}><ImageIconLucide className="w-3.5 h-3.5" /></button>
             <span className="w-px h-4 bg-gray-300 mx-1" />
-            <button type="button" className={btnClass} onClick={() => execRichText('removeFormat')} title="清除格式"><Trash2 className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btnClass} onClick={() => execRichText('removeFormat')} title={t('adminComp.richText.clearFormat')}><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
           <div
             ref={editorRef}
@@ -504,7 +508,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
             className="min-h-[200px] max-h-[400px] overflow-y-auto px-3 py-2 text-sm outline-none prose prose-sm max-w-none"
             onInput={onEditorInput}
             onBlur={onEditorInput}
-            data-placeholder="请输入富文本内容..."
+            data-placeholder={t('adminComp.richText.placeholder')}
           />
         </div>
         <El errors={errors} errorKey="richText" />
@@ -566,7 +570,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
     return (
       <div>
         <div className="flex items-center mb-2">
-          <label className="block text-sm font-medium text-gray-700">HTML 源码 <span className="text-red-400">*</span></label>
+          <label className="block text-sm font-medium text-gray-700">{t('adminComp.html.sourceLabel')} <span className="text-red-400">*</span></label>
         </div>
         <div className="border border-gray-300 rounded-md overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
           <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-gray-50 border-b border-gray-200">
@@ -576,14 +580,14 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
                 onClick={() => setHtmlMode('src')}
                 className={`px-3 py-1 text-xs rounded transition-colors ${htmlMode === 'src' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}
               >
-                源码
+                {t('adminComp.html.src')}
               </button>
               <button
                 type="button"
                 onClick={() => setHtmlMode('prev')}
                 className={`px-3 py-1 text-xs rounded transition-colors ${htmlMode === 'prev' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}
               >
-                预览
+                {t('adminComp.html.preview')}
               </button>
             </div>
             <span className="w-px h-4 bg-gray-300 mx-1" />
@@ -592,10 +596,10 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
               onClick={() => htmlImageInputRef.current?.click()}
               disabled={htmlUploading}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-700 hover:border-gray-500 disabled:opacity-50"
-              title="上传图片并自动插入到源码光标处"
+              title={t('adminComp.html.uploadInsertHint')}
             >
               {htmlUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIconLucide className="w-3.5 h-3.5" />}
-              上传图片并插入
+              {t('adminComp.html.uploadInsert')}
             </button>
             <input ref={htmlImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
           </div>
@@ -604,7 +608,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
               ref={htmlTextareaRef}
               value={html}
               onChange={(e) => updateData('html', e.target.value)}
-              placeholder="在此粘贴 HTML 源码，如 <div>、表格、统计卡片等"
+              placeholder={t('adminComp.html.placeholder')}
               spellCheck={false}
               className="w-full min-h-[220px] px-3 py-2 font-mono text-xs leading-relaxed outline-none resize-y"
             />
@@ -614,7 +618,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
         </div>
         {htmlUploadError && <p className="text-xs text-red-500 mt-1">{htmlUploadError}</p>}
         <p className="text-xs text-gray-400 mt-1.5">
-          提示：HTML 源码将在前台原样渲染（含脚本与交互），效果与本地浏览器打开一致。
+          {t('adminComp.html.tip')}
         </p>
         <El errors={errors} errorKey="html" />
       </div>
@@ -639,7 +643,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
       <div className="space-y-4">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-700">自动播放</label>
+            <label className="text-sm text-gray-700">{t('adminComp.carousel.autoPlay')}</label>
             <button
               type="button"
               onClick={() => updateData('autoPlay', !autoPlay)}
@@ -649,7 +653,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-700">切换间隔（秒）</label>
+            <label className="text-sm text-gray-700">{t('adminComp.carousel.interval')}</label>
             <input
               type="number"
               min={1}
@@ -664,9 +668,9 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-medium text-gray-700">
-              轮播图片 <span className="text-red-400">*</span>
-              {imageRules && <FieldHint text={BLOCK_IMAGE_RULE_HINTS} />}
-              <span className="ml-2 text-xs text-gray-400">（{items.length} 张）</span>
+              {t('adminComp.carousel.images')} <span className="text-red-400">*</span>
+              {imageRules && <FieldHint text={blockImageRuleHints()} />}
+              <span className="ml-2 text-xs text-gray-400">{t('adminComp.carousel.count', { n: items.length })}</span>
             </label>
           </div>
           <MultiImageUploader images={itemImages} onChange={handleImagesChange} uploadType="cases" rules={imageRules} />
@@ -678,7 +682,7 @@ export default function BlockTypeEditor({ type, data, errors, updateData, imageR
 
   return (
     <div>
-      <div className="text-xs text-gray-400 mb-2">当前类型：{blockTypeLabel(type)} — {BLOCK_TYPES.find((t) => t.type === type)?.desc}</div>
+      <div className="text-xs text-gray-400 mb-2">{t('adminComp.currentType')}{blockTypeLabel(type)} — {blockTypeDesc(type)}</div>
       {switchRender()}
     </div>
   );

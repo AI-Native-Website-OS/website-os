@@ -3,6 +3,8 @@ package com.sinounion.controller.admin;
 import com.sinounion.common.Result;
 import com.sinounion.entity.Banner;
 import com.sinounion.service.BannerService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +21,8 @@ import java.util.List;
 public class AdminPageConfigController {
 
     private final BannerService bannerService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
 
     @Operation(summary = "获取Banner列表")
     @GetMapping("/banners")
@@ -31,14 +35,20 @@ public class AdminPageConfigController {
     @PostMapping("/banners")
     @PreAuthorize("hasAuthority('page:config:edit')")
     public Result<Banner> createBanner(@Valid @RequestBody Banner banner) {
-        return Result.success(bannerService.createBanner(banner));
+        Banner created = bannerService.createBanner(banner);
+        knowledgeSyncDispatcher.syncBanner(created);
+        translationEnqueueService.enqueueEntity("banner", created);
+        return Result.success(created);
     }
 
     @Operation(summary = "更新Banner")
     @PutMapping("/banners/{id}")
     @PreAuthorize("hasAuthority('page:config:edit')")
     public Result<Banner> updateBanner(@PathVariable Long id, @Valid @RequestBody Banner banner) {
-        return Result.success(bannerService.updateBanner(id, banner));
+        Banner updated = bannerService.updateBanner(id, banner);
+        knowledgeSyncDispatcher.syncBanner(updated);
+        translationEnqueueService.enqueueEntity("banner", updated);
+        return Result.success(updated);
     }
 
     @Operation(summary = "删除Banner")
@@ -46,6 +56,8 @@ public class AdminPageConfigController {
     @PreAuthorize("hasAuthority('page:config:edit')")
     public Result<Void> deleteBanner(@PathVariable Long id) {
         bannerService.deleteBanner(id);
+        knowledgeSyncDispatcher.deleteContent("banner", id);
+        translationEnqueueService.removeResource("banner", id);
         return Result.success(null);
     }
 }

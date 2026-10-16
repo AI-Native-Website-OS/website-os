@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
 import SeoHead from '@/components/SeoHead';
 import Breadcrumb from '@/components/Breadcrumb';
@@ -10,43 +10,65 @@ import { Check, Minus, Sparkles, ArrowRight, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import type { AiWebsiteConfig, AiWebsiteVersionItem } from '@/types';
 
-const DEFAULT_CONFIG: AiWebsiteConfig = {
-  title: 'AI 企业官网 · 版本介绍',
-  subtitle: '从内容管理到 AI 顾问，选择适合您企业规模的版本',
-  comparisonTitle: '功能对比',
-  versions: [
-    {
-      key: 'basic', name: '基础版', tagline: '适合个人与初创团队', price: '¥0', priceNote: '开源免费',
-      description: '快速搭建品牌官网，内置内容管理与 AI 顾问体验。',
-      features: ['官网内容管理（产品/方案/案例/资源）', 'AI 智能顾问（每日限量）', '中英双语界面', '线索采集与后台管理'],
-      highlight: false, ctaLabel: '免费体验', ctaUrl: '/#chat',
-    },
-    {
-      key: 'pro', name: '专业版', tagline: '适合成长型企业', price: '¥399', priceNote: '每月',
-      description: '在基础版之上，解锁完整 AI 能力与营销分析。',
-      features: ['基础版全部功能', 'AI 顾问不限量 + 知识库 RAG', 'AI 长期记忆与意图识别', '用户行为追踪与转化分析', 'SEO / GEO 自动优化', '优先技术支持'],
-      highlight: true, ctaLabel: '立即升级', ctaUrl: '/#chat',
-    },
-    {
-      key: 'enterprise', name: '旗舰版', tagline: '适合大型企业 / 集团', price: '定制', priceNote: '联系我们',
-      description: '专属私有化部署，多站点多语言与深度定制。',
-      features: ['专业版全部功能', '私有化部署（本地/专有云）', '多站点 / 多语言 / 品牌定制', '专属模型微调与知识库', '专属客户成功经理'],
-      highlight: false, ctaLabel: '联系我们', ctaUrl: '/about#contact',
-    },
-  ],
-  comparisonRows: [
-    { feature: '官网内容管理', values: { basic: '✓', pro: '✓', enterprise: '✓' } },
-    { feature: 'AI 智能顾问', values: { basic: '每日限量', pro: '不限量', enterprise: '不限量' } },
-    { feature: '知识库 RAG 检索', values: { basic: '—', pro: '✓', enterprise: '✓' } },
-    { feature: 'AI 长期记忆', values: { basic: '—', pro: '✓', enterprise: '✓' } },
-    { feature: '用户行为追踪', values: { basic: '基础', pro: '✓', enterprise: '✓' } },
-    { feature: '中英双语', values: { basic: '✓', pro: '✓', enterprise: '✓' } },
-    { feature: 'SEO / GEO 优化', values: { basic: '—', pro: '✓', enterprise: '✓' } },
-    { feature: '私有化部署', values: { basic: '—', pro: '—', enterprise: '✓' } },
-    { feature: '专属模型定制', values: { basic: '—', pro: '—', enterprise: '✓' } },
-    { feature: '技术支持', values: { basic: '社区', pro: '优先', enterprise: '专属' } },
-  ],
-};
+type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
+
+function buildDefaultConfig(t: TranslateFn): AiWebsiteConfig {
+  return {
+    title: t('publicPages.version.defaultTitle'),
+    subtitle: t('publicPages.version.defaultSubtitle'),
+    comparisonTitle: t('publicPages.version.comparisonTitle'),
+    versions: [
+      {
+        key: 'basic', name: t('publicPages.version.basicName'), tagline: t('publicPages.version.basicTagline'), price: '¥0', priceNote: t('publicPages.version.basicPriceNote'),
+        description: t('publicPages.version.basicDescription'),
+        features: [
+          t('publicPages.version.basicFeature1'),
+          t('publicPages.version.basicFeature2'),
+          t('publicPages.version.basicFeature3'),
+          t('publicPages.version.basicFeature4'),
+        ],
+        highlight: false, ctaLabel: t('publicPages.version.basicCta'), ctaUrl: '/#chat',
+      },
+      {
+        key: 'pro', name: t('publicPages.version.proName'), tagline: t('publicPages.version.proTagline'), price: '¥399', priceNote: t('publicPages.version.proPriceNote'),
+        description: t('publicPages.version.proDescription'),
+        features: [
+          t('publicPages.version.proFeature1'),
+          t('publicPages.version.proFeature2'),
+          t('publicPages.version.proFeature3'),
+          t('publicPages.version.proFeature4'),
+          t('publicPages.version.proFeature5'),
+          t('publicPages.version.proFeature6'),
+        ],
+        highlight: true, ctaLabel: t('publicPages.version.proCta'), ctaUrl: '/#chat',
+      },
+      {
+        key: 'enterprise', name: t('publicPages.version.enterpriseName'), tagline: t('publicPages.version.enterpriseTagline'), price: t('publicPages.version.enterprisePrice'), priceNote: t('publicPages.version.enterprisePriceNote'),
+        description: t('publicPages.version.enterpriseDescription'),
+        features: [
+          t('publicPages.version.enterpriseFeature1'),
+          t('publicPages.version.enterpriseFeature2'),
+          t('publicPages.version.enterpriseFeature3'),
+          t('publicPages.version.enterpriseFeature4'),
+          t('publicPages.version.enterpriseFeature5'),
+        ],
+        highlight: false, ctaLabel: t('publicPages.version.enterpriseCta'), ctaUrl: '/about#contact',
+      },
+    ],
+    comparisonRows: [
+      { feature: t('publicPages.version.rowContentManagement'), values: { basic: '✓', pro: '✓', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowAiAssistant'), values: { basic: t('publicPages.version.valLimitedDaily'), pro: t('publicPages.version.valUnlimited'), enterprise: t('publicPages.version.valUnlimited') } },
+      { feature: t('publicPages.version.rowKbRag'), values: { basic: '—', pro: '✓', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowLongTermMemory'), values: { basic: '—', pro: '✓', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowBehaviorTracking'), values: { basic: t('publicPages.version.valBasic'), pro: '✓', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowBilingual'), values: { basic: '✓', pro: '✓', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowSeoGeo'), values: { basic: '—', pro: '✓', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowPrivateDeploy'), values: { basic: '—', pro: '—', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowCustomModel'), values: { basic: '—', pro: '—', enterprise: '✓' } },
+      { feature: t('publicPages.version.rowSupport'), values: { basic: t('publicPages.version.valCommunity'), pro: t('publicPages.version.valPriority'), enterprise: t('publicPages.version.valDedicated') } },
+    ],
+  };
+}
 
 function renderValue(value: string) {
   if (value === '✓') return <Check className="w-4 h-4 text-green-600 mx-auto" />;
@@ -57,7 +79,8 @@ function renderValue(value: string) {
 export default function VersionPage() {
   const { t } = useI18n();
   const { siteConfig } = useSiteConfig();
-  const [config, setConfig] = useState<AiWebsiteConfig>(DEFAULT_CONFIG);
+  const defaultConfig = useMemo(() => buildDefaultConfig(t), [t]);
+  const [config, setConfig] = useState<AiWebsiteConfig>(() => defaultConfig);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -78,8 +101,8 @@ export default function VersionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const versions = config.versions || DEFAULT_CONFIG.versions || [];
-  const rows = config.comparisonRows || DEFAULT_CONFIG.comparisonRows || [];
+  const versions = config.versions || defaultConfig.versions || [];
+  const rows = config.comparisonRows || defaultConfig.comparisonRows || [];
 
   if (siteConfig.versionEnabled === false) {
     return (
@@ -100,12 +123,12 @@ export default function VersionPage() {
   return (
     <>
       <SeoHead
-        title={config.title || '版本介绍'}
-        description="AI 企业官网不同版本（基础版 / 专业版 / 旗舰版）的介绍与功能对比，选择适合您企业的版本。"
+        title={config.title || t('publicPages.version.fallbackTitle')}
+        description={t('publicPages.version.seoDescription')}
         path="/version"
         breadcrumbs={[
           { name: t('common.home'), url: '/' },
-          { name: config.title || '版本介绍', url: '/version' },
+          { name: config.title || t('publicPages.version.fallbackTitle'), url: '/version' },
         ]}
       />
       <div className="bg-white min-h-screen">
@@ -113,9 +136,9 @@ export default function VersionPage() {
           <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
             <Breadcrumb items={[
               { name: t('common.home'), url: '/' },
-              { name: config.title || '版本介绍', url: '/version' },
+              { name: config.title || t('publicPages.version.fallbackTitle'), url: '/version' },
             ]} />
-            <h1 className="text-4xl md:text-5xl font-bold mt-8 mb-4">{config.title || '版本介绍'}</h1>
+            <h1 className="text-4xl md:text-5xl font-bold mt-8 mb-4">{config.title || t('publicPages.version.fallbackTitle')}</h1>
             <p className="text-lg text-gray-500 max-w-2xl">{config.subtitle}</p>
           </div>
         </section>
@@ -144,7 +167,7 @@ export default function VersionPage() {
                 >
                   {v.highlight && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white text-black text-xs font-bold px-3 py-1 rounded-full border border-black shadow">
-                      <Sparkles className="w-3 h-3" /> 推荐
+                      <Sparkles className="w-3 h-3" /> {t('publicPages.version.recommended')}
                     </div>
                   )}
                   <h3 className={`text-xl font-bold ${v.highlight ? 'text-white' : 'text-gray-900'}`}>{v.name}</h3>
@@ -170,7 +193,7 @@ export default function VersionPage() {
                         : 'bg-black text-white hover:bg-gray-800'
                     }`}
                   >
-                    {v.ctaLabel || '了解更多'} <ArrowRight className="w-4 h-4" />
+                    {v.ctaLabel || t('publicPages.version.learnMore')} <ArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               ))}
@@ -182,12 +205,12 @@ export default function VersionPage() {
         {rows.length > 0 && (
           <section className="py-12">
             <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-              <h2 className="text-2xl font-bold text-center mb-8">{config.comparisonTitle || '功能对比'}</h2>
+              <h2 className="text-2xl font-bold text-center mb-8">{config.comparisonTitle || t('publicPages.version.comparisonTitle')}</h2>
               <div className="overflow-x-auto rounded-2xl border border-gray-200">
                 <table className="w-full text-sm bg-white">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50">
-                      <th className="py-4 px-4 text-left font-medium text-gray-500 w-1/4">功能</th>
+                      <th className="py-4 px-4 text-left font-medium text-gray-500 w-1/4">{t('publicPages.version.featureLabel')}</th>
                       {versions.map((v) => (
                         <th key={v.key} className={`py-4 px-4 text-center font-semibold ${v.highlight ? 'text-black' : 'text-gray-900'}`}>
                           {v.name}

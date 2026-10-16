@@ -52,6 +52,7 @@ export interface CoreModule {
   sortOrder: number;
   status: number;
   moduleColumns?: number;
+  isSystem?: number;
   createdAt: string;
 }
 
@@ -174,11 +175,15 @@ export interface IndustryChain {
 }
 
 export interface ContentRecommendation {
-  id: number;
+  id: number | null;
   moduleKey: string;
   moduleName: string;
   title: string;
   slug: string;
+  categorySlug?: string | null;
+  url?: string;
+  summary?: string;
+  similarity?: number;
 }
 
 export interface AiChatMessage {
@@ -199,7 +204,13 @@ export interface DashboardStats {
   todayAiChats: number;
   todayFormSubmits: number;
   todayDownloads: number;
-  topPages: Array<{ pageType: string; pageId: number; pageUrl: string; pageTitle?: string; viewCount: number }>;
+  yesterdayViews: number;
+  yesterdayUniqueVisitors: number;
+  yesterdayLeads: number;
+  yesterdayAiChats: number;
+  yesterdayFormSubmits: number;
+  yesterdayDownloads: number;
+  topPages: Array<{ pageType: string; pageId: number; pageUrl: string; pageTitle?: string; viewCount: number; avgDuration?: number }>;
 }
 
 export interface SeoConfig {
@@ -267,6 +278,15 @@ export interface SystemConfig {
   updatedAt: string;
 }
 
+export interface SiteNotice {
+  id?: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  content: string;
+  enabled?: boolean;
+  startAt?: string;
+  endAt?: string;
+}
+
 export interface ContactInfo {
   id: number;
   type: string;
@@ -282,6 +302,16 @@ export interface FooterExtraItem {
   value: string;
 }
 
+export interface FooterQrcodeItem {
+  image: string;
+  label: string;
+}
+
+export interface FooterLinkItem {
+  name: string;
+  url: string;
+}
+
 export interface FooterConfig {
   logo: string;
   copyright: string;
@@ -291,6 +321,8 @@ export interface FooterConfig {
   policeNumber: string;
   policeUrl: string;
   extra: FooterExtraItem[];
+  qrcodes?: FooterQrcodeItem[];
+  links?: FooterLinkItem[];
 }
 
 export interface PageResult<T> {
@@ -355,9 +387,17 @@ export interface TrendPoint {
   uniqueVisitors: number;
 }
 
+export interface ActivityPoint {
+  key: string;
+  leads: number;
+  downloads: number;
+  aiChats: number;
+}
+
 export interface HourlyPoint {
   hour: number;
   visits: number;
+  uniqueVisitors?: number;
 }
 
 export interface NameValueItem {
@@ -523,6 +563,7 @@ export interface ConfigOut {
   llm_stop?: string[] | null;
   llm_seed?: number | null;
   llm_thinking_auto_collapse: boolean;
+  llm_thinking_enabled: boolean;
   ai_user_rate_limit: number;
   ai_guest_daily_limit: number;
   embedding_provider?: string | null;
@@ -596,6 +637,7 @@ export interface MemorySearchOut {
 export interface MemoryFileInfo {
   username: string;
   filename: string;
+  role?: string;
   size: number;
   line_count: number;
   updated_at: string;
@@ -615,6 +657,14 @@ export interface MemoryFileSaveRequest {
   content: string;
 }
 
+export interface TextStyle {
+  font_family: string;
+  font_size?: number | null;
+  color: string;
+  font_style: 'normal' | 'bold' | 'italic' | 'bold-italic';
+  letter_spacing?: number | null;
+}
+
 export interface PromptConfigOut {
   system_prompt: string;
   suggestions: string[];
@@ -622,6 +672,8 @@ export interface PromptConfigOut {
   banned_threshold: number;
   welcome_message?: string;
   input_placeholder?: string;
+  welcome_message_style?: TextStyle;
+  input_placeholder_style?: TextStyle;
 }
 
 export interface PromptConfigSaveRequest {
@@ -631,6 +683,18 @@ export interface PromptConfigSaveRequest {
   banned_threshold?: number;
   welcome_message?: string;
   input_placeholder?: string;
+  welcome_message_style?: TextStyle;
+  input_placeholder_style?: TextStyle;
+}
+
+export interface SuggestionsGenerateRequest {
+  kb_ids?: number[];
+  count?: number;
+  language?: string;
+}
+
+export interface SuggestionsGenerateOut {
+  suggestions: string[];
 }
 
 export interface ModelConfigItem {

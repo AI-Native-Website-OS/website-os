@@ -34,11 +34,41 @@ public class AdminStatsController {
         return Result.success(statsService.getWeeklyTrend());
     }
 
+    @Operation(summary = "流量趋势（近30天PV/UV）")
+    @GetMapping("/chart/traffic-trend-30d")
+    @PreAuthorize("hasAuthority('stats:view')")
+    public Result<List<Map<String, Object>>> getTrafficTrend30d() {
+        return Result.success(statsService.getTrafficTrend30d());
+    }
+
+    @Operation(summary = "地域分布（省份/国家）")
+    @GetMapping("/chart/geo-distribution")
+    @PreAuthorize("hasAuthority('stats:view')")
+    public Result<List<Map<String, Object>>> getGeoDistribution(
+            @RequestParam(defaultValue = "china") String scope,
+            @RequestParam(defaultValue = "all") String source) {
+        return Result.success(statsService.getGeoDistribution(scope, source));
+    }
+
+    @Operation(summary = "活跃趋势（线索/下载/AI对话）")
+    @GetMapping("/chart/activity-trend")
+    @PreAuthorize("hasAuthority('stats:view')")
+    public Result<List<Map<String, Object>>> getActivityTrend(@RequestParam(defaultValue = "7d") String range) {
+        return Result.success(statsService.getActivityTrend(range));
+    }
+
     @Operation(summary = "访问时段分布")
     @GetMapping("/chart/hourly-distribution")
     @PreAuthorize("hasAuthority('stats:view')")
     public Result<List<Map<String, Object>>> getHourlyDistribution() {
         return Result.success(statsService.getHourlyDistribution());
+    }
+
+    @Operation(summary = "访问时段分布（昨日）")
+    @GetMapping("/chart/hourly-distribution-yesterday")
+    @PreAuthorize("hasAuthority('stats:view')")
+    public Result<List<Map<String, Object>>> getHourlyDistributionYesterday() {
+        return Result.success(statsService.getHourlyDistributionYesterday());
     }
 
     @Operation(summary = "页面类型分布")

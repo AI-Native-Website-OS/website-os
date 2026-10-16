@@ -8,6 +8,7 @@ import type { ContentItem, ContentRelations, CoreModule } from '@/types';
 import { getImageUrl, formatDate } from '@/lib/utils';
 import { detailUrl } from '@/lib/moduleConfig';
 import api from '@/lib/api';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface CrossRecommendProps {
   relations?: ContentRelations;
@@ -149,6 +150,7 @@ function toCardItems(items: ContentItem[] | undefined, moduleKey: string, catego
 }
 
 export default function CrossRecommend({ relations, variant = 'full' }: CrossRecommendProps) {
+  const { t } = useI18n();
   const [modules, setModules] = useState<CoreModule[]>([]);
 
   useEffect(() => {
@@ -169,7 +171,7 @@ export default function CrossRecommend({ relations, variant = 'full' }: CrossRec
           return (
             <SidebarSection
               key={moduleKey}
-              label={`相关${nameByKey.get(moduleKey) || moduleKey}`}
+              label={t('publicComp.relatedLabel', { name: nameByKey.get(moduleKey) || moduleKey })}
               items={cards}
             />
           );
@@ -186,7 +188,7 @@ export default function CrossRecommend({ relations, variant = 'full' }: CrossRec
         return (
           <Section
             key={moduleKey}
-            label={`相关${nameByKey.get(moduleKey) || moduleKey}`}
+            label={t('publicComp.relatedLabel', { name: nameByKey.get(moduleKey) || moduleKey })}
             icon={BUILTIN_ICONS[moduleKey] || <Layers className="w-4 h-4" />}
             items={cards}
           />

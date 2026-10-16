@@ -15,4 +15,7 @@ public interface ContactSubmissionMapper extends BaseMapper<ContactSubmission> {
 
     @Select("SELECT COUNT(*) FROM contact_submissions WHERE created_at::date = CURRENT_DATE")
     Integer countTodaySubmissions();
+
+    @Select("SELECT COUNT(*) FROM contact_submissions WHERE created_at::date = CURRENT_DATE - INTERVAL '1 day'")
+    Integer countYesterdaySubmissions();
 }

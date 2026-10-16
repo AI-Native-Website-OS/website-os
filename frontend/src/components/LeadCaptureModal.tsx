@@ -6,6 +6,7 @@ import { X, Sparkles, Send } from 'lucide-react';
 import api from '@/lib/api';
 import { isValidPhone, isValidEmail } from '@/lib/validators';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface LeadCaptureModalProps {
   open: boolean;
@@ -25,6 +26,7 @@ export default function LeadCaptureModal({
   defaultRequirement,
   onSuccess,
 }: LeadCaptureModalProps) {
+  const { t } = useI18n();
   const { user } = useAuth();
   const locked = !!user;
   const [name, setName] = useState('');
@@ -51,9 +53,9 @@ export default function LeadCaptureModal({
     e.preventDefault();
     setError('');
 
-    if (!name.trim()) { setError('请输入姓名'); return; }
-    if (!isValidPhone(phone)) { setError('请输入正确的11位手机号'); return; }
-    if (email && !isValidEmail(email)) { setError('请输入正确的邮箱地址'); return; }
+    if (!name.trim()) { setError(t('publicComp.nameRequired')); return; }
+    if (!isValidPhone(phone)) { setError(t('publicComp.invalidPhone')); return; }
+    if (email && !isValidEmail(email)) { setError(t('publicComp.invalidEmail')); return; }
 
     setLoading(true);
     try {
@@ -71,17 +73,17 @@ export default function LeadCaptureModal({
       const res: any = await api.post('/leads', leadData);
       if (res.code !== 200) {
         if (res.code === 400 && res.message === 'duplicate_submission') {
-          setError('已提交过申请，请耐心等待管理人员联系');
+          setError(t('publicComp.duplicateSubmitted'));
           setLoading(false);
           return;
         }
-        setError(res.message || '提交失败，请稍后再试');
+        setError(res.message || t('publicComp.submitFailed'));
         return;
       }
       setSubmitted(true);
       if (onSuccess) onSuccess();
     } catch {
-      setError('提交失败，请稍后再试');
+      setError(t('publicComp.submitFailed'));
     } finally {
       setLoading(false);
     }
@@ -104,22 +106,22 @@ export default function LeadCaptureModal({
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Sparkles className="w-8 h-8 text-green-600" />
             </div>
-            <h3 className="text-xl font-semibold text-black mb-2">提交成功！</h3>
-            <p className="text-gray-500 mb-6">我们的专业顾问会在24小时内与您联系</p>
+            <h3 className="text-xl font-semibold text-black mb-2">{t('publicComp.submitSuccess')}</h3>
+            <p className="text-gray-500 mb-6">{t('publicComp.contactWithin24h')}</p>
             <button
               onClick={onClose}
               className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-colors"
             >
-              关闭
+              {t('publicComp.close')}
             </button>
           </div>
         ) : (
           <>
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h3 className="text-xl font-semibold text-black">{source === 'ai_chat' ? '获取专属方案' : '留资获取资料'}</h3>
+                <h3 className="text-xl font-semibold text-black">{source === 'ai_chat' ? t('publicComp.getExclusiveSolution') : t('publicComp.leaveInfoForMaterial')}</h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  {interestArea ? `已为您关注: ${interestArea}` : '留下联系方式，获取专属咨询'}
+                  {interestArea ? t('publicComp.followingInterest', { area: interestArea }) : t('publicComp.leaveContactForConsult')}
                 </p>
               </div>
               <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
@@ -127,57 +129,57 @@ export default function LeadCaptureModal({
               </button>
             </div>
             {locked && (
-              <p className="text-xs text-gray-400 mb-4 -mt-2">已登录：姓名/联系方式使用账号信息，不可修改，用于防止重复提交</p>
+              <p className="text-xs text-gray-400 mb-4 -mt-2">{t('publicComp.loggedInLockNote')}</p>
             )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">姓名 <span className="text-red-400">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.name')} <span className="text-red-400">*</span></label>
                 <input
                   type="text" required value={name}
                   onChange={e => setName(e.target.value)}
                   disabled={locked}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
-                  placeholder="您的姓名"
+                  placeholder={t('publicComp.placeholderYourName')}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">手机号 <span className="text-red-400">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.phoneWithNumber')} <span className="text-red-400">*</span></label>
                 <input
                   type="tel" required value={phone}
                   onChange={e => setPhone(e.target.value)}
                   disabled={locked}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
-                  placeholder="11位手机号"
+                  placeholder={t('publicComp.placeholderPhone')}
                 />
-                {phone && !isValidPhone(phone) && <p className="text-xs text-red-500 mt-1">请输入正确的11位手机号</p>}
+                {phone && !isValidPhone(phone) && <p className="text-xs text-red-500 mt-1">{t('publicComp.invalidPhone')}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">公司名称</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.companyName')}</label>
                 <input
                   type="text" value={company}
                   onChange={e => setCompany(e.target.value)}
                   disabled={locked}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
-                  placeholder="企业名称（选填）"
+                  placeholder={t('publicComp.placeholderCompanyOptional')}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.email')}</label>
                 <input
                   type="email" value={email}
                   onChange={e => setEmail(e.target.value)}
                   disabled={locked}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
-                  placeholder="邮箱（选填）"
+                  placeholder={t('publicComp.placeholderEmailOptional')}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">需求描述</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.requirement')}</label>
                 <textarea
                   rows={3} value={requirement}
                   onChange={e => setRequirement(e.target.value)}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent resize-none"
-                  placeholder="请简要描述您的需求..."
+                  placeholder={t('publicComp.requirementPlaceholder')}
                 />
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
@@ -186,7 +188,7 @@ export default function LeadCaptureModal({
                 className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
               >
                 <Send className="w-4 h-4" />
-                {loading ? '提交中...' : '提交需求'}
+                {loading ? t('publicComp.submitting') : t('publicComp.submitRequirement')}
               </button>
             </form>
           </>

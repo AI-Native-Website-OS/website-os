@@ -136,8 +136,10 @@ COMMENT ON COLUMN core_modules.status IS '1=启用 0=禁用';
 COMMENT ON COLUMN core_modules.module_columns IS '首页模块展示列数(默认4)';
 
 INSERT INTO core_modules (module_key, module_name, module_title, module_description, module_type, is_system, path, sort_order, status) VALUES
-('demo-product',   '演示产品',   '演示模块', '这是一条示例种子数据，用于演示产品类自定义模块', 1, 0, '/demo-product', 0, 1),
-('demo-solution',  '演示方案', '演示模块', '这是一条示例种子数据，用于演示解决方案类自定义模块', 2, 0, '/demo-solution', 1, 1)
+('home',  '首页', '', '', 2, 1, '/about', 0, 1)
+('demo-product',   '演示产品',   '演示模块', '这是一条示例种子数据，用于演示产品类自定义模块', 1, 0, '/demo-product', 1, 1),
+('demo-solution',  '演示方案', '演示模块', '这是一条示例种子数据，用于演示解决方案类自定义模块', 2, 0, '/demo-solution', 2, 1)
+('about',  '关于我们', '', '', 2, 1, '/', 3, 0)
 ON CONFLICT (module_key) DO NOTHING;
 
 -- 内容分类表（双层嵌套自定义模块）
@@ -663,7 +665,7 @@ VALUES
     ('animations_enabled', 'true', 'system', 'animations_enabled'),
     (
         'site_brand',
-        '{"siteName":"示例科技","siteFullName":"示例科技有限公司","siteDescription":"示例科技是一家专注于企业数字化转型的服务商，致力于为客户提供端到端的数字化解决方案。","companyName":"示例科技有限公司","copyright":"示例科技有限公司 版权所有","contactPhone":"010-00000000","contactEmail":"demo@example.com","icpNumber":"ICP备案号待配置","url":"https://demo.example.com","logo":"/logo.png","favicon":"/logo-lable.png","openLinks":[{"label":"GitHub","url":"","icon":"github","enabled":true},{"label":"Gitee","url":"","icon":"gitee","enabled":true},{"label":"Docs","url":"","icon":"book","enabled":true},{"label":"Pilot","url":"","icon":"rocket","enabled":true}]}',
+        '{"siteName":"示例科技","siteFullName":"示例科技有限公司","siteDescription":"示例科技是一家专注于企业数字化转型的服务商，致力于为客户提供端到端的数字化解决方案。","companyName":"示例科技有限公司","copyright":"示例科技有限公司 版权所有","contactPhone":"010-00000000","contactEmail":"demo@example.com","icpNumber":"ICP备案号待配置","url":"","logo":"/logo.png","favicon":"/logo-lable.png","openLinks":[{"label":"GitHub","url":"","icon":"github","enabled":true},{"label":"Gitee","url":"","icon":"gitee","enabled":true},{"label":"Docs","url":"","icon":"book","enabled":true},{"label":"Pilot","url":"","icon":"rocket","enabled":true}]}',
         'system',
         'site_brand'
     ),
@@ -683,12 +685,15 @@ ON CONFLICT (config_key) DO NOTHING;
 CREATE TABLE IF NOT EXISTS knowledge_bases (
   id BIGSERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  code VARCHAR(128) DEFAULT NULL,
   description TEXT DEFAULT '',
   status INT DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE knowledge_bases IS '知识库';
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_kb_code ON knowledge_bases(code);
 
 CREATE TABLE IF NOT EXISTS knowledge_documents (
   id BIGSERIAL PRIMARY KEY,
@@ -925,4 +930,49 @@ FROM (VALUES
 WHERE NOT EXISTS (
     SELECT 1 FROM ai_prompt_config p WHERE p.type = v.type AND p.content = v.content
 );
+
+-- ============================================================
+-- Translation (runtime auto-translation) tables
+-- 译文表 + 异步任务表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS translation_entries (
+    id BIGSERIAL PRIMARY KEY,
+    resource_type VARCHAR(64) NOT NULL,
+    resource_id BIGINT NOT NULL,
+    field VARCHAR(64) NOT NULL,
+    locale VARCHAR(16) NOT NULL,
+    source_hash VARCHAR(64) NOT NULL DEFAULT '',
+    source_text TEXT,
+    translated_text TEXT,
+    status VARCHAR(16) NOT NULL DEFAULT 'final',
+    engine VARCHAR(16) NOT NULL DEFAULT 'llm',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_entries_key
+    ON translation_entries(resource_type, resource_id, field, locale);
+CREATE INDEX IF NOT EXISTS idx_translation_entries_lookup
+    ON translation_entries(resource_type, resource_id, locale);
+COMMENT ON TABLE translation_entries IS '内容译文表（运行时自动翻译）';
+
+CREATE TABLE IF NOT EXISTS translation_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    resource_type VARCHAR(64) NOT NULL,
+    resource_id BIGINT NOT NULL,
+    field VARCHAR(64) NOT NULL,
+    locale VARCHAR(16) NOT NULL,
+    source_hash VARCHAR(64) NOT NULL DEFAULT '',
+    source_text TEXT,
+    kind VARCHAR(16) NOT NULL DEFAULT 'translate',
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    attempts INT NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_jobs_key
+    ON translation_jobs(resource_type, resource_id, field, locale, source_hash, kind);
+CREATE INDEX IF NOT EXISTS idx_translation_jobs_status
+    ON translation_jobs(status, created_at);
+COMMENT ON TABLE translation_jobs IS '翻译异步任务表（后台预翻译）';
 

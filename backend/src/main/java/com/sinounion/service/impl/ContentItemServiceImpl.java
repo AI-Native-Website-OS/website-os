@@ -136,6 +136,34 @@ public class ContentItemServiceImpl implements ContentItemService {
     }
 
     @Override
+    public void move(String moduleKey, Long id, Long targetId, String position, Long categoryId) {
+        if (id == null || targetId == null || id.equals(targetId)) return;
+        LambdaQueryWrapper<ContentItem> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ContentItem::getModuleKey, moduleKey);
+        if (categoryId != null) {
+            if (categoryId == 0L) wrapper.isNull(ContentItem::getCategoryId);
+            else wrapper.eq(ContentItem::getCategoryId, categoryId);
+        }
+        wrapper.orderByDesc(ContentItem::getIsTop).orderByAsc(ContentItem::getSortOrder).orderByDesc(ContentItem::getId);
+        List<Long> ids = contentItemMapper.selectList(wrapper).stream()
+                .map(ContentItem::getId)
+                .collect(Collectors.toList());
+        if (!ids.contains(id) || !ids.contains(targetId)) return;
+        ids.remove(id);
+        int index = ids.indexOf(targetId);
+        if ("after".equalsIgnoreCase(position)) index++;
+        if (index < 0) index = 0;
+        if (index > ids.size()) index = ids.size();
+        ids.add(index, id);
+        for (int i = 0; i < ids.size(); i++) {
+            ContentItem patch = new ContentItem();
+            patch.setId(ids.get(i));
+            patch.setSortOrder(i);
+            contentItemMapper.updateById(patch);
+        }
+    }
+
+    @Override
     public void incrementView(Long id) {
         contentItemMapper.update(null, new LambdaUpdateWrapper<ContentItem>()
                 .eq(ContentItem::getId, id)

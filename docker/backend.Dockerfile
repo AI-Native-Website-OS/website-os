@@ -19,6 +19,7 @@ FROM eclipse-temurin:8-jre
 WORKDIR /app
 ENV TZ=Asia/Shanghai \
     LANG=C.UTF-8
-COPY --from=build /build/target/sinounion-website.jar app.jar
+RUN mkdir -p /app/backend /app/AI_consultant/memories
+COPY --from=build /build/target/sinounion-website.jar /app/backend/sinounion-website.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+CMD ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/backend/sinounion-website.jar"]

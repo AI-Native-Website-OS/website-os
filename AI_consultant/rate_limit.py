@@ -178,6 +178,27 @@ class RateLimiter:
                 return False, 0
             return True, max(0, limit - count)
 
+    def refund_guest(self, visitor_id: str):
+        """回退一次游客计数：仅在本次请求未成功产生回复时调用，
+        保证「一问一答」只计一次，失败的轮次不占用免费次数。"""
+        day = datetime.now().strftime("%Y%m%d")
+        key = f"ai:rl:guest:{visitor_id}:{day}"
+
+        r = get_redis()
+        if r is not None:
+            try:
+                if r.exists(key):
+                    r.decr(key)
+                return
+            except Exception as e:
+                logger.warning("Redis 游客计数回退失败，降级内存: %s", e)
+
+        with self._mem_lock:
+            if self._mem_guest_day.get(visitor_id) == day:
+                c = self._mem_guest.get(visitor_id, 0)
+                if c > 0:
+                    self._mem_guest[visitor_id] = c - 1
+
 
 _limiter: Optional[RateLimiter] = None
 

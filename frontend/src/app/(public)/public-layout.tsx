@@ -1,6 +1,8 @@
 'use client';
 
+import { Suspense } from 'react';
 import Header from '@/components/Header';
+import SiteNoticeBanner from '@/components/SiteNoticeBanner';
 import { useTracking } from '@/hooks/useTracking';
 
 function TrackingProvider() {
@@ -16,8 +18,11 @@ export default function PublicLayout({
   return (
     <>
       <Header />
+      <SiteNoticeBanner />
       {children}
-      <TrackingProvider />
+      <Suspense fallback={null}>
+        <TrackingProvider />
+      </Suspense>
     </>
   );
 }

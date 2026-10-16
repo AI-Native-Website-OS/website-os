@@ -47,7 +47,7 @@ function LoginForm() {
 
   const handleSendCode = async () => {
     if (!/^1[3-9]\d{9}$/.test(phone)) {
-      setError('请输入正确的手机号');
+      setError(t('publicPages.login.phoneInvalid'));
       return;
     }
     setError('');
@@ -55,10 +55,10 @@ function LoginForm() {
       const devCode = await sendSmsCode(phone);
       setCountdown(60);
       if (devCode) {
-        setError(`开发模式验证码：${devCode}`);
+        setError(t('publicPages.login.devCode', { code: devCode }));
       }
     } catch (err: any) {
-      setError(err?.message || '验证码发送失败');
+      setError(err?.message || t('publicPages.login.sendCodeFail'));
     }
   };
 
@@ -80,7 +80,7 @@ function LoginForm() {
         : redirectTo;
       router.push(redirectTarget);
     } catch (err: any) {
-      setError(err?.message || '登录失败，请检查输入');
+      setError(err?.message || t('publicPages.login.loginFail'));
     } finally {
       setLoading(false);
     }
@@ -88,7 +88,7 @@ function LoginForm() {
 
   return (
     <>
-      <SeoHead title={t('auth.loginTitle')} description="登录账号。" path="/login" />
+      <SeoHead title={t('auth.loginTitle')} description={t('publicPages.login.seoDescription')} path="/login" />
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">

@@ -6,22 +6,19 @@ import com.sinounion.entity.ContentCategory;
 import com.sinounion.entity.ContentItem;
 import com.sinounion.service.ContentCategoryService;
 import com.sinounion.service.ContentItemService;
-import com.sinounion.service.KnowledgeSyncService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Tag(name = "管理后台-通用内容管理", description = "自定义核心模块内容CRUD接口")
 @RestController
 @RequestMapping("/admin/content/{moduleKey}")
@@ -30,30 +27,8 @@ public class AdminContentController {
 
     private final ContentItemService contentItemService;
     private final ContentCategoryService contentCategoryService;
-    private final KnowledgeSyncService knowledgeSyncService;
-    private final ExecutorService syncExecutor = Executors.newSingleThreadExecutor();
-
-    private void asyncSync(ContentItem item) {
-        if (item == null) return;
-        syncExecutor.submit(() -> {
-            try {
-                knowledgeSyncService.syncContentItem(item);
-            } catch (Exception e) {
-                log.error("Auto sync content {} failed: {}", item.getId(), e.getMessage());
-            }
-        });
-    }
-
-    private void asyncDelete(String moduleKey, Long id) {
-        if (id == null) return;
-        syncExecutor.submit(() -> {
-            try {
-                knowledgeSyncService.deleteContent(moduleKey, id);
-            } catch (Exception e) {
-                log.error("Auto delete knowledge {} {} failed: {}", moduleKey, id, e.getMessage());
-            }
-        });
-    }
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
 
     @Operation(summary = "获取模块内容列表")
     @GetMapping
@@ -86,7 +61,10 @@ public class AdminContentController {
     @PreAuthorize("hasAuthority('core_module:update')")
     public Result<ContentCategory> createCategory(@PathVariable String moduleKey, @Valid @RequestBody ContentCategory category) {
         category.setModuleKey(moduleKey);
-        return Result.success(contentCategoryService.create(category));
+        ContentCategory created = contentCategoryService.create(category);
+        knowledgeSyncDispatcher.syncContentCategory(created);
+        translationEnqueueService.enqueueEntity("content_category", created);
+        return Result.success(created);
     }
 
     @Operation(summary = "更新分类")
@@ -94,14 +72,20 @@ public class AdminContentController {
     @PreAuthorize("hasAuthority('core_module:update')")
     public Result<ContentCategory> updateCategory(@PathVariable String moduleKey, @PathVariable Long id, @Valid @RequestBody ContentCategory category) {
         category.setModuleKey(moduleKey);
-        return Result.success(contentCategoryService.update(id, category));
+        ContentCategory updated = contentCategoryService.update(id, category);
+        knowledgeSyncDispatcher.syncContentCategory(updated);
+        translationEnqueueService.enqueueEntity("content_category", updated);
+        return Result.success(updated);
     }
 
     @Operation(summary = "删除分类")
     @DeleteMapping("/categories/{id}")
     @PreAuthorize("hasAuthority('core_module:delete')")
     public Result<Void> deleteCategory(@PathVariable Long id) {
+        ContentCategory existing = contentCategoryService.getById(id);
         contentCategoryService.delete(id);
+        knowledgeSyncDispatcher.deleteCategoryKnowledge(existing);
+        translationEnqueueService.removeResource("content_category", id);
         return Result.success(null);
     }
 
@@ -126,7 +110,8 @@ public class AdminContentController {
     public Result<ContentItem> create(@PathVariable String moduleKey, @Valid @RequestBody ContentItem item) {
         item.setModuleKey(moduleKey);
         ContentItem created = contentItemService.create(item);
-        asyncSync(created);
+        knowledgeSyncDispatcher.syncContentItem(created);
+        translationEnqueueService.enqueueEntity("content_item", created);
         return Result.success(created);
     }
 
@@ -136,7 +121,8 @@ public class AdminContentController {
     public Result<ContentItem> update(@PathVariable String moduleKey, @PathVariable Long id, @Valid @RequestBody ContentItem item) {
         item.setModuleKey(moduleKey);
         ContentItem updated = contentItemService.update(id, item);
-        asyncSync(updated);
+        knowledgeSyncDispatcher.syncContentItem(updated);
+        translationEnqueueService.enqueueEntity("content_item", updated);
         return Result.success(updated);
     }
 
@@ -145,7 +131,8 @@ public class AdminContentController {
     @PreAuthorize("hasAuthority('core_module:delete')")
     public Result<Void> delete(@PathVariable String moduleKey, @PathVariable Long id) {
         contentItemService.delete(id);
-        asyncDelete(moduleKey, id);
+        knowledgeSyncDispatcher.deleteContent(moduleKey, id);
+        translationEnqueueService.removeResource("content_item", id);
         return Result.success(null);
     }
 
@@ -155,8 +142,21 @@ public class AdminContentController {
     public Result<Void> batchDelete(@PathVariable String moduleKey, @RequestBody List<Long> ids) {
         contentItemService.batchDelete(ids);
         if (ids != null) {
-            for (Long id : ids) asyncDelete(moduleKey, id);
+            for (Long id : ids) knowledgeSyncDispatcher.deleteContent(moduleKey, id);
         }
+        translationEnqueueService.removeResources("content_item", ids);
+        return Result.success(null);
+    }
+
+    @Operation(summary = "移动内容排序")
+    @PutMapping("/{id}/move")
+    @PreAuthorize("hasAuthority('core_module:update')")
+    public Result<Void> move(@PathVariable String moduleKey,
+                             @PathVariable Long id,
+                             @RequestParam Long targetId,
+                             @RequestParam(defaultValue = "before") String position,
+                             @RequestParam(required = false) Long categoryId) {
+        contentItemService.move(moduleKey, id, targetId, position, categoryId);
         return Result.success(null);
     }
 
@@ -169,7 +169,7 @@ public class AdminContentController {
         contentItemService.batchUpdateStatus(ids.stream().map(Long::valueOf).collect(Collectors.toList()), status);
         for (Integer id : ids) {
             ContentItem item = contentItemService.getById(id.longValue());
-            asyncSync(item);
+            knowledgeSyncDispatcher.syncContentItem(item);
         }
         return Result.success(null);
     }

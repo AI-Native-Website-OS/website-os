@@ -4,7 +4,8 @@ import com.sinounion.common.PageResult;
 import com.sinounion.common.Result;
 import com.sinounion.entity.Faq;
 import com.sinounion.service.FaqService;
-import com.sinounion.service.KnowledgeSyncService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +20,8 @@ import javax.validation.Valid;
 public class AdminFaqController {
 
     private final FaqService faqService;
-    private final KnowledgeSyncService knowledgeSyncService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
 
     @Operation(summary = "获取FAQ列表")
     @GetMapping
@@ -35,7 +37,8 @@ public class AdminFaqController {
     @PostMapping
     public Result<Faq> create(@Valid @RequestBody Faq faq) {
         Faq created = faqService.createFaq(faq);
-        knowledgeSyncService.syncFaq(created);
+        knowledgeSyncDispatcher.syncFaq(created);
+        translationEnqueueService.enqueueEntity("faq", created);
         return Result.success(created);
     }
 
@@ -43,7 +46,8 @@ public class AdminFaqController {
     @PutMapping("/{id}")
     public Result<Faq> update(@PathVariable Long id, @Valid @RequestBody Faq faq) {
         Faq updated = faqService.updateFaq(id, faq);
-        knowledgeSyncService.syncFaq(updated);
+        knowledgeSyncDispatcher.syncFaq(updated);
+        translationEnqueueService.enqueueEntity("faq", updated);
         return Result.success(updated);
     }
 
@@ -51,7 +55,8 @@ public class AdminFaqController {
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         faqService.deleteFaq(id);
-        knowledgeSyncService.deleteContent("faq", id);
+        knowledgeSyncDispatcher.deleteContent("faq", id);
+        translationEnqueueService.removeResource("faq", id);
         return Result.success(null);
     }
 }

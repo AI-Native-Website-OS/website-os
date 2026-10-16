@@ -1,13 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { aiService } from '@/lib/aiService';
 import { useI18n } from '@/i18n/I18nProvider';
+import TextStyleEditor from '@/components/TextStyleEditor';
+import { DEFAULT_TEXT_STYLE, normalizeTextStyle } from '@/lib/textStyle';
+import type { TextStyle } from '@/types';
 
 type Tab = 'system_prompt' | 'suggestions' | 'banned_words' | 'ui_text';
 
 export default function AdminAiPrompts() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [tab, setTab] = useState<Tab>('system_prompt');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [suggestions, setSuggestions] = useState('');
@@ -15,8 +19,11 @@ export default function AdminAiPrompts() {
   const [bannedThreshold, setBannedThreshold] = useState(82);
   const [welcomeMessage, setWelcomeMessage] = useState('');
   const [inputPlaceholder, setInputPlaceholder] = useState('');
+  const [welcomeStyle, setWelcomeStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
+  const [inputStyle, setInputStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [extracting, setExtracting] = useState(false);
 
   useEffect(() => {
     aiService.promptConfig.get().then((res: any) => {
@@ -26,6 +33,8 @@ export default function AdminAiPrompts() {
       setBannedThreshold(Math.round((res.banned_threshold ?? 0.82) * 100));
       setWelcomeMessage(res.welcome_message || '');
       setInputPlaceholder(res.input_placeholder || '');
+      setWelcomeStyle(normalizeTextStyle(res.welcome_message_style));
+      setInputStyle(normalizeTextStyle(res.input_placeholder_style));
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -41,10 +50,32 @@ export default function AdminAiPrompts() {
         banned_threshold: bannedThreshold / 100,
         welcome_message: welcomeMessage,
         input_placeholder: inputPlaceholder,
+        welcome_message_style: welcomeStyle,
+        input_placeholder_style: inputStyle,
       });
       alert(t('common.saveSuccess'));
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
+  };
+
+  const handleExtractSuggestions = async () => {
+    setExtracting(true);
+    try {
+      const res: any = await aiService.promptConfig.generateSuggestions({ count: 6, language: locale });
+      const items: string[] = (res?.suggestions || []).map((s: string) => s.trim()).filter(Boolean);
+      if (items.length === 0) { alert(t('admin.ui.prompts.aiExtractEmpty')); return; }
+      const existing = suggestions.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const merged = [...existing];
+      for (const it of items) if (!merged.includes(it)) merged.push(it);
+      setSuggestions(merged.join('，'));
+      alert(t('admin.ui.prompts.aiExtractSuccess').replace('{n}', String(items.length)));
+    } catch (err: any) {
+      console.error(err);
+      const detail = err?.detail || err?.message;
+      alert(detail ? `${t('admin.ui.prompts.aiExtractFail')}：${detail}` : t('admin.ui.prompts.aiExtractFail'));
+    } finally {
+      setExtracting(false);
+    }
   };
 
   const tabs: { key: Tab; labelKey: string }[] = [
@@ -93,19 +124,31 @@ export default function AdminAiPrompts() {
             <textarea value={welcomeMessage} onChange={e => setWelcomeMessage(e.target.value)}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black"
               placeholder={t('admin.ui.prompts.welcomePlaceholder')} rows={2} />
+            <TextStyleEditor value={welcomeStyle} onChange={setWelcomeStyle} t={t} previewText={welcomeMessage} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.prompts.inputPlaceholderLabel')}</label>
             <input type="text" value={inputPlaceholder} onChange={e => setInputPlaceholder(e.target.value)}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black"
               placeholder={t('home.ai.placeholder')} />
+            <TextStyleEditor value={inputStyle} onChange={setInputStyle} t={t} previewText={inputPlaceholder} />
           </div>
         </div>
       )}
 
       {tab === 'suggestions' && (
         <div>
-          <p className="text-sm text-gray-500 mb-3">{t('admin.ui.prompts.suggestionsDesc')}</p>
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <p className="text-sm text-gray-500">{t('admin.ui.prompts.suggestionsDesc')}</p>
+            <button
+              onClick={handleExtractSuggestions}
+              disabled={extracting}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-black rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              {extracting ? t('admin.ui.prompts.aiExtracting') : t('admin.ui.prompts.aiExtract')}
+            </button>
+          </div>
           <textarea value={suggestions} onChange={e => setSuggestions(e.target.value)}
             className="w-full h-64 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none"
             placeholder={t('admin.ui.prompts.suggestionsPlaceholder')} />

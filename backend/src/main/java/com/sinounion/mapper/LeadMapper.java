@@ -29,8 +29,17 @@ public interface LeadMapper extends BaseMapper<Lead> {
     @Select("SELECT COUNT(*) FROM leads WHERE created_at::date = CURRENT_DATE")
     Integer countTodayLeads();
 
+    @Select("SELECT COUNT(*) FROM leads WHERE created_at::date = CURRENT_DATE - INTERVAL '1 day'")
+    Integer countYesterdayLeads();
+
     @Select("SELECT COALESCE(source, '未知') as name, COUNT(*) as value FROM leads GROUP BY source ORDER BY value DESC")
     List<Map<String, Object>> findLeadSources();
+
+    @Select("SELECT province AS name, COUNT(*) AS value FROM leads WHERE province IS NOT NULL AND province <> '' GROUP BY province ORDER BY value DESC")
+    List<Map<String, Object>> geoDistributionByProvince();
+
+    @Select("SELECT country AS name, COUNT(*) AS value FROM leads WHERE country IS NOT NULL AND country <> '' GROUP BY country ORDER BY value DESC")
+    List<Map<String, Object>> geoDistributionByCountry();
 
     @Select("SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COUNT(*) as leads FROM leads WHERE created_at >= CURRENT_DATE - INTERVAL '5 months' GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month")
     List<Map<String, Object>> findMonthlyLeadTrend();

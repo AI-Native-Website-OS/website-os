@@ -34,13 +34,39 @@ public class FooterConfigDTO {
     @Valid
     private List<FooterExtraItem> extra = new ArrayList<>();
 
+    @Valid
+    private List<FooterQrcodeItem> qrcodes = new ArrayList<>();
+
+    @Valid
+    private List<FooterLinkItem> links = new ArrayList<>();
+
     @Data
     public static class FooterExtraItem {
 
-        @Size(max = 50, message = "其他内容标签最多50字")
+        @Size(max = 5, message = "其他内容标签最多5字")
         private String label;
 
         @Size(max = 200, message = "其他内容最多200字")
         private String value;
+    }
+
+    @Data
+    public static class FooterQrcodeItem {
+
+        @Size(max = 500, message = "二维码图片地址最多500字")
+        private String image;
+
+        @Size(max = 50, message = "二维码标签最多50字")
+        private String label;
+    }
+
+    @Data
+    public static class FooterLinkItem {
+
+        @Size(max = 10, message = "友情链接名称最多10字")
+        private String name;
+
+        @Size(max = 500, message = "友情链接地址最多500字")
+        private String url;
     }
 }

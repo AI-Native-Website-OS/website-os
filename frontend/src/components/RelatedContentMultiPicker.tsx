@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Search } from 'lucide-react';
 import api from '@/lib/api';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type ContentItem = { id: number; title: string; slug: string; summary: string; coverImage: string; type: string };
 
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function RelatedContentMultiPicker({ targets, values, onChange }: Props) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -122,12 +124,12 @@ export default function RelatedContentMultiPicker({ targets, values, onChange }:
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">关联内容</label>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{t('adminComp.relatedPicker.relatedLabel')}</label>
       <div
         onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 p-2 border border-gray-300 rounded-md min-h-[38px] cursor-pointer hover:border-blue-400 overflow-x-auto"
       >
-        {loading && <span className="text-xs text-gray-400 shrink-0">加载中...</span>}
+        {loading && <span className="text-xs text-gray-400 shrink-0">{t('adminComp.loading')}</span>}
         {targets.flatMap(t => {
           const items = preloaded
             .filter(i => i.type === t.type && (values[t.field] || '').split(',').map(Number).includes(i.id));
@@ -137,14 +139,14 @@ export default function RelatedContentMultiPicker({ targets, values, onChange }:
             </span>
           ));
         })}
-        {!loading && !hasSelection && <span className="text-xs text-gray-400 shrink-0">未选择</span>}
+        {!loading && !hasSelection && <span className="text-xs text-gray-400 shrink-0">{t('adminComp.notSelected')}</span>}
       </div>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="bg-white rounded-xl shadow-xl w-[680px] max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h3 className="text-base font-semibold">选择关联内容</h3>
+              <h3 className="text-base font-semibold">{t('adminComp.relatedPicker.selectRelatedTitle')}</h3>
               <button onClick={() => setOpen(false)} className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
 
@@ -160,15 +162,15 @@ export default function RelatedContentMultiPicker({ targets, values, onChange }:
             <div className="flex gap-2 px-5 py-3 border-b border-gray-100">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="搜索..." className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md text-xs" />
+                <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder={t('adminComp.searchPlaceholder')} className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md text-xs" />
               </div>
-              <button onClick={search} className="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">搜索</button>
+              <button onClick={search} className="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">{t('adminComp.search')}</button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-2">
-              <div className="py-2 text-xs text-gray-400">将归入「{labelByType[tab] || tab}」</div>
-              {tabLoading && <div className="py-8 text-center text-xs text-gray-400">加载中...</div>}
-              {!tabLoading && data.records.length === 0 && <div className="py-8 text-center text-xs text-gray-400">暂无数据</div>}
+              <div className="py-2 text-xs text-gray-400">{t('adminComp.relatedPicker.groupInto', { label: labelByType[tab] || tab })}</div>
+              {tabLoading && <div className="py-8 text-center text-xs text-gray-400">{t('adminComp.loading')}</div>}
+              {!tabLoading && data.records.length === 0 && <div className="py-8 text-center text-xs text-gray-400">{t('adminComp.empty')}</div>}
               {!tabLoading && data.records.map(item => (
                 <label key={item.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-gray-50 cursor-pointer">
                   <input type="checkbox" checked={byType[tab]?.has(item.id)} onChange={() => toggle(item.id)} className="rounded border-gray-300" />
@@ -190,10 +192,10 @@ export default function RelatedContentMultiPicker({ targets, values, onChange }:
             )}
 
             <div className="flex items-center justify-between px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-xl">
-              <span className="text-xs text-gray-500">已选 {totalSelected} 项</span>
+              <span className="text-xs text-gray-500">{t('adminComp.selectedCount', { n: totalSelected })}</span>
               <div className="flex gap-2">
-                <button onClick={() => setOpen(false)} className="px-4 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">取消</button>
-                <button onClick={confirm} className="px-4 py-1.5 text-xs bg-black text-white rounded-md hover:bg-gray-800 cursor-pointer">确定</button>
+                <button onClick={() => setOpen(false)} className="px-4 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer">{t('adminComp.cancel')}</button>
+                <button onClick={confirm} className="px-4 py-1.5 text-xs bg-black text-white rounded-md hover:bg-gray-800 cursor-pointer">{t('adminComp.confirm')}</button>
               </div>
             </div>
           </div>

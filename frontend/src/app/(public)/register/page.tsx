@@ -34,7 +34,7 @@ export default function RegisterPage() {
 
   const handleSendCode = async () => {
     if (!isValidPhone(form.phone)) {
-      setError('请输入正确的11位手机号');
+      setError(t('publicPages.register.phoneInvalid'));
       return;
     }
     setError('');
@@ -42,10 +42,10 @@ export default function RegisterPage() {
       const devCode = await sendSmsCode(form.phone);
       setCountdown(60);
       if (devCode) {
-        setError(`开发模式验证码：${devCode}`);
+        setError(t('publicPages.register.devCode', { code: devCode }));
       }
     } catch (err: any) {
-      setError(err?.message || '验证码发送失败');
+      setError(err?.message || t('publicPages.register.sendCodeFail'));
     }
   };
 
@@ -54,19 +54,19 @@ export default function RegisterPage() {
     setError('');
 
     if (form.password !== form.confirmPassword) {
-      setError('两次密码输入不一致');
+      setError(t('publicPages.register.passwordMismatch'));
       return;
     }
     if (!isValidPhone(form.phone)) {
-      setError('请输入正确的11位手机号');
+      setError(t('publicPages.register.phoneInvalid'));
       return;
     }
     if (!form.code) {
-      setError('请输入短信验证码');
+      setError(t('publicPages.register.codeRequired'));
       return;
     }
     if (form.email && !isValidEmail(form.email)) {
-      setError('请输入正确的邮箱地址');
+      setError(t('publicPages.register.emailInvalid'));
       return;
     }
 
@@ -83,7 +83,7 @@ export default function RegisterPage() {
       });
       router.push('/login');
     } catch (err: any) {
-      setError(err?.message || '注册失败，请稍后重试');
+      setError(err?.message || t('publicPages.register.registerFail'));
     } finally {
       setLoading(false);
     }
@@ -95,7 +95,7 @@ export default function RegisterPage() {
 
   return (
     <>
-      <SeoHead title={t('auth.registerTitle')} description="注册账号。" path="/register" />
+      <SeoHead title={t('auth.registerTitle')} description={t('publicPages.register.seoDescription')} path="/register" />
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
         <div className="text-center">
@@ -157,7 +157,7 @@ export default function RegisterPage() {
                 value={form.realName}
                 onChange={(e) => updateField('realName', e.target.value)}
                 className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200 text-sm"
-                placeholder="请输入真实姓名"
+                placeholder={t('publicPages.register.realNamePlaceholder')}
               />
             </div>
             <div>
@@ -180,7 +180,7 @@ export default function RegisterPage() {
                   {countdown > 0 ? `${countdown}s` : t('auth.sendCode')}
                 </button>
               </div>
-              {form.phone && !isValidPhone(form.phone) && <p className="text-xs text-red-500 mt-1">请输入正确的11位手机号</p>}
+              {form.phone && !isValidPhone(form.phone) && <p className="text-xs text-red-500 mt-1">{t('publicPages.register.phoneInvalid')}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('auth.verificationCode')} *</label>
@@ -200,9 +200,9 @@ export default function RegisterPage() {
                 value={form.email}
                 onChange={(e) => updateField('email', e.target.value)}
                 className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200 text-sm"
-                placeholder="请输入邮箱"
+                placeholder={t('publicPages.register.emailPlaceholder')}
               />
-              {form.email && !isValidEmail(form.email) && <p className="text-xs text-red-500 mt-1">请输入正确的邮箱地址</p>}
+              {form.email && !isValidEmail(form.email) && <p className="text-xs text-red-500 mt-1">{t('publicPages.register.emailInvalid')}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('auth.companyName')}</label>

@@ -5,7 +5,6 @@ import { adminApi } from '@/lib/adminApi';
 import { AboutSection } from '@/types';
 import { Plus, Pencil, Trash2, Loader2, Phone, SaveAll, RefreshCw as RefreshCwIcon, AlertCircle, Check, GripVertical, Globe, MapPin, Mail, MessageCircle, Send, Headphones, Clock, Building2, QrCode } from 'lucide-react';
 import Modal from '@/components/Modal';
-import { useSyncProgress } from '@/hooks/useSyncProgress';
 import { useI18n } from '@/i18n/I18nProvider';
 
 import { useConfirm } from '@/components/ConfirmDialog';
@@ -179,7 +178,6 @@ export default function AdminAbout() {
   const [editing, setEditing] = useState<AboutSection | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const { progress, syncing, startSync, stopSync } = useSyncProgress();
   const { confirm, ConfirmDialog } = useConfirm();
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
@@ -228,7 +226,7 @@ export default function AdminAbout() {
   };
 
   const handleDelete = async (item: AboutSection) => {
-    if (!(await confirm(t('admin.ui.sections.deleteConfirm').replace('{name}', item.title || '未命名')))) return;
+    if (!(await confirm(t('admin.ui.sections.deleteConfirm').replace('{name}', item.title || t('adminPages.untitled'))))) return;
     try {
       await adminApi.aboutSections.delete(item.id);
       setMessage({ type: 'success', text: t('common.deleteSuccess') });
@@ -279,12 +277,6 @@ export default function AdminAbout() {
     }
   };
 
-  useEffect(() => () => stopSync(), [stopSync]);
-
-  const handleSync = () => {
-    startSync('about');
-  };
-
   const handleSaveContacts = async () => {
     setSavingContacts(true);
     try {
@@ -330,15 +322,6 @@ export default function AdminAbout() {
           <p className="text-sm text-gray-500 mt-1">{t('admin.ui.about.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer"
-            title={t('admin.ui.sections.syncTitle')}
-          >
-            {syncing ? <RefreshCwIcon className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-            {syncing ? t('common.syncing') : t('common.syncAll')}
-          </button>
           <button
             onClick={() => {
               setEditing(null);

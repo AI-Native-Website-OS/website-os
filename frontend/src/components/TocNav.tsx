@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { List } from 'lucide-react';
 import type { TocItem } from '@/types';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface TocNavProps {
   content: string;
 }
 
 export default function TocNav({ content }: TocNavProps) {
+  const { t } = useI18n();
   const [items, setItems] = useState<TocItem[]>([]);
   const [activeId, setActiveId] = useState<string>('');
   const [collapsed, setCollapsed] = useState(false);
@@ -60,7 +62,7 @@ export default function TocNav({ content }: TocNavProps) {
         className="flex items-center gap-2 w-full text-left font-semibold text-gray-900 mb-3"
       >
         <List className="w-4 h-4" />
-        目录导航
+        {t('publicComp.tocTitle')}
       </button>
       {!collapsed && (
         <nav className="space-y-1">

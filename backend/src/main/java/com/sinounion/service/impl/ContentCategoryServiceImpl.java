@@ -83,10 +83,11 @@ public class ContentCategoryServiceImpl implements ContentCategoryService {
     public void delete(Long id) {
         ContentCategory existing = contentCategoryMapper.selectById(id);
         if (existing == null) return;
-        contentItemMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ContentItem>()
-                .eq(ContentItem::getCategoryId, id)
-                .set(ContentItem::getCategoryId, null)
-                .set(ContentItem::getGroupName, null));
+        Long count = contentItemMapper.selectCount(new LambdaQueryWrapper<ContentItem>()
+                .eq(ContentItem::getCategoryId, id));
+        if (count != null && count > 0) {
+            throw new BusinessException("该分类下存在内容，无法删除");
+        }
         contentCategoryMapper.deleteById(id);
     }
 

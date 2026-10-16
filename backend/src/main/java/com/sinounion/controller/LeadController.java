@@ -5,11 +5,11 @@ import com.sinounion.entity.Lead;
 import com.sinounion.entity.User;
 import com.sinounion.mapper.UserMapper;
 import com.sinounion.service.LeadService;
+import com.sinounion.util.ClientIpResolver;
 import com.sinounion.util.IpLocationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -31,13 +31,7 @@ public class LeadController {
     private final LeadService leadService;
     private final IpLocationService ipLocationService;
     private final UserMapper userMapper;
-
-    /**
-     * 是否信任反向代理透传的 X-Real-IP / X-Forwarded-For 头。
-     * 浏览器直连后端端口（nginx 不透传任何 IP 头）时应为 false，仅信任 TCP 连接真实来源 IP。
-     */
-    @Value("${app.trust-proxy-ip-header:true}")
-    private boolean trustProxyIpHeader;
+    private final ClientIpResolver clientIpResolver;
 
     @Operation(summary = "创建线索")
     @PostMapping
@@ -88,33 +82,16 @@ public class LeadController {
     }
 
     /**
-     * 从服务端请求中提取真实客户端 IP（X-Forwarded-For → remoteAddr），并解析归属地。
+     * 从服务端请求中提取真实客户端 IP，并解析归属地（与页面浏览复用同一 ClientIpResolver）。
      * 不信任前端传值，避免伪造。
      */
     private void enrichClientIp(Lead lead, HttpServletRequest request) {
-        String ip = getClientIp(request);
+        String ip = clientIpResolver.resolve(request);
         lead.setIpAddress(ip);
         String[] location = ipLocationService.lookup(ip);
         lead.setCountry(location[0]);
         lead.setProvince(location[1]);
         lead.setCity(location[2]);
-    }
-
-    private String getClientIp(HttpServletRequest request) {
-        if (trustProxyIpHeader) {
-            String realIp = request.getHeader("X-Real-IP");
-            if (realIp != null && !realIp.isEmpty() && !"unknown".equalsIgnoreCase(realIp)) {
-                return realIp;
-            }
-            String xfHeader = request.getHeader("X-Forwarded-For");
-            if (xfHeader != null && !xfHeader.isEmpty()) {
-                String first = xfHeader.split(",")[0].trim();
-                if (!first.isEmpty() && !"unknown".equalsIgnoreCase(first)) {
-                    return first;
-                }
-            }
-        }
-        return request.getRemoteAddr();
     }
 
     /**

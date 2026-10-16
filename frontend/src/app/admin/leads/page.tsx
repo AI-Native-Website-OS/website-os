@@ -6,6 +6,7 @@ import { adminApi } from '@/lib/adminApi';
 import config from '@/config';
 import { Lead, PageResult, LeadFilterOptions } from '@/types';
 import { useI18n } from '@/i18n/I18nProvider';
+import { urlToDisplayTitle } from '@/lib/pageDisplay';
 import {
   Search, Eye, Download, ArrowUpDown, ArrowUp, ArrowDown, X, Trash2, Calendar
 } from 'lucide-react';
@@ -35,6 +36,7 @@ export default function AdminLeads() {
   const { t } = useI18n();
   const statusLabel = (k?: string) => (k && STATUS_MAP[k] ? t(STATUS_MAP[k].labelKey) : (k || ''));
   const statusColor = (k?: string) => (k && STATUS_MAP[k] ? STATUS_MAP[k].color : 'bg-gray-100 text-gray-500');
+  const sourcePageLabel = (url?: string | null) => urlToDisplayTitle(url, t('admin.ui.dashboard.pageType.home'));
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -165,7 +167,7 @@ export default function AdminLeads() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `线索清单_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = t('adminPages.leads.exportFileName', { date: new Date().toISOString().slice(0, 10) });
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -232,7 +234,7 @@ export default function AdminLeads() {
         </select>
         <select value={sourcePageFilter} onChange={e => { setSourcePageFilter(e.target.value); setPage(1); }} className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">{t('admin.ui.leads.allSourcePage')}</option>
-          {(filterOptions?.sourcePages || []).map(s => <option key={s} value={s}>{s}</option>)}
+          {(filterOptions?.sourcePages || []).map(s => <option key={s} value={s}>{sourcePageLabel(s)}</option>)}
         </select>
         <select value={ipFilter} onChange={e => { setIpFilter(e.target.value); setPage(1); }} className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm">
           <option value="">{t('admin.ui.leads.allIp')}</option>
@@ -291,7 +293,7 @@ export default function AdminLeads() {
                   </button>
                 </td>
                 <td className="py-3 px-3 text-gray-500 text-xs">{item.createdAt?.slice(0, 10)}</td>
-                <td className="py-3 px-3 text-gray-500 text-xs max-w-[160px] truncate" title={item.sourcePage}>{item.sourcePage || '-'}</td>
+                <td className="py-3 px-3 text-gray-500 text-xs max-w-[160px] truncate" title={item.sourcePage}>{item.sourcePage ? sourcePageLabel(item.sourcePage) : '-'}</td>
                 <td className="py-3 px-3 text-gray-500 text-xs font-mono">{item.ipAddress || '-'}</td>
                 <td className="py-3 px-3 text-gray-500 text-xs">{[item.country, item.province, item.city].filter(Boolean).join(' · ') || '-'}</td>
                 <td className="py-3 px-3 text-center">
@@ -338,7 +340,7 @@ export default function AdminLeads() {
                   <ViewField label={t('admin.ui.leads.fieldPhone')} value={selectedLead.phone} />
                   <ViewField label={t('admin.ui.leads.colStatus')} value={statusLabel(selectedLead.status)} />
                   <ViewField label={t('admin.ui.leads.fieldCreatedAt')} value={selectedLead.createdAt?.slice(0, 16)} />
-                  <ViewField label={t('admin.ui.leads.fieldSourcePage')} value={selectedLead.sourcePage} />
+                  <ViewField label={t('admin.ui.leads.fieldSourcePage')} value={selectedLead.sourcePage ? sourcePageLabel(selectedLead.sourcePage) : undefined} />
                   <ViewField label={t('admin.ui.leads.fieldIp')} value={selectedLead.ipAddress} />
                   <ViewField label={t('admin.ui.leads.fieldCity')} value={[selectedLead.country, selectedLead.province, selectedLead.city].filter(Boolean).join(' · ')} />
                   <div className="col-span-3">

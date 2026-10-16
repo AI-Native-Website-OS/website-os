@@ -24,9 +24,17 @@ public class PageView {
 
     private String ipAddress;
 
+    private String country;
+
+    private String province;
+
+    private String city;
+
     private String userAgent;
 
     private String referer;
+
+    private Integer duration;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime visitTime;

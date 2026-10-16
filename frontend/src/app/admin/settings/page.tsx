@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { adminApi } from '@/lib/adminApi';
-import { SystemConfig } from '@/types';
+import { SystemConfig, SiteNotice } from '@/types';
 import ImageUploader from '@/components/ImageUploader';
+import DateRangePicker from '@/components/DateRangePicker';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { SiteOpenLink } from '@/hooks/useSiteConfig';
 import { OPEN_ICON_OPTIONS, OPEN_ICON_MAP } from '@/lib/openSourceIcons';
@@ -14,7 +15,7 @@ import {
   Monitor, Eye, EyeOff, ChevronDown, ChevronRight, ChevronUp, Settings2,
   RefreshCw, AlertCircle, Plus, Trash2,
   Layout, Globe,
-  SaveAll
+  SaveAll, Megaphone
 } from 'lucide-react';
 
 
@@ -216,6 +217,103 @@ function Textarea({ value, onChange, placeholder, rows = 3 }: {
   );
 }
 
+const NOTICE_INPUT_CLS = 'w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400';
+
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function NoticesManager({ notices, onChange }: {
+  notices: SiteNotice[];
+  onChange: (notices: SiteNotice[]) => void;
+}) {
+  const { t } = useI18n();
+  const update = (idx: number, patch: Partial<SiteNotice>) =>
+    onChange(notices.map((n, i) => (i === idx ? { ...n, ...patch } : n)));
+  const remove = (idx: number) => onChange(notices.filter((_, i) => i !== idx));
+  const move = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= notices.length) return;
+    const copy = [...notices];
+    [copy[idx], copy[j]] = [copy[j], copy[idx]];
+    onChange(copy);
+  };
+  const add = () => onChange([...notices, {
+    type: 'info',
+    content: '',
+    enabled: true,
+    startAt: todayKey(),
+    endAt: '',
+  }]);
+
+  const typeOptions = [
+    { value: 'info', label: t('admin.ui.settings.noticeTypeInfo') },
+    { value: 'success', label: t('admin.ui.settings.noticeTypeSuccess') },
+    { value: 'warning', label: t('admin.ui.settings.noticeTypeWarning') },
+    { value: 'error', label: t('admin.ui.settings.noticeTypeError') },
+  ];
+
+  return (
+    <div className="w-full space-y-3">
+      {notices.length === 0 && (
+        <p className="text-xs text-gray-400 py-1">{t('admin.ui.settings.noticesEmpty')}</p>
+      )}
+      {notices.map((n, i) => (
+        <div key={i} className="flex items-center gap-2 border border-gray-200 rounded-lg p-2 bg-gray-50/40">
+          <div className="flex flex-col shrink-0">
+            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent" title={t('admin.ui.settings.openMoveUp')}>
+              <ChevronUp className="w-3 h-3" />
+            </button>
+            <button type="button" onClick={() => move(i, 1)} disabled={i === notices.length - 1} className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent" title={t('admin.ui.settings.openMoveDown')}>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+          <select
+            value={n.type}
+            onChange={(e) => update(i, { type: e.target.value as SiteNotice['type'] })}
+            className="shrink-0 px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-gray-400 cursor-pointer"
+          >
+            {typeOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <input
+            value={n.content}
+            onChange={(e) => update(i, { content: e.target.value })}
+            placeholder={t('admin.ui.settings.noticeContent')}
+            className={`${NOTICE_INPUT_CLS} flex-1 min-w-0`}
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-gray-400 whitespace-nowrap">{t('admin.ui.settings.noticeEnabled')}</span>
+            <ToggleSwitch enabled={n.enabled !== false} onChange={(v) => update(i, { enabled: v })} />
+          </div>
+          <DateRangePicker
+            start={n.startAt}
+            end={n.endAt}
+            onChange={(s, e) => update(i, { startAt: s, endAt: e })}
+          />
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            title={t('admin.ui.settings.openDelete')}
+            className="shrink-0 p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={add}
+        className="inline-flex items-center gap-1 px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors"
+      >
+        <Plus className="w-3.5 h-3.5" /> {t('admin.ui.settings.noticesAdd')}
+      </button>
+    </div>
+  );
+}
+
 interface SectionCardProps {
   title: string;
   description?: string;
@@ -295,6 +393,7 @@ export default function AdminSettings() {
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'auto'>('light');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
+  const [notices, setNotices] = useState<SiteNotice[]>([]);
 
   const [aiUserRateLimit, setAiUserRateLimit] = useState(30);
   const [aiGuestDailyLimit, setAiGuestDailyLimit] = useState(5);
@@ -303,11 +402,11 @@ export default function AdminSettings() {
     siteName: '',
     siteFullName: '',
     siteDescription: '',
-    companyName: '示例科技有限公司',
-    copyright: '示例科技有限公司 版权所有',
+    companyName: t('adminPages.settings.brandDefaultCompany'),
+    copyright: t('adminPages.settings.brandDefaultCopyright'),
     contactPhone: '010-00000000',
     contactEmail: 'demo@example.com',
-    icpNumber: 'ICP备案号待配置',
+    icpNumber: t('adminPages.settings.brandDefaultIcp'),
     url: '',
     logo: '/logo.png',
     favicon: '/logo-lable.png',
@@ -348,6 +447,13 @@ export default function AdminSettings() {
         if (c.configKey === 'site_brand') {
           try {
             applyBrandConfig(c.configValue, setBrand);
+          } catch { /* ignore malformed */ }
+          return;
+        }
+        if (c.configKey === 'site_notices') {
+          try {
+            const parsed = JSON.parse(c.configValue);
+            if (Array.isArray(parsed)) setNotices(parsed);
           } catch { /* ignore malformed */ }
           return;
         }
@@ -416,6 +522,7 @@ export default function AdminSettings() {
         saveConfig('ai_user_rate_limit', String(Math.max(1, aiUserRateLimit))),
         saveConfig('ai_guest_daily_limit', String(Math.max(1, aiGuestDailyLimit))),
         saveConfig('site_brand', JSON.stringify(brand)),
+        saveConfig('site_notices', JSON.stringify(notices)),
         ...smsTasks,
       ]);
       if (smsTasks.length > 0) {
@@ -492,6 +599,10 @@ export default function AdminSettings() {
       onChange={(links) => setBrand((p) => ({ ...p, openLinks: links }))}
     />
   ), [brand.openLinks, iconOptions]);
+
+  const renderNotices = useCallback(() => (
+    <NoticesManager notices={notices} onChange={setNotices} />
+  ), [notices]);
 
   const renderSmsAccessKeyId = useCallback(() => (
     <Input value={sms.sms_access_key_id} onChange={(v) => setSms((p) => ({ ...p, sms_access_key_id: v }))} />
@@ -575,6 +686,19 @@ export default function AdminSettings() {
           key: 'site_favicon', label: t('admin.ui.settings.brandFavicon'), icon: Globe,
           description: t('admin.ui.settings.brandFaviconDesc'),
           render: renderBrandFavicon,
+        },
+      ],
+    },
+    {
+      key: 'notices',
+      title: t('admin.ui.settings.noticesTitle'),
+      description: t('admin.ui.settings.noticesDesc'),
+      icon: Megaphone,
+      defaultOpen: false,
+      items: [
+        {
+          key: 'site_notices',
+          render: renderNotices,
         },
       ],
     },
@@ -668,7 +792,7 @@ export default function AdminSettings() {
         },
       ],
     },
-  ] as const, [t, primaryColor, themeMode, animationsEnabled, aiUserRateLimit, aiGuestDailyLimit, brand, sms, iconOptions, renderBrandLogo, renderBrandFavicon, renderOpenLinks, renderSmsAccessKeyId, renderSmsAccessKeySecret, renderSmsSignName, renderSmsTemplateCode, renderThemeMode]);
+  ] as const, [t, primaryColor, themeMode, animationsEnabled, aiUserRateLimit, aiGuestDailyLimit, brand, sms, notices, iconOptions, renderBrandLogo, renderBrandFavicon, renderOpenLinks, renderNotices, renderSmsAccessKeyId, renderSmsAccessKeySecret, renderSmsSignName, renderSmsTemplateCode, renderThemeMode]);
 
   const filteredSections = useMemo(() => {
     if (!searchQuery) return settingSections;

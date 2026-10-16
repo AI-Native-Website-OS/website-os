@@ -11,9 +11,10 @@ import {
 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useI18n } from '@/i18n/I18nProvider';
+import SyncProgressBar from '@/components/SyncProgressBar';
 import type {
   KnowledgeBaseOut, KnowledgeDocumentOut,
-  KnowledgeChunkOut, RagConfigOut,
+  KnowledgeChunkOut, RagConfigOut, SyncProgress,
 } from '@/types';
 
 // ── Utils ───────────────────────────────────────────────────────────
@@ -278,8 +279,18 @@ function UploadArea({ fileInputRef, uploadFile, uploading, setUploadFile, t, onU
           type="file"
           accept=".txt,.md,.pdf,.docx,.csv"
           onChange={e => setUploadFile(e.target.files?.[0] || null)}
-          className="flex-1 text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-xs file:bg-gray-50 hover:file:bg-gray-100"
+          className="hidden"
         />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="px-4 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors shrink-0"
+        >
+          {t('admin.ui.knowledge.chooseFile')}
+        </button>
+        <span className="flex-1 text-sm text-gray-500 truncate">
+          {uploadFile ? uploadFile.name : t('admin.ui.knowledge.noFileChosen')}
+        </span>
         <button
           onClick={onUpload}
           disabled={!uploadFile || uploading}
@@ -723,6 +734,12 @@ export default function AdminKnowledgePage() {
 
   // Global sync
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const syncTimer = useRef<any>(null);
+
+  useEffect(() => () => {
+    if (syncTimer.current) clearInterval(syncTimer.current);
+  }, []);
 
   // Message
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -987,18 +1004,41 @@ export default function AdminKnowledgePage() {
   const handleSyncAll = async () => {
     if (!(await confirm(t('admin.ui.knowledge.syncAllConfirm')))) return;
     setSyncing(true);
+    setSyncProgress(null);
     showMsg('success', t('admin.ui.knowledge.syncStarting'));
     try {
       const res: any = await adminApi.knowledge.syncAll();
-      const data = res?.data || res;
-      if (data) {
-        showMsg('success', t('admin.ui.knowledge.syncAllDone').replace('{success}', String(data.success)).replace('{fail}', String(data.fail)));
-      } else {
-        showMsg('success', t('admin.ui.knowledge.syncAllDoneSimple'));
+      const taskId = res?.data?.taskId;
+      if (!taskId) {
+        showMsg('error', t('admin.ui.knowledge.syncAllFail').replace('{msg}', ''));
+        setSyncing(false);
+        return;
       }
+      setSyncProgress({ taskId, type: 'knowledge_sync', status: 'running', total: 0, current: 0, success: 0, fail: 0, currentItem: '', errorMessage: '', percent: 0 });
+      syncTimer.current = setInterval(async () => {
+        try {
+          const pr = await adminApi.knowledge.getSyncProgress(taskId);
+          const p = pr?.data;
+          if (!p) return;
+          setSyncProgress({ ...p });
+          if (p.status === 'completed' || p.status === 'error') {
+            if (syncTimer.current) { clearInterval(syncTimer.current); syncTimer.current = null; }
+            setSyncing(false);
+            loadKbs();
+            showMsg(
+              p.status === 'completed' ? 'success' : 'error',
+              p.status === 'completed'
+                ? t('admin.ui.knowledge.syncAllDone').replace('{success}', String(p.success)).replace('{fail}', String(p.fail))
+                : t('admin.ui.knowledge.syncAllFail').replace('{msg}', p.errorMessage || ''),
+            );
+          }
+        } catch {
+          if (syncTimer.current) { clearInterval(syncTimer.current); syncTimer.current = null; }
+          setSyncing(false);
+        }
+      }, 1000);
     } catch (e: any) {
       showMsg('error', t('admin.ui.knowledge.syncAllFail').replace('{msg}', e?.message || ''));
-    } finally {
       setSyncing(false);
     }
   };
@@ -1026,6 +1066,7 @@ export default function AdminKnowledgePage() {
         onCreate={() => setShowCreate(true)}
       />
       <MessageBanner msg={msg} />
+      {syncProgress && <SyncProgressBar progress={syncProgress} />}
       {ragConfig && (
         <RagConfigBar
           ragConfig={ragConfig}

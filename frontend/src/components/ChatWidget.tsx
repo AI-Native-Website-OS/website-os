@@ -11,6 +11,12 @@ import { generateVisitorId, secureRandomString } from '@/lib/utils';
 import { parseDocumentFile } from '@/lib/fileParser';
 import { useAuth } from '@/hooks/useAuth';
 import Markdown from '@/components/Markdown';
+import { useI18n } from '@/i18n/I18nProvider';
+import { t as translate } from '@/i18n/translate';
+import { DEFAULT_TEXT_STYLE, normalizeTextStyle, textStyleToCss, inputTextStyleToCss } from '@/lib/textStyle';
+import { friendlyChatError } from '@/lib/chatError';
+import type { TextStyle, ContentRecommendation } from '@/types';
+import RecommendationChips from '@/components/RecommendationChips';
 
 interface PendingFile {
   id: string;
@@ -29,6 +35,7 @@ interface Message {
   timestamp?: Date;
   files?: PendingFile[];
   recommendations?: {
+    items?: ContentRecommendation[];
     action?: 'showForm';
     actionData?: { mode?: string; requirement?: string };
   };
@@ -56,7 +63,7 @@ function buildUserInput(text: string, files: PendingFile[]): string {
 }
 
 function buildChatBody(user: any, userInput: string, sessionId: string, text: string, files: PendingFile[]): Record<string, any> {
-  const body: Record<string, any> = { user_input: userInput, session_id: sessionId, username: user?.realName || user?.username || '', original_input: text || (files.length > 0 ? '查看附件' : '') };
+  const body: Record<string, any> = { user_input: userInput, session_id: sessionId, username: user?.realName || user?.username || '', role: user?.role || '', original_input: text || (files.length > 0 ? translate('publicComp.viewAttachment') : '') };
   if (files.length > 0) {
     const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
     if (imgUrls.length > 0) body.images = imgUrls;
@@ -104,7 +111,7 @@ function finalizeAssistant(prev: Message[], parsed: any): Message[] {
 
 function handleChatEvent(parsed: any, ctx: ChatStreamContext): boolean {
   if (parsed.type === 'error') {
-    ctx.setMessages(prev => pushAssistant(prev, '抱歉，AI顾问暂时无法回答。请稍后再试。'));
+    ctx.setMessages(prev => pushAssistant(prev, friendlyChatError(parsed.code)));
     return true;
   }
   if (parsed.type === 'reasoning' && parsed.content) {
@@ -178,7 +185,7 @@ async function retryChatRequest(user: any, userInput: string, sessionId: string,
     if (last && last.role === 'assistant') {
       updated[updated.length - 1] = { ...last, content: resp.content || resp.message || last.content, reasoning: resp.reasoning || last.reasoning, recommendations: resp.recommendations };
     } else {
-      updated.push({ role: 'assistant', content: resp.content || resp.message || '感谢您的提问。我们的专业顾问会尽快为您解答。', reasoning: resp.reasoning, recommendations: resp.recommendations, timestamp: new Date() });
+      updated.push({ role: 'assistant', content: resp.content || resp.message || translate('publicComp.fallbackAdvisorSoon'), reasoning: resp.reasoning, recommendations: resp.recommendations, timestamp: new Date() });
     }
     return updated;
   });
@@ -188,17 +195,19 @@ async function retryChatRequest(user: any, userInput: string, sessionId: string,
 }
 
 function pushAssistantFallback(prev: Message[]): Message[] {
+  const content = friendlyChatError('connection');
   const updated = [...prev];
   const last = updated[updated.length - 1];
   if (last && last.role === 'assistant') {
-    last.content = '抱歉，我暂时无法回答您的问题。您可以：\n• 稍后再试\n• 点击"预约演示"与顾问直接沟通\n• 填写需求表单，我们会主动联系您';
+    last.content = content;
   } else {
-    updated.push({ role: 'assistant', content: '抱歉，我暂时无法回答您的问题。您可以：\n• 稍后再试\n• 点击"预约演示"与顾问直接沟通\n• 填写需求表单，我们会主动联系您', timestamp: new Date() });
+    updated.push({ role: 'assistant', content, timestamp: new Date() });
   }
   return updated;
 }
 
 export default function ChatWidget() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const leadFormLocked = !!user;
   const [isOpen, setIsOpen] = useState(false);
@@ -232,6 +241,10 @@ export default function ChatWidget() {
     }
   }, [user]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [inputPlaceholder, setInputPlaceholder] = useState('');
+  const [welcomeStyle, setWelcomeStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
+  const [inputStyle, setInputStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -240,10 +253,13 @@ export default function ChatWidget() {
     setSessionId(sid);
     setVisitorId(vid);
     
-    const fallback = '您好！我是本站的AI智能顾问，请问有什么可以帮助您的？';
+    const fallback = translate('publicComp.greeting');
     setMessages([{ role: 'assistant', content: fallback, timestamp: new Date() }]);
 
     aiService.config.get().then((cfg: any) => {
+      if (typeof cfg?.llm_thinking_enabled === 'boolean') {
+        setThinkingEnabled(cfg.llm_thinking_enabled);
+      }
       const sp = cfg.system_prompt || '';
       const lines = sp.split('\n');
       const greeting = lines.find((l: string) => l.startsWith('//greeting:') || l.startsWith('#greeting:'));
@@ -256,6 +272,12 @@ export default function ChatWidget() {
       if (res.suggestions && res.suggestions.length > 0) {
         setSuggestions(res.suggestions);
       }
+      if (res.welcome_message) {
+        setMessages([{ role: 'assistant', content: res.welcome_message, timestamp: new Date() }]);
+      }
+      if (res.input_placeholder) setInputPlaceholder(res.input_placeholder);
+      setWelcomeStyle(normalizeTextStyle(res.welcome_message_style));
+      setInputStyle(normalizeTextStyle(res.input_placeholder_style));
     }).catch(() => {});
   }, []);
 
@@ -277,7 +299,7 @@ export default function ChatWidget() {
     const userInput = buildUserInput(text, files);
 
     if (files.length > 0) {
-      setMessages((prev) => [...prev, { role: 'user', content: text || '查看附件', files, timestamp: new Date() }]);
+      setMessages((prev) => [...prev, { role: 'user', content: text || t('publicComp.viewAttachment'), files, timestamp: new Date() }]);
     } else {
       setMessages((prev) => [...prev, { role: 'user', content: text || '', timestamp: new Date() }]);
     }
@@ -322,7 +344,7 @@ export default function ChatWidget() {
       setLeadSubmitted(true);
       setMessages((prev) => [...prev, { 
         role: 'assistant', 
-        content: '感谢您提交信息！我们的专业顾问会在24小时内与您联系，为您提供定制化解决方案。',
+        content: t('publicComp.leadThanks'),
         timestamp: new Date() 
       }]);
     } catch (error) {
@@ -402,10 +424,10 @@ export default function ChatWidget() {
         >
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-black rounded-full mb-4">
             <Sparkles className="w-4 h-4" />
-            <span className="text-sm font-medium">AI智能顾问</span>
+            <span className="text-sm font-medium">{t('publicComp.chatBadge')}</span>
           </div>
-          <h2 className="text-3xl md:text-4xl font-semibold text-black mb-3">与AI对话，获取专业建议</h2>
-          <p className="text-gray-500">可以围绕本站产品、解决方案与业务场景提出问题</p>
+          <h2 className="text-3xl md:text-4xl font-semibold text-black mb-3">{t('publicComp.chatTitle')}</h2>
+          <p className="text-gray-500">{t('publicComp.chatSubtitle')}</p>
         </motion.div>
 
         {/* Chat Container */}
@@ -458,7 +480,7 @@ export default function ChatWidget() {
                                 <>
                                   <FileText className={`w-4 h-4 ${message.role === 'user' ? 'text-white/70' : 'text-gray-500'}`} />
                                   <span className="truncate max-w-[120px]">{f.name}</span>
-                                  {f.parseError && <span className="text-amber-500 text-[10px] flex-shrink-0" title={f.parseError}>解析失败</span>}
+                                  {f.parseError && <span className="text-amber-500 text-[10px] flex-shrink-0" title={f.parseError}>{t('publicComp.parseFailed')}</span>}
                                 </>
                               )}
                             </div>
@@ -466,6 +488,7 @@ export default function ChatWidget() {
                         </div>
                       )}
                       <div
+                        style={index === 0 && message.role === 'assistant' ? textStyleToCss(welcomeStyle) : undefined}
                         className={`px-4 py-3 rounded-2xl ${
                           message.role === 'user'
                             ? 'bg-black text-white'
@@ -483,11 +506,11 @@ export default function ChatWidget() {
                           </div>
                         ) : (
                           <>
-                            {message.reasoning && (
+                            {thinkingEnabled && message.reasoning && (
                               <details className="mb-2">
                                 <summary className="cursor-pointer select-none text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
                                   <Brain className="w-3 h-3" />
-                                  <span>思考过程</span>
+                                  <span>{t('publicComp.thinkingProcess')}</span>
                                 </summary>
                                 <div className="mt-2 text-xs text-gray-500 bg-white border border-gray-200 rounded-lg p-3 whitespace-pre-wrap leading-relaxed">
                                   {message.reasoning}
@@ -498,6 +521,9 @@ export default function ChatWidget() {
                           </>
                         )}
                       </div>
+                      {message.role === 'assistant' && (
+                        <RecommendationChips items={message.recommendations?.items} />
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -551,7 +577,7 @@ export default function ChatWidget() {
                 className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white rounded-full text-sm font-medium hover:bg-gray-800 transition-colors"
               >
                 <FileText className="w-4 h-4" />
-                生成定制方案
+                {t('publicComp.generateSolution')}
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
@@ -581,7 +607,7 @@ export default function ChatWidget() {
                       <FileText className="w-3.5 h-3.5 text-gray-500" />
                     )}
                     <span className="truncate max-w-[120px]">{f.name}</span>
-                    {f.parseError && <span className="text-amber-600 text-[10px] truncate max-w-[80px]" title={f.parseError}>解析失败</span>}
+                    {f.parseError && <span className="text-amber-600 text-[10px] truncate max-w-[80px]" title={f.parseError}>{t('publicComp.parseFailed')}</span>}
                     <button onClick={() => removePendingFile(f.id)} className="ml-0.5 p-0.5 hover:bg-gray-200 rounded-full">
                       <X className="w-3 h-3" />
                     </button>
@@ -608,9 +634,10 @@ export default function ChatWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder={uploading ? '读取文件中...' : "输入您的问题..."}
+                placeholder={uploading ? t('publicComp.readingFile') : (inputPlaceholder || t('publicComp.inputPlaceholder'))}
                 rows={1}
-                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent resize-none"
+                style={inputTextStyleToCss(inputStyle)}
+                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent resize-none placeholder:text-[color:var(--ph-color)]"
                 disabled={loading || uploading}
               />
               <button
@@ -641,8 +668,8 @@ export default function ChatWidget() {
                   <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Sparkles className="w-8 h-8 text-green-600" />
                   </div>
-                  <h3 className="text-xl font-semibold text-black mb-2">提交成功！</h3>
-                  <p className="text-gray-500 mb-6">我们的专业顾问会在24小时内与您联系</p>
+                  <h3 className="text-xl font-semibold text-black mb-2">{t('publicComp.submitSuccess')}</h3>
+                  <p className="text-gray-500 mb-6">{t('publicComp.contactWithin24h')}</p>
                   <button
                     onClick={() => {
                       setShowLeadForm(false);
@@ -650,13 +677,13 @@ export default function ChatWidget() {
                     }}
                     className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-colors"
                   >
-                    关闭
+                    {t('publicComp.close')}
                   </button>
                 </div>
               ) : (
                 <>
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-black">获取定制方案</h3>
+                    <h3 className="text-xl font-semibold text-black">{t('publicComp.getCustomSolution')}</h3>
                     <button
                       onClick={() => setShowLeadForm(false)}
                       className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -665,11 +692,11 @@ export default function ChatWidget() {
                     </button>
                   </div>
                   {leadFormLocked && (
-                    <p className="text-xs text-gray-400 mb-4 -mt-2">已登录：姓名/联系方式使用账号信息，不可修改，用于防止重复提交</p>
+                    <p className="text-xs text-gray-400 mb-4 -mt-2">{t('publicComp.loggedInLockNote')}</p>
                   )}
                   <form onSubmit={handleLeadSubmit} className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">姓名 *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.name')} *</label>
                       <input
                         type="text"
                         required
@@ -680,7 +707,7 @@ export default function ChatWidget() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">公司</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.company')}</label>
                       <input
                         type="text"
                         value={leadForm.company}
@@ -690,7 +717,7 @@ export default function ChatWidget() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">手机 *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.phone')} *</label>
                       <input
                         type="tel"
                         required
@@ -701,7 +728,7 @@ export default function ChatWidget() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.email')}</label>
                       <input
                         type="email"
                         value={leadForm.email}
@@ -711,13 +738,13 @@ export default function ChatWidget() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">需求描述</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.requirement')}</label>
                       <textarea
                         rows={3}
                         value={leadForm.requirement}
                         onChange={(e) => setLeadForm({ ...leadForm, requirement: e.target.value })}
                         className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent resize-none"
-                        placeholder="请简要描述您的需求..."
+                        placeholder={t('publicComp.requirementPlaceholder')}
                       />
                     </div>
                     <button
@@ -725,7 +752,7 @@ export default function ChatWidget() {
                       disabled={loading}
                       className="w-full px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
                     >
-                      {loading ? '提交中...' : '提交需求'}
+                      {loading ? t('publicComp.submitting') : t('publicComp.submitRequirement')}
                     </button>
                   </form>
                 </>

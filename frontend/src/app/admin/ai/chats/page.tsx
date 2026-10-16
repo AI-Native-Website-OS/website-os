@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { aiService } from '@/lib/aiService';
-import { Bot, User, Clock, Brain, FileText } from 'lucide-react';
+import { Bot, User, Clock, Brain, FileText, AlertCircle } from 'lucide-react';
 import { mapHistoryToMessages } from '@/lib/chatHistory';
 import type { RestoredMessage } from '@/lib/chatHistory';
 import type { SessionOut } from '@/types';
@@ -107,6 +107,24 @@ export default function AdminAiChats() {
                             )}
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {msg.role === 'assistant' && msg.error && (
+                      <div className="mb-2">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[10px] font-medium">
+                          <AlertCircle className="w-3 h-3" />
+                          {t('admin.ui.chats.errorBadge')}{msg.error.code ? ` · ${msg.error.code}` : ''}
+                        </span>
+                        {msg.error.detail && (
+                          <details className="mt-1">
+                            <summary className="cursor-pointer select-none text-[10px] text-gray-500 hover:text-gray-700">
+                              {t('admin.ui.chats.errorDetail')}
+                            </summary>
+                            <div className="mt-1 text-[10px] text-gray-500 bg-white border border-gray-200 rounded-lg p-2 whitespace-pre-wrap break-words">
+                              {msg.error.detail}
+                            </div>
+                          </details>
+                        )}
                       </div>
                     )}
                     {msg.role === 'assistant' && msg.reasoning && (

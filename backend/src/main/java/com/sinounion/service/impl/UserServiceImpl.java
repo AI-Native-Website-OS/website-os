@@ -132,7 +132,7 @@ public class UserServiceImpl implements UserService {
             user.setDeleted(0);
             userMapper.insert(user);
 
-            initMemory(user.getUsername(), "NORMAL_USER");
+            initMemory(memoryOwner(user), "NORMAL_USER");
         } else if (user.getStatus() != null && user.getStatus() == 0) {
             throw new BusinessException("账号已被禁用");
         }
@@ -198,7 +198,7 @@ public class UserServiceImpl implements UserService {
                 leadMapper.insert(lead);
             }
 
-            initMemory(user.getUsername(), "NORMAL_USER");
+            initMemory(memoryOwner(user), "NORMAL_USER");
 
             List<Permission> permissions = permissionMapper.findByRole("NORMAL_USER");
             List<String> permissionCodes = permissions.stream()
@@ -340,7 +340,7 @@ public class UserServiceImpl implements UserService {
             userMapper.insert(user);
 
             String role = dto.getRole() != null ? dto.getRole() : "NORMAL_USER";
-            initMemory(user.getUsername(), role);
+            initMemory(memoryOwner(user), role);
 
             return getUserById(user.getId());
         } catch (DuplicateKeyException e) {
@@ -393,6 +393,15 @@ public class UserServiceImpl implements UserService {
         return authentication.getName();
     }
 
+    /** 记忆归属键：与前端聊天一致，优先真实姓名，其次登录名。 */
+    private String memoryOwner(User user) {
+        String realName = user.getRealName();
+        if (realName != null && !realName.trim().isEmpty()) {
+            return realName.trim();
+        }
+        return user.getUsername();
+    }
+
     private void initMemory(String username, String role) {
         // 1. Try HTTP call to Python AI service
         if (aiServiceUrl != null && !aiServiceUrl.isEmpty()) {
@@ -412,48 +421,31 @@ public class UserServiceImpl implements UserService {
             }
         }
 
-        // 2. Fallback: create directory and all 6 memory files directly on filesystem
+        // 2. Fallback: create the single MEMORY.md directly on filesystem
         try {
             String safeUsername = username.replaceAll("[\\\\/:*?\"<>|]", "_");
             String safeRole = (role == null || role.isEmpty()) ? "_" : role.replaceAll("[\\\\/:*?\"<>|]", "_");
             // Prefer /app/memories if it exists, otherwise use configured memoriesDir
             Path appMemories = Paths.get("/app/memories");
-            log.info("[DEBUG] initMemory: checking /app/memories, exists={}, isDirectory={}, memoriesDir='{}'",
-                    Files.exists(appMemories), Files.isDirectory(appMemories), memoriesDir);
             Path baseDir;
             if (Files.isDirectory(appMemories)) {
                 baseDir = appMemories;
-                log.info("[DEBUG] initMemory: using /app/memories as baseDir");
             } else if (memoriesDir != null && !memoriesDir.isEmpty()) {
                 baseDir = Paths.get(memoriesDir);
-                log.info("[DEBUG] initMemory: using configured memoriesDir '{}' as baseDir, resolved={}",
-                        memoriesDir, baseDir.toAbsolutePath());
             } else {
                 log.warn("ai.service.memories-dir not configured, cannot create memory files locally");
                 return;
             }
             Path userPath = baseDir.resolve(safeRole).resolve(safeUsername);
-            log.info("[DEBUG] initMemory: creating directories at {}", userPath.toAbsolutePath());
             Files.createDirectories(userPath);
 
-            Map<String, String> templates = new java.util.LinkedHashMap<>();
-            templates.put("profile.md", "# " + safeUsername + " 的用户画像\n> 角色: " + safeRole + "\n> 姓名、职业、年龄、身份等长期不变的信息\n\n");
-            templates.put("preferences.md", "# " + safeUsername + " 的用户偏好\n> 角色: " + safeRole + "\n> 回答风格、语言、开发偏好、习惯等\n\n");
-            templates.put("knowledge.md", "# " + safeUsername + " 的长期事实\n> 角色: " + safeRole + "\n> AI已确认的事实（如「用户使用Laravel」「服务器在东京」）\n\n");
-            templates.put("conversation.md", "# " + safeUsername + " 的对话摘要\n> 角色: " + safeRole + "\n> 历史聊天摘要（不保存全文）\n\n");
-            templates.put("decisions.md", "# " + safeUsername + " 的决策历史\n> 角色: " + safeRole + "\n> 重要决策及原因，方便后续保持一致\n\n");
-            templates.put("timeline.md", "# " + safeUsername + " 的时间线\n> 角色: " + safeRole + "\n> 事件发生时间记录\n\n");
-
-            for (Map.Entry<String, String> entry : templates.entrySet()) {
-                Path f = userPath.resolve(entry.getKey());
-                if (!Files.exists(f)) {
-                    Files.write(f, entry.getValue().getBytes(StandardCharsets.UTF_8));
-                }
-            }
-            // Legacy MEMORY.md for backward compatibility
-            Path legacy = userPath.resolve("MEMORY.md");
-            if (!Files.exists(legacy)) {
-                Files.write(legacy, ("# " + safeUsername + " 的记忆\n> 角色: " + safeRole + "\n> 自动生成的长期记忆文件\n\n").getBytes(StandardCharsets.UTF_8));
+            Path memory = userPath.resolve("MEMORY.md");
+            if (!Files.exists(memory)) {
+                String updated = java.time.LocalDateTime.now()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                String template = "# Memory\n\n> updated: " + updated
+                        + "\n\n## Profile\n\n## Preferences\n\n## Facts\n\n## Decisions\n\n## Timeline\n";
+                Files.write(memory, template.getBytes(StandardCharsets.UTF_8));
             }
             log.info("Memory initialized locally at {} for {}/{}", userPath, role, username);
         } catch (IOException e) {

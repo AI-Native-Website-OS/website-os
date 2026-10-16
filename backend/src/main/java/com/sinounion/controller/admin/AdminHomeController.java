@@ -6,7 +6,8 @@ import com.sinounion.common.Result;
 import com.sinounion.dto.FooterConfigDTO;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
-import com.sinounion.service.KnowledgeSyncService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,8 @@ import javax.validation.Valid;
 public class AdminHomeController {
 
     private final SystemConfigMapper systemConfigMapper;
-    private final KnowledgeSyncService knowledgeSyncService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
     private final ObjectMapper objectMapper;
 
     @Operation(summary = "获取首页配置")
@@ -46,11 +48,11 @@ public class AdminHomeController {
             existing.setConfigValue(config.getConfigValue());
             existing.setDescription(config.getDescription());
             systemConfigMapper.updateById(existing);
-            knowledgeSyncService.syncHomePage(config.getConfigValue());
+            knowledgeSyncDispatcher.syncHomePage(config.getConfigValue());
             return Result.success(existing);
         }
         systemConfigMapper.insert(config);
-        knowledgeSyncService.syncHomePage(config.getConfigValue());
+        knowledgeSyncDispatcher.syncHomePage(config.getConfigValue());
         return Result.success(config);
     }
 
@@ -73,11 +75,14 @@ public class AdminHomeController {
             throw new BusinessException("页脚配置保存失败：" + e.getMessage());
         }
 
+        translationEnqueueService.enqueueConfigValue("home_footer", dto);
+
         SystemConfig existing = systemConfigMapper.findByKey("home_footer");
         if (existing != null) {
             existing.setConfigValue(json);
             existing.setDescription("首页页脚内容配置");
             systemConfigMapper.updateById(existing);
+            knowledgeSyncDispatcher.syncFooterConfig(json);
             return Result.success(existing);
         }
         SystemConfig config = new SystemConfig();
@@ -86,6 +91,7 @@ public class AdminHomeController {
         config.setConfigType("json");
         config.setDescription("首页页脚内容配置");
         systemConfigMapper.insert(config);
+        knowledgeSyncDispatcher.syncFooterConfig(json);
         return Result.success(config);
     }
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface HtmlBlockViewProps {
   html: string;
@@ -104,6 +105,7 @@ export function buildVhFixedDoc(html: string, viewportHeight?: number): string {
  * 前台渲染与后台编辑器「预览」共用本组件，保证所见即所得。
  */
 export function HtmlBlockView({ html }: HtmlBlockViewProps) {
+  const { t } = useI18n();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const docWidthRef = useRef<number | null>(null);
@@ -192,7 +194,7 @@ export function HtmlBlockView({ html }: HtmlBlockViewProps) {
         ref={iframeRef}
         srcDoc={srcDoc}
         sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
-        title="HTML 内容"
+        title={t('publicComp.htmlContent')}
         className="border-0 bg-white"
         style={{
           width: docWidth != null ? docWidth : '100%',

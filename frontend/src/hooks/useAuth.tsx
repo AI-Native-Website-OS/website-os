@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { User, LoginResponse } from '@/types';
 import api from '@/lib/api';
 import { registerTokenUpdater } from '@/lib/tokenRefresh';
+import { t } from '@/i18n/translate';
 
 interface AuthContextType {
   user: User | null;
@@ -72,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const res: any = await api.post('/auth/login', { username, password });
     if (res.code !== 200) {
-      throw new Error(res.message || '登录失败');
+      throw new Error(res.message || t('libUi.auth.loginFailed'));
     }
     applyLogin(res.data);
   }, [applyLogin]);
@@ -80,14 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (registerData: RegisterData) => {
     const res: any = await api.post('/auth/register', registerData);
     if (res.code !== 200) {
-      throw new Error(res.message || '注册失败');
+      throw new Error(res.message || t('libUi.auth.registerFailed'));
     }
   }, []);
 
   const sendSmsCode = useCallback(async (phone: string) => {
     const res: any = await api.post('/auth/send-code', { phone });
     if (res.code !== 200) {
-      throw new Error(res.message || '验证码发送失败');
+      throw new Error(res.message || t('libUi.auth.codeFailed'));
     }
     return res.data as string;
   }, []);
@@ -95,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginByCode = useCallback(async (phone: string, code: string) => {
     const res: any = await api.post('/auth/login-by-code', { phone, code });
     if (res.code !== 200) {
-      throw new Error(res.message || '登录失败');
+      throw new Error(res.message || t('libUi.auth.loginFailed'));
     }
     applyLogin(res.data);
   }, [applyLogin]);

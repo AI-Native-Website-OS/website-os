@@ -19,7 +19,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Path, File, UploadFile, F
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 
-from main import Config, ChatGPT, AIClient, MemoryManager
+from main import Config, ChatGPT, AIClient, DB_RAG_KEY_MAP, save_rag_config_to_db, ChatError, ERROR_MESSAGES
 from pydantic import BaseModel
 from schemas import (
     ChatRequest,
@@ -49,6 +49,9 @@ from schemas import (
     ModelConfigSaveRequest,
     PromptConfigOut,
     PromptConfigSaveRequest,
+    SuggestionsGenerateOut,
+    SuggestionsGenerateRequest,
+    TextStyle,
     SeoGenerateRequest,
     SeoGenerateResponse,
     SeoGenerateResult,
@@ -64,10 +67,13 @@ from schemas import (
 )
 from db import get_db
 from models import AiPromptConfig
-from knowledge import KnowledgeEngine, EmbeddingClient, RerankerClient, extract_text_from_file, read_local_temp_media
+from knowledge import KnowledgeEngine, EmbeddingClient, RerankerClient, extract_text_from_file, read_local_temp_media, count_tokens, trim_to_tokens
 from forbidden_detector import get_detector, ForbiddenDetector
 from rate_limit import get_rate_limiter
 from auth import authenticate, requires_auth
+from translation.live import translate_one as _tr_live, translate_cached as _tr_live_many
+from translation.live import restore_one as _tr_restore, restore_cached as _tr_restore_many
+from translation.live import is_target as _is_target
 
 app = FastAPI(title="AI Consultant API", version="1.0.0")
 router = APIRouter(prefix="/ai")
@@ -202,7 +208,7 @@ def _done_payload(data) -> dict:
             payload["recommendations"] = rec
     return payload
 
-def _chat_run(eng, req, attachments, sid, sync_q, stop_evt):
+def _chat_run(eng, req, attachments, sid, sync_q, stop_evt, guest_id=None):
     try:
         result = eng.chat(
             user_input=req.user_input,
@@ -216,12 +222,23 @@ def _chat_run(eng, req, attachments, sid, sync_q, stop_evt):
             session_id=sid,
             use_knowledge=req.use_knowledge,
             use_thinking=req.use_thinking,
+            language=req.language,
             stop_event=stop_evt,
         )
         sync_q.put(("done", result))
+    except ChatError as e:
+        logger.warning("AI chat error (session=%s, code=%s): %s", sid, e.code, e.detail)
+        # 本轮未成功产生回复，回退游客计数（每「一问一答」只计一次）
+        if guest_id:
+            get_rate_limiter().refund_guest(guest_id)
+        sync_q.put(("error", {"code": e.code, "message": e.message, "detail": e.detail}))
     except Exception as e:
         logger.exception("AI chat error (session=%s): %s", sid, e)
-        sync_q.put(("error", str(e)))
+        # 本轮未成功产生回复，回退游客计数（每「一问一答」只计一次）
+        if guest_id:
+            get_rate_limiter().refund_guest(guest_id)
+        sync_q.put(("error", {"code": "unknown", "message": ERROR_MESSAGES.get("unknown", ""),
+                              "detail": f"{type(e).__name__}: {e}"}))
 
 def _stream_events(sync_q, stop_evt):
     try:
@@ -231,7 +248,13 @@ def _stream_events(sync_q, stop_evt):
                 yield f"data: {json.dumps(_done_payload(data), ensure_ascii=False)}\n\n"
                 break
             if typ == "error":
-                yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
+                payload = {"type": "error"}
+                if isinstance(data, dict):
+                    payload.update(data)
+                else:
+                    payload.update({"code": "unknown", "message": ERROR_MESSAGES.get("unknown", ""),
+                                    "detail": str(data)})
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 break
             if typ == "content" or typ == "reasoning":
                 yield f"data: {json.dumps({'type': typ, 'content': data}, ensure_ascii=False)}\n\n"
@@ -253,7 +276,7 @@ def _prepare_session(eng, req) -> Optional[str]:
                     s.role = req.role
         return eng.current_session().session_id if eng.current_session() else None
 
-def _stream_chat_response(eng, req):
+def _stream_chat_response(eng, req, guest_id=None):
     upload_path = getattr(eng.config, "upload_path", "")
     attachments = _merge_attachments(req, upload_path)
     if req.images:
@@ -261,7 +284,7 @@ def _stream_chat_response(eng, req):
     sid = _prepare_session(eng, req)
     sync_q: "q.Queue" = q.Queue()
     stop_evt = threading.Event()
-    threading.Thread(target=_chat_run, args=(eng, req, attachments, sid, sync_q, stop_evt), daemon=True).start()
+    threading.Thread(target=_chat_run, args=(eng, req, attachments, sid, sync_q, stop_evt, guest_id), daemon=True).start()
     return StreamingResponse(_stream_events(sync_q, stop_evt), media_type="text/event-stream")
 
 @router.post("/chat")
@@ -282,7 +305,7 @@ def chat(req: ChatRequest):
     if not allowed:
         return StreamingResponse(_limit_stream(reason, message), media_type="text/event-stream")
 
-    return _stream_chat_response(get_engine(), req)
+    return _stream_chat_response(get_engine(), req, guest_id=None if req.username else vid)
 
 
 # ── Sessions ──────────────────────────────────────────────────────
@@ -365,6 +388,7 @@ def get_config():
         llm_stop=c.llm_stop,
         llm_seed=c.llm_seed,
         llm_thinking_auto_collapse=c.llm_thinking_auto_collapse,
+        llm_thinking_enabled=c.llm_thinking_enabled,
         embedding_provider=c.embedding_provider,
         embedding_base_url=c.embedding_base_url,
         embedding_model=c.embedding_model,
@@ -412,19 +436,39 @@ def update_config(req: ConfigUpdateRequest):
 
 # ── Prompt Config ─────────────────────────────────────────────────
 
+PROMPT_CONFIG_TYPES = [
+    "system_prompt", "suggestion", "banned_word", "banned_threshold",
+    "welcome_message", "input_placeholder",
+    "welcome_message_style", "input_placeholder_style",
+]
+
+
+def _parse_text_style(raw: Optional[str]) -> TextStyle:
+    if not raw:
+        return TextStyle()
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return TextStyle(**data)
+    except (ValueError, TypeError):
+        pass
+    return TextStyle()
+
 
 @router.get("/prompt-config", response_model=PromptConfigOut)
-def get_prompt_config():
+def get_prompt_config(locale: Optional[str] = None):
     sys_prompt = ""
     suggestions = []
     banned = []
     threshold = 0.82
     welcome_message = ""
     input_placeholder = ""
+    welcome_style = TextStyle()
+    input_placeholder_style = TextStyle()
     with get_db() as db:
         rows = db.execute(
             select(AiPromptConfig).where(
-                AiPromptConfig.type.in_(["system_prompt", "suggestion", "banned_word", "banned_threshold", "welcome_message", "input_placeholder"])
+                AiPromptConfig.type.in_(PROMPT_CONFIG_TYPES)
             ).order_by(AiPromptConfig.type, AiPromptConfig.sort_order)
         ).scalars().all()
         for r in rows:
@@ -443,6 +487,16 @@ def get_prompt_config():
                 welcome_message = r.content
             elif r.type == "input_placeholder":
                 input_placeholder = r.content
+            elif r.type == "welcome_message_style":
+                welcome_style = _parse_text_style(r.content)
+            elif r.type == "input_placeholder_style":
+                input_placeholder_style = _parse_text_style(r.content)
+    if _is_target(locale):
+        sys_prompt = _tr_live(sys_prompt, locale)
+        welcome_message = _tr_live(welcome_message, locale)
+        input_placeholder = _tr_live(input_placeholder, locale)
+        suggestions = _tr_live_many(suggestions, locale)
+        banned = _tr_live_many(banned, locale)
     return PromptConfigOut(
         system_prompt=sys_prompt,
         suggestions=suggestions,
@@ -450,15 +504,24 @@ def get_prompt_config():
         banned_threshold=threshold,
         welcome_message=welcome_message,
         input_placeholder=input_placeholder,
+        welcome_message_style=welcome_style,
+        input_placeholder_style=input_placeholder_style,
     )
 
 
 @router.post("/prompt-config", response_model=StatusOut)
-def save_prompt_config(req: PromptConfigSaveRequest):
+def save_prompt_config(req: PromptConfigSaveRequest, locale: Optional[str] = None):
+    # 英文界面保存时，把未修改的译文还原为中文原文，避免覆盖源内容
+    if _is_target(locale):
+        req.system_prompt = _tr_restore(req.system_prompt, locale)
+        req.welcome_message = _tr_restore(req.welcome_message, locale)
+        req.input_placeholder = _tr_restore(req.input_placeholder, locale)
+        req.suggestions = _tr_restore_many(req.suggestions or [], locale)
+        req.banned_words = _tr_restore_many(req.banned_words or [], locale)
     # 系统提示词、推荐话术、违禁词、禁答阈值、UI 文案统一持久化到 ai_prompt_config 表
     with get_db() as db:
         db.execute(sa_delete(AiPromptConfig).where(
-            AiPromptConfig.type.in_(["system_prompt", "suggestion", "banned_word", "banned_threshold", "welcome_message", "input_placeholder"])
+            AiPromptConfig.type.in_(PROMPT_CONFIG_TYPES)
         ))
         if req.system_prompt and req.system_prompt.strip():
             db.add(AiPromptConfig(type="system_prompt", content=req.system_prompt.strip(), sort_order=0))
@@ -474,10 +537,181 @@ def save_prompt_config(req: PromptConfigSaveRequest):
             db.add(AiPromptConfig(type="welcome_message", content=req.welcome_message.strip(), sort_order=0))
         if req.input_placeholder is not None and req.input_placeholder.strip():
             db.add(AiPromptConfig(type="input_placeholder", content=req.input_placeholder.strip(), sort_order=0))
+        if req.welcome_message_style is not None:
+            db.add(AiPromptConfig(type="welcome_message_style", content=json.dumps(req.welcome_message_style.model_dump(), ensure_ascii=False), sort_order=0))
+        if req.input_placeholder_style is not None:
+            db.add(AiPromptConfig(type="input_placeholder_style", content=json.dumps(req.input_placeholder_style.model_dump(), ensure_ascii=False), sort_order=0))
     # Also sync to in-memory config so current sessions pick it up
     eng = get_engine()
     eng.build_system_prompt()
     return StatusOut(status="ok", message="Prompt config saved")
+
+
+# ── 推荐话术 AI 提取 ───────────────────────────────────────────
+
+_SUGGEST_LANG_NAME = {"zh": "简体中文", "en": "English"}
+
+
+def _cosine(a: List[float], b: List[float]) -> float:
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na <= 0 or nb <= 0:
+        return 0.0
+    return dot / ((na ** 0.5) * (nb ** 0.5))
+
+
+def _select_representative(embeddings: List[List[float]], k: int) -> List[int]:
+    """贪心最大最小余弦距离：选出彼此最不相似的代表片段下标，用于去重。"""
+    n = len(embeddings)
+    if n <= k or k <= 0:
+        return list(range(n))
+    chosen = [0]
+    min_sim = [_cosine(embeddings[i], embeddings[0]) for i in range(n)]
+    while len(chosen) < k:
+        best = None
+        best_sim = None
+        for i in range(n):
+            if i in chosen:
+                continue
+            if best is None or min_sim[i] > best_sim:
+                best, best_sim = i, min_sim[i]
+        chosen.append(best)
+        for i in range(n):
+            s = _cosine(embeddings[i], embeddings[best])
+            if s < min_sim[i]:
+                min_sim[i] = s
+    return chosen
+
+
+def _parse_suggestions(text: str, count: int) -> List[str]:
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+    try:
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end > start:
+            data = json.loads(text[start:end + 1])
+            if isinstance(data, list):
+                items = []
+                for it in data:
+                    if isinstance(it, str) and it.strip():
+                        items.append(it.strip())
+                    elif isinstance(it, dict):
+                        q = (it.get("question") or it.get("text") or "").strip()
+                        if q:
+                            items.append(q)
+                if items:
+                    return items[:count]
+    except Exception:
+        pass
+    items = []
+    for line in text.splitlines():
+        line = re.sub(r"^\s*(?:[-*\u2022]|\d+[.)、])\s*", "", line).strip()
+        if line:
+            items.append(line)
+    return items[:count]
+
+
+@router.post("/prompt-config/suggestions/generate", response_model=SuggestionsGenerateOut)
+def generate_suggestions(req: SuggestionsGenerateRequest):
+    """基于知识库内容，用 Embedding 去重 + Rerank 排序 + LLM 生成推荐话术。"""
+    eng = get_engine()
+    ke = eng.ke
+    count = max(1, min(req.count or 6, 10))
+    lang = (req.language or "zh").lower()
+    lang_key = "en" if lang.startswith("en") else "zh"
+
+    # 1) 知识库范围：请求指定 → RAG 关联 → 全部
+    kb_ids = req.kb_ids or None
+    if not kb_ids:
+        kb_ids = list(eng.rag_kb_ids) if eng.rag_kb_ids else None
+
+    chunks = ke.sample_chunks(kb_ids, limit=200)
+    if not chunks:
+        raise HTTPException(400, "知识库暂无可用于提取的文本内容")
+
+    # 2) Embedding 去重，选代表片段
+    try:
+        embeddings = ke.embedder.embed_batch([c["content"] for c in chunks])
+    except Exception as e:
+        raise HTTPException(400, f"Embedding 调用失败：{e}")
+    reps = [chunks[i] for i in _select_representative(embeddings, min(20, len(chunks)))]
+
+    # 3) Rerank：以「访客常见提问」为主题排序
+    intent_query = "访客最可能咨询的产品、服务、价格、使用方法、售后等常见问题" if lang_key == "zh" \
+        else "The questions visitors are most likely to ask about products, services, pricing, usage and support"
+    if ke.reranker.enabled and len(reps) > 1:
+        try:
+            reranked = ke.reranker.rerank(intent_query, [c["content"] for c in reps],
+                                          top_n=min(15, len(reps)))
+            ordered = []
+            seen = set()
+            for rr in reranked:
+                idx = rr.get("index")
+                if idx is not None and 0 <= idx < len(reps) and idx not in seen:
+                    ordered.append(reps[idx])
+                    seen.add(idx)
+            ordered.extend(c for i, c in enumerate(reps) if i not in seen)
+            if ordered:
+                reps = ordered
+        except Exception as e:
+            logger.warning("Rerank 失败，改用 Embedding 顺序：%s", e)
+
+    # 4) 组装知识摘录（token 预算）
+    budget = 3000
+    used = 0
+    excerpt_parts = []
+    for c in reps:
+        text = c["content"]
+        t = count_tokens(text)
+        if used + t > budget:
+            text = trim_to_tokens(text, max(0, budget - used))
+            t = count_tokens(text)
+        if not text:
+            break
+        excerpt_parts.append(f"【{c['kb_name']}｜{c['doc_title']}】{text}")
+        used += t
+        if used >= budget:
+            break
+    excerpt = "\n\n".join(excerpt_parts)
+
+    # 5) LLM 生成（关闭思考模式，避免推理占用输出预算导致正文/JSON 为空）
+    lang_name = _SUGGEST_LANG_NAME[lang_key]
+    sys_prompt = (
+        "你是网站智能顾问的运营助手。根据提供的知识库内容，总结访客最可能点击的快捷提问话术。"
+        f"严格输出一个 JSON 字符串数组，包含 {count} 条，每条为一句自然、口语化的提问，"
+        f"使用{lang_name}，不要编号、不要解释、不要 Markdown。"
+    )
+    user_input = f"知识库内容：\n\n{excerpt}\n\n请输出 {count} 条{lang_name}提问的 JSON 数组。"
+
+    def _call(disable_thinking: bool) -> Dict:
+        kwargs: Dict[str, Any] = {"max_tokens": 2048, "temperature": 0.5}
+        if disable_thinking:
+            kwargs["chat_template_kwargs"] = {"enable_thinking": False}
+        return eng.client.chat(sys_prompt, [], user_input, **kwargs)
+
+    try:
+        try:
+            resp = _call(True)
+        except Exception as e:
+            logger.warning("关闭思考模式调用失败，回退普通调用：%s", e)
+            resp = _call(False)
+    except Exception as e:
+        logger.exception("推荐话术生成 LLM 调用失败")
+        raise HTTPException(500, f"LLM 调用失败：{e}")
+
+    raw = resp.get("content", "") or ""
+    suggestions = _parse_suggestions(raw, count)
+    if not suggestions:
+        logger.warning("推荐话术生成解析为空，模型原始返回：%s", raw[:500])
+        raise HTTPException(500, "模型未返回有效的推荐话术")
+    return SuggestionsGenerateOut(suggestions=suggestions)
 
 
 # ── Model Config ───────────────────────────────────────────────
@@ -701,10 +935,8 @@ def list_memory_files():
 
 @router.get("/memory/file", response_model=MemoryFileContentOut)
 def get_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD), role: str = Query(""), file_type: str = Query("")):
-    if file_type and file_type in MemoryManager.MEMORY_FILE_NAMES:
-        filename = MemoryManager.MEMORY_FILE_NAMES[file_type]
     try:
-        content = get_engine().read_memory_file(username, filename, role)
+        content = get_engine().read_memory_file(username, role)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return MemoryFileContentOut(username=username, content=content)
@@ -712,13 +944,11 @@ def get_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD)
 
 @router.put("/memory/file", response_model=StatusOut)
 def save_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD), role: str = Query(""), file_type: str = Query(""), req: MemoryFileSaveRequest = None):
-    if file_type and file_type in MemoryManager.MEMORY_FILE_NAMES:
-        filename = MemoryManager.MEMORY_FILE_NAMES[file_type]
     try:
-        get_engine().write_memory_file(username, req.content, filename, role)
+        get_engine().write_memory_file(username, req.content, role)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return StatusOut(status="ok", message=f"Saved {role}/{username}/{filename}")
+    return StatusOut(status="ok", message=f"Saved {role}/{username}/{MEMORY_MD}")
 
 
 @router.post("/memory/init", response_model=StatusOut)
@@ -729,39 +959,39 @@ def init_memory(username: str = Query(...), role: str = Query("")):
 
 @router.post("/users/{username}/memory/init", response_model=StatusOut)
 def init_user_memory(username: str, req: MemoryInitRequest = None):
-    """Java端创建用户后调用，初始化全部6个记忆文件"""
+    """Java端创建用户后调用，初始化单个 MEMORY.md"""
     role = req.role if req else ""
     get_engine().init_user_memory(username, role)
-    return StatusOut(status="ok", message=f"Initialized 6 memory files for {role}/{username}")
+    return StatusOut(status="ok", message=f"Initialized memory file for {role}/{username}")
 
 
 @router.get("/memory/user-files", response_model=MemoryFileListOut)
 def list_user_memory_files(username: str = Query(...), role: str = Query("")):
-    """List all 6 memory files for a specific user."""
-    file_list = []
-    for file_type, filename in MemoryManager.MEMORY_FILE_NAMES.items():
-        content = get_engine().read_memory_file(username, filename, role)
-        lines = content.strip().splitlines() if content else []
-        file_list.append({
-            "filename": filename,
-            "file_type": file_type,
-            "size": len(content),
-            "line_count": len(lines),
-            "content": content,
-        })
+    """List the single MEMORY.md for a specific user."""
+    content = get_engine().read_memory_file(username, role)
+    lines = content.strip().splitlines() if content else []
+    file_list = [{
+        "username": username,
+        "filename": MEMORY_MD,
+        "role": role,
+        "size": len(content),
+        "line_count": len(lines),
+        "content": content,
+        "updated_at": "",
+    }]
     return MemoryFileListOut(files=file_list)
 
 
 # backward compat: default to MEMORY.md
 @router.get("/memory/files/{username}", response_model=MemoryFileContentOut)
 def get_memory_file_legacy(username: str):
-    content = get_engine().read_memory_file(username, MEMORY_MD, "")
+    content = get_engine().read_memory_file(username)
     return MemoryFileContentOut(username=username, content=content)
 
 
 @router.put("/memory/files/{username}", response_model=StatusOut)
 def save_memory_file_legacy(username: str, req: MemoryFileSaveRequest):
-    get_engine().write_memory_file(username, req.content, MEMORY_MD, "")
+    get_engine().write_memory_file(username, req.content)
     return StatusOut(status="ok", message=f"Saved {username}/{MEMORY_MD}")
 
 
@@ -834,6 +1064,11 @@ def update_rag_config(req: _RagConfigUpdateRequest):
         eng.rag_reranker_enabled = req.reranker_enabled
     if req.reranker_model is not None:
         eng.rag_reranker_model = req.reranker_model
+    # 持久化到 system_configs 表，重启后仍生效
+    try:
+        save_rag_config_to_db({key: getattr(eng, attr) for attr, key in DB_RAG_KEY_MAP.items()})
+    except Exception as e:
+        return StatusOut(status="error", message=f"RAG config saved in memory but failed to persist: {e}")
     return StatusOut(status="ok", message="RAG config updated")
 
 
@@ -846,14 +1081,25 @@ def _get_ke() -> KnowledgeEngine:
 # ── 知识库 CRUD ─────────────────────────────────────────────────
 
 @router.get("/knowledge-bases", response_model=KnowledgeBaseListOut)
-def list_knowledge_bases():
-    return KnowledgeBaseListOut(items=_get_ke().list_kbs())
+def list_knowledge_bases(locale: Optional[str] = None):
+    items = _get_ke().list_kbs()
+    if _is_target(locale):
+        for it in items:
+            if isinstance(it, dict):
+                if it.get("name"):
+                    it["name"] = _tr_live(it.get("name"), locale)
+                if it.get("description"):
+                    it["description"] = _tr_live(it.get("description"), locale)
+    return KnowledgeBaseListOut(items=items)
 
 
 @router.post("/knowledge-bases", response_model=KnowledgeBaseOut)
-def create_knowledge_base(req: KnowledgeBaseCreateRequest):
+def create_knowledge_base(req: KnowledgeBaseCreateRequest, locale: Optional[str] = None):
+    if _is_target(locale):
+        req.name = _tr_restore(req.name, locale)
+        req.description = _tr_restore(req.description, locale)
     kb = _get_ke().create_kb(
-        name=req.name, description=req.description,
+        name=req.name, description=req.description, code=req.code,
         chunk_size=req.chunk_size, chunk_overlap=req.chunk_overlap,
         chunk_separator=req.chunk_separator,
         text_preprocessing_rules=req.text_preprocessing_rules,
@@ -865,21 +1111,32 @@ def create_knowledge_base(req: KnowledgeBaseCreateRequest):
 
 
 @router.get("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut, responses={404: {"description": KB_NOT_FOUND}})
-def get_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION)):
+def get_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION), locale: Optional[str] = None):
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
         raise HTTPException(404, KB_NOT_FOUND)
-    return KnowledgeBaseOut(**ke._kb_to_dict(kb))
+    data = ke._kb_to_dict(kb)
+    if _is_target(locale):
+        if data.get("name"):
+            data["name"] = _tr_live(data.get("name"), locale)
+        if data.get("description"):
+            data["description"] = _tr_live(data.get("description"), locale)
+    return KnowledgeBaseOut(**data)
 
 
 @router.put("/knowledge-bases/{kb_id}", response_model=KnowledgeBaseOut, responses={404: {"description": KB_NOT_FOUND}, 500: {"description": "Failed to update"}})
-def update_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION), req: KnowledgeBaseUpdateRequest = None):
+def update_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION), req: KnowledgeBaseUpdateRequest = None, locale: Optional[str] = None):
     ke = _get_ke()
     kb = ke.get_kb(kb_id)
     if not kb:
         raise HTTPException(404, KB_NOT_FOUND)
     kwargs = req.model_dump(exclude_none=True)
+    if _is_target(locale):
+        if kwargs.get("name"):
+            kwargs["name"] = _tr_restore(kwargs["name"], locale)
+        if kwargs.get("description"):
+            kwargs["description"] = _tr_restore(kwargs["description"], locale)
     updated = ke.update_kb_config(kb_id, **kwargs)
     if not updated:
         raise HTTPException(500, "Failed to update")
@@ -894,6 +1151,24 @@ def delete_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION))
         raise HTTPException(404, KB_NOT_FOUND)
     ke.delete_kb(kb_id)
     return StatusOut(status="ok", message="Knowledge base deleted")
+
+
+@router.post("/knowledge-bases/{kb_id}/clear", response_model=StatusOut, responses={404: {"description": KB_NOT_FOUND}})
+def clear_knowledge_base(kb_id: int = Path(..., description=KB_ID_DESCRIPTION)):
+    ke = _get_ke()
+    kb = ke.get_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, KB_NOT_FOUND)
+    removed = ke.clear_kb_documents(kb_id)
+    return StatusOut(status="ok", message=f"Cleared {removed} document(s)")
+
+
+@router.delete("/knowledge-bases/by-code/{code}", response_model=StatusOut)
+def delete_knowledge_base_by_code(code: str):
+    ok = _get_ke().delete_kb_by_code(code)
+    if not ok:
+        return StatusOut(status="ok", message="Knowledge base not found, nothing to delete")
+    return StatusOut(status="ok", message=f"Deleted knowledge base {code}")
 
 
 # ── 文档管理 ─────────────────────────────────────────────────
@@ -1010,6 +1285,9 @@ def sync_document(req: SyncDocumentRequest):
         content=req.content,
         file_path=req.file_path or "",
         images=req.images or [],
+        kb_code=req.kb_code,
+        kb_name=req.kb_name,
+        kb_description=req.kb_description or "",
     )
     doc = ke.get_document(result["document_id"])
     return KnowledgeDocumentOut(
@@ -1195,7 +1473,9 @@ def catalog_reload():
     """强制 AI 顾问清除内容目录缓存，下次对话立即重新读取 SEO/GEO 词库
     （seo_keywords / seo_configs.geo_summary / seo_faqs）并重建 embedding。"""
     from intent_recognizer import get_intent_recognizer
+    from link_resolver import get_link_resolver
     get_intent_recognizer().clear_cache()
+    get_link_resolver().clear_cache()
     return {"status": "ok"}
 
 
@@ -1224,6 +1504,17 @@ app.include_router(router)
 # ── GEO .md 页面（/ai/md/*，动态 Markdown 版本） ────────────────────
 from ai_md import router as ai_md_router
 app.include_router(ai_md_router, prefix="/ai")
+
+# ── 运行时自动翻译：内部接口 + 后台预翻译 worker ────────────────────
+from translation.router import router as translate_router
+from translation.worker import start_worker as start_translation_worker
+
+app.include_router(translate_router, prefix="/ai")
+
+
+@app.on_event("startup")
+def _start_translation_worker():
+    start_translation_worker()
 
 if __name__ == "__main__":
     import multiprocessing

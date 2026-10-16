@@ -3,6 +3,8 @@ package com.sinounion.controller.admin;
 import com.sinounion.common.Result;
 import com.sinounion.entity.AboutSection;
 import com.sinounion.service.AboutSectionService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,8 @@ import java.util.Map;
 public class AdminAboutSectionController {
 
     private final AboutSectionService aboutSectionService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
 
     @Operation(summary = "获取所有关于页面区块")
     @GetMapping
@@ -39,14 +43,20 @@ public class AdminAboutSectionController {
     @PostMapping
     @PreAuthorize("hasAuthority('about_section:create')")
     public Result<AboutSection> create(@Valid @RequestBody AboutSection section) {
-        return Result.success(aboutSectionService.create(section));
+        AboutSection created = aboutSectionService.create(section);
+        knowledgeSyncDispatcher.syncAboutSection(created);
+        translationEnqueueService.enqueueEntity("about_section", created);
+        return Result.success(created);
     }
 
     @Operation(summary = "更新关于页面区块")
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('about_section:update')")
     public Result<AboutSection> update(@PathVariable Long id, @Valid @RequestBody AboutSection section) {
-        return Result.success(aboutSectionService.update(id, section));
+        AboutSection updated = aboutSectionService.update(id, section);
+        knowledgeSyncDispatcher.syncAboutSection(updated);
+        translationEnqueueService.enqueueEntity("about_section", updated);
+        return Result.success(updated);
     }
 
     @Operation(summary = "删除关于页面区块")
@@ -54,6 +64,8 @@ public class AdminAboutSectionController {
     @PreAuthorize("hasAuthority('about_section:delete')")
     public Result<Void> delete(@PathVariable Long id) {
         aboutSectionService.delete(id);
+        knowledgeSyncDispatcher.deleteContent("about_section", id);
+        translationEnqueueService.removeResource("about_section", id);
         return Result.success(null);
     }
 

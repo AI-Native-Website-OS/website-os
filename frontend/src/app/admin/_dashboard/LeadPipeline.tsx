@@ -52,7 +52,7 @@ export default function LeadPipeline() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200/80 p-6">
         <div className="h-5 bg-gray-100 rounded w-24 mb-4 animate-pulse" />
         <div className="flex gap-3 overflow-x-auto pb-2">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -68,7 +68,7 @@ export default function LeadPipeline() {
   const maxCount = Math.max(...stages.map(s => s.count), 1);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white rounded-lg border border-gray-200/80 p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base font-semibold text-gray-900">{t('admin.ui.dashboard.pipelineTitle')}</h3>
         <Link href="/admin/leads" className="flex items-center gap-0.5 text-xs text-gray-500 hover:text-black transition-colors">

@@ -3,7 +3,7 @@ package com.sinounion.controller.admin;
 import com.sinounion.common.Result;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
-import com.sinounion.service.KnowledgeSyncService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +19,7 @@ import javax.validation.Valid;
 public class AdminAboutController {
 
     private final SystemConfigMapper systemConfigMapper;
-    private final KnowledgeSyncService knowledgeSyncService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
 
     @Operation(summary = "获取关于页面配置")
     @GetMapping
@@ -42,11 +42,11 @@ public class AdminAboutController {
             existing.setConfigValue(config.getConfigValue());
             existing.setDescription(config.getDescription());
             systemConfigMapper.updateById(existing);
-            knowledgeSyncService.syncAboutPage(config.getConfigValue());
+            knowledgeSyncDispatcher.syncAboutPage(config.getConfigValue());
             return Result.success(existing);
         }
         systemConfigMapper.insert(config);
-        knowledgeSyncService.syncAboutPage(config.getConfigValue());
+        knowledgeSyncDispatcher.syncAboutPage(config.getConfigValue());
         return Result.success(config);
     }
 }

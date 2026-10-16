@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { zh, en } from './messages';
+import { setLocale as setStoreLocale } from '@/lib/localeStore';
 
 export type Locale = 'zh' | 'en';
 
@@ -11,7 +12,7 @@ const DICTS: Record<Locale, any> = { zh, en };
 interface I18nContextValue {
   locale: Locale;
   setLocale: (l: Locale) => void;
-  t: (key: string) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
 const I18nContext = createContext<I18nContextValue>({
@@ -47,20 +48,35 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE_KEY, locale);
     } catch {}
     document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';
+    setStoreLocale(locale);
   }, [locale]);
 
   const t = useCallback(
-    (key: string): string => {
+    (key: string, params?: Record<string, string | number>): string => {
       const dict = DICTS[locale];
       const v = resolvePath(dict, key);
-      if (v !== undefined) return v;
-      const fallback = resolvePath(zh, key);
-      return fallback !== undefined ? fallback : key;
+      const raw = v !== undefined ? v : (resolvePath(zh, key) ?? key);
+      if (!params) return raw;
+      return raw.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m));
     },
     [locale]
   );
 
-  const setLocale = useCallback((l: Locale) => setLocaleState(l), []);
+  const setLocale = useCallback(
+    (l: Locale) => {
+      if (l === locale) return;
+      setLocaleState(l);
+      setStoreLocale(l);
+      try {
+        localStorage.setItem(STORAGE_KEY, l);
+      } catch {}
+      // 切换语言后整页刷新，重新按新语言拉取内容译文
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    },
+    [locale]
+  );
 
   return (
     <I18nContext.Provider value={{ locale, setLocale, t }}>{children}</I18nContext.Provider>

@@ -10,6 +10,7 @@ public interface CoreModuleService {
     List<CoreModule> getAll();
     List<CoreModule> getActive();
     CoreModule getById(Long id);
+    CoreModule getByKey(String moduleKey);
     CoreModule create(CoreModule module);
     CoreModule update(Long id, CoreModule module);
     void delete(Long id);

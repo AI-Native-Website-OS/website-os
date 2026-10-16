@@ -11,6 +11,7 @@ import api from '@/lib/api';
 import type { ContentItem, ContentRelations, CoreModule } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useSiteConfig } from '@/hooks/useSiteConfig';
+import { useI18n } from '@/i18n/I18nProvider';
 import SeoHead from '@/components/SeoHead';
 import Breadcrumb from '@/components/Breadcrumb';
 import FilePreview from '@/components/FilePreview';
@@ -20,7 +21,8 @@ import PageState from '@/components/PageState';
 import { BlockContent } from '@/components/BlockContent';
 import { parseContentSections, type SectionEntry } from '@/lib/blockData';
 import CrossRecommend from '@/components/CrossRecommend';
-import { getImageUrl, getFileUrl, formatDate, parseCoverScale } from '@/lib/utils';
+import { getImageUrl, getFileUrl, downloadFile, formatDate, parseCoverScale } from '@/lib/utils';
+import { trackBehavior } from '@/lib/track';
 import { generateArticleSchema, toSiteIdentity } from '@/lib/seo';
 import { detailUrl, nestedDetailUrl, listUrl, categoryUrl } from '@/lib/moduleConfig';
 import { loadModule } from '@/lib/moduleLoader';
@@ -30,11 +32,11 @@ const loginPromptStyles = {
   card: 'bg-white rounded-2xl p-8 max-w-md w-full shadow-xl',
 };
 
-const LIST_LABELS: Record<string, string> = {
-  products: '产品中心',
-  solutions: '解决方案',
-  cases: '客户案例',
-  resources: '资源中心',
+const LIST_LABEL_KEYS: Record<string, string> = {
+  products: 'publicPages.moduleDetail.listProducts',
+  solutions: 'publicPages.moduleDetail.listSolutions',
+  cases: 'publicPages.moduleDetail.listCases',
+  resources: 'publicPages.moduleDetail.listResources',
 };
 
 function renderSections(sections: SectionEntry[], htmlFallback?: string) {
@@ -58,7 +60,6 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
   const [resolvedKey, setResolvedKey] = useState(moduleKey);
   const [item, setItem] = useState<ContentItem | null>(null);
   const [categoryName, setCategoryName] = useState<string>('');
-  const [related, setRelated] = useState<ContentItem[]>([]);
   const [relations, setRelations] = useState<ContentRelations>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const { user } = useAuth();
   const { siteConfig } = useSiteConfig();
+  const { t } = useI18n();
   const site = toSiteIdentity(siteConfig);
   const router = useRouter();
 
@@ -81,7 +83,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
 
   useEffect(() => {
     if (!slug) {
-      setError('参数错误');
+      setError(t('publicPages.moduleDetail.paramError'));
       setLoading(false);
       return;
     }
@@ -90,7 +92,6 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
       setLoading(true);
       setError(null);
       setItem(null);
-      setRelated([]);
       setRelations({});
       setCategoryName('');
       try {
@@ -109,26 +110,19 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
         }
 
         try {
-          const relatedResponse = await api.get(`/content/${moduleKey}`, {
-            params: { page: 1, size: 3 },
-          });
-          setRelated((relatedResponse.data.records || []).filter((a: ContentItem) => a.id !== data.id));
-        } catch { /* ignore */ }
-
-        try {
           const relationsResponse = await api.get('/content/relations', {
             params: { moduleKey, slug },
           });
           setRelations(relationsResponse.data || {});
         } catch { /* ignore */ }
       } catch {
-        setError('内容不存在或加载失败');
+        setError(t('publicPages.moduleDetail.loadFail'));
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [moduleKey, slug]);
+  }, [moduleKey, slug, t]);
 
   useEffect(() => {
     if (item) {
@@ -148,10 +142,10 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
     <div className={loginPromptStyles.wrapper} onClick={() => setShowLoginPrompt(false)}>
       <div className={loginPromptStyles.card} onClick={e => e.stopPropagation()}>
         <div className="text-center py-6">
-          <p className="text-gray-700 mb-6">请先注册或登录后，再获取内容</p>
+          <p className="text-gray-700 mb-6">{t('publicPages.moduleDetail.loginRequired')}</p>
           <div className="flex gap-3 justify-center">
-            <button onClick={() => router.push('/login')} className="px-5 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors">去登录</button>
-            <button onClick={() => setShowLoginPrompt(false)} className="px-5 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">稍后再说</button>
+            <button onClick={() => router.push('/login')} className="px-5 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors">{t('publicPages.moduleDetail.goLogin')}</button>
+            <button onClick={() => setShowLoginPrompt(false)} className="px-5 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">{t('publicPages.moduleDetail.later')}</button>
           </div>
         </div>
       </div>
@@ -160,14 +154,14 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
 
   if (loading) return <PageState loading />;
   if (error) return <PageState error={error} />;
-  if (!item) return <PageState error="内容不存在" />;
+  if (!item) return <PageState error={t('publicPages.moduleDetail.notFound')} />;
 
   const listPath = categorySlug ? categoryUrl(resolvedKey, categorySlug) : listUrl(resolvedKey);
   const currentUrl = categorySlug ? nestedDetailUrl(resolvedKey, categorySlug, slug) : detailUrl(resolvedKey, slug);
-  const listLabel = moduleMeta?.moduleName || LIST_LABELS[resolvedKey] || '内容中心';
+  const listLabel = moduleMeta?.moduleName || (LIST_LABEL_KEYS[resolvedKey] ? t(LIST_LABEL_KEYS[resolvedKey]) : t('publicPages.moduleDetail.contentCenter'));
 
   const crumbs = [
-    { name: '首页', url: '/' },
+    { name: t('common.home'), url: '/' },
     { name: listLabel, url: listPath },
     { name: item.title || '', url: currentUrl },
   ];
@@ -177,8 +171,14 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
   const tag = moduleMeta?.moduleType === 2 ? '' : (categoryName || item.groupName || '');
   const relationsActive = Object.values(relations || {}).some((items) => items && items.length > 0);
   const { width: coverWidth, height: coverHeight } = parseCoverScale(item.coverScale);
-  const handleDownload = () => {
-    if (item.filePath) window.open(getFileUrl(item.filePath), '_blank');
+  const handleDownload = async () => {
+    if (!item.filePath) return;
+    trackBehavior('download', 'content', item.id);
+    try {
+      await downloadFile(getFileUrl(item.filePath), item.fileName || item.filePath.split('/').pop() || undefined);
+    } catch {
+      window.open(getFileUrl(item.filePath), '_blank');
+    }
   };
 
   return (
@@ -219,7 +219,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
                 </div>
                 <div className="mt-auto pb-8 md:pb-10">
                   <Link href={listPath} className="inline-flex items-center gap-2 text-white/70 hover:text-white transition-colors">
-                    <ArrowLeft className="w-4 h-4" />返回{listLabel}
+                    <ArrowLeft className="w-4 h-4" />{t('publicPages.moduleDetail.backToList', { list: listLabel })}
                   </Link>
                   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-3 max-w-3xl">
                     {(tag || item.publishedAt || item.author || item.viewCount != null) && (
@@ -239,7 +239,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
                         )}
                         {item.viewCount != null && (
                           <span className="flex items-center gap-1 text-sm text-white/70">
-                            <Eye className="w-3.5 h-3.5" />{item.viewCount} 次阅读
+                            <Eye className="w-3.5 h-3.5" />{t('publicPages.moduleDetail.views', { n: item.viewCount })}
                           </span>
                         )}
                       </div>
@@ -259,7 +259,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
         <article className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           {!item.coverImage && (
             <Link href={listPath} className="inline-flex items-center gap-2 text-gray-500 hover:text-black mb-8 transition-colors">
-              <ArrowLeft className="w-4 h-4" />返回{listLabel}
+              <ArrowLeft className="w-4 h-4" />{t('publicPages.moduleDetail.backToList', { list: listLabel })}
             </Link>
           )}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-12 items-start">
@@ -284,7 +284,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
                         )}
                         {item.viewCount != null && (
                           <span className="flex items-center gap-1 text-sm text-gray-400">
-                            <Eye className="w-3.5 h-3.5" />{item.viewCount} 次阅读
+                            <Eye className="w-3.5 h-3.5" />{t('publicPages.moduleDetail.views', { n: item.viewCount })}
                           </span>
                         )}
                       </div>
@@ -299,7 +299,7 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
                 {item.source && (
                   <div className="mt-8 pt-6 border-t border-gray-100">
                     <span className="flex items-center gap-1 text-sm text-gray-400">
-                      <Tag className="w-3.5 h-3.5" />来源：{item.source}
+                      <Tag className="w-3.5 h-3.5" />{t('publicPages.moduleDetail.source', { source: item.source })}
                     </span>
                   </div>
                 )}
@@ -307,10 +307,10 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
                   <div className="mt-8 pt-6 border-t border-gray-100">
                     <div className="flex items-center gap-3">
                       <button onClick={() => requireAuth(() => setPreviewFile({ url: getFileUrl(item.filePath!), name: item.fileName || item.filePath?.split('/').pop() || '' }))} className="flex items-center gap-2 px-5 py-2.5 border border-gray-300 text-gray-900 rounded-full font-medium hover:border-gray-400 transition-colors text-sm">
-                        <FileText className="w-4 h-4" />在线预览
+                        <FileText className="w-4 h-4" />{t('publicPages.moduleDetail.onlinePreview')}
                       </button>
                       <button onClick={() => requireAuth(handleDownload)} className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-colors text-sm">
-                        <Download className="w-4 h-4" />下载资料
+                        <Download className="w-4 h-4" />{t('publicPages.moduleDetail.downloadMaterial')}
                       </button>
                     </div>
                   </div>
@@ -323,26 +323,9 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
             </div>
 
             <aside className="min-w-0">
-            {relationsActive ? (
+            {relationsActive && (
               <div className="lg:sticky lg:top-24">
                 <CrossRecommend relations={relations} variant="sidebar" />
-              </div>
-            ) : related.length > 0 && (
-              <div className="lg:sticky lg:top-24 space-y-6">
-                <h2 className="text-xl font-semibold text-black">相关{moduleMeta?.moduleName || '内容'}</h2>
-                <div className="space-y-4">
-                  {related.map((rel, index) => (
-                    <motion.div key={rel.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                      <Link href={detailUrl(resolvedKey, rel.slug)} className="block p-5 border border-gray-100 rounded-xl hover:border-gray-200 transition-colors">
-                        {rel.coverImage && (
-                          <img src={getImageUrl(rel.coverImage)} alt={rel.title} className="w-full h-32 object-cover rounded-lg mb-3" />
-                        )}
-                        <p className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{rel.title}</p>
-                        <p className="text-xs text-gray-400">{formatDate(rel.publishedAt ?? rel.createdAt ?? '')}</p>
-                      </Link>
-                    </motion.div>
-                  ))}
-                </div>
               </div>
             )}
           </aside>
@@ -351,15 +334,15 @@ export function ModuleDetailView({ moduleKey, slug, categorySlug }: { moduleKey:
 
         <section className="bg-gray-50 py-16">
           <div className="max-w-4xl mx-auto px-6 text-center">
-            <h2 className="text-2xl font-semibold text-black mb-4">需要更多帮助？</h2>
-            <p className="text-gray-500 mb-8">我们的专家团队随时为您提供专业的咨询和建议</p>
+            <h2 className="text-2xl font-semibold text-black mb-4">{t('publicPages.moduleDetail.needMoreHelp')}</h2>
+            <p className="text-gray-500 mb-8">{t('publicPages.moduleDetail.helpDesc')}</p>
             <div className="flex items-center justify-center gap-4">
-              <button onClick={() => setShowCta(true)} className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-colors">联系咨询</button>
+              <button onClick={() => setShowCta(true)} className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-colors">{t('publicPages.moduleDetail.contact')}</button>
             </div>
           </div>
         </section>
       </div>
-      <CtaForm title="咨询详情" subtitle="填写表单，我们的专家团队将尽快与您联系" source="content-cta" sourcePage={item.title} open={showCta} onClose={() => setShowCta(false)} />
+      <CtaForm title={t('publicPages.moduleDetail.ctaTitle')} subtitle={t('publicPages.moduleDetail.ctaSubtitle')} source="content-cta" sourcePage={item.title} open={showCta} onClose={() => setShowCta(false)} />
       {previewFile && <FilePreview fileUrl={previewFile.url} fileName={previewFile.name} onClose={() => setPreviewFile(null)} />}
       {showLoginPrompt && loginPrompt}
     </>

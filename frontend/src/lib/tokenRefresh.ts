@@ -1,5 +1,6 @@
 import axios from 'axios';
 import config from '@/config';
+import { t } from '@/i18n/translate';
 
 // 专用于刷新令牌的客户端：不带 401 拦截器，避免刷新自身失败时陷入循环
 const refreshClient = axios.create({
@@ -36,7 +37,7 @@ export async function refreshAuthToken(): Promise<string> {
     const res: any = await refreshClient.post('/auth/refresh', { refreshToken: rt });
     const body = res?.data;
     if (!body || body.code !== 200 || !body.data?.token) {
-      throw new Error(body?.message || '刷新令牌失败');
+      throw new Error(body?.message || t('libUi.token.refreshFailed'));
     }
     const token = body.data.token as string;
     const refreshToken = (body.data.refreshToken as string) || rt;

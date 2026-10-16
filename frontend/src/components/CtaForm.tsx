@@ -6,6 +6,7 @@ import { X, Send, Sparkles } from 'lucide-react';
 import api from '@/lib/api';
 import { isValidPhone, isValidEmail } from '@/lib/validators';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface CtaFormProps {
   title?: string;
@@ -16,8 +17,11 @@ interface CtaFormProps {
   onClose?: () => void;
 }
 
-export default function CtaForm({ title = '获取专属解决方案', subtitle = '填写表单，我们的专家团队将在1个工作日内与您联系', source = 'cta-form', sourcePage, open, onClose }: CtaFormProps) {
+export default function CtaForm({ title, subtitle, source = 'cta-form', sourcePage, open, onClose }: CtaFormProps) {
+  const { t } = useI18n();
   const { user } = useAuth();
+  const formTitle = title ?? t('publicComp.ctaTitle');
+  const formSubtitle = subtitle ?? t('publicComp.ctaSubtitle');
   const [form, setForm] = useState({ name: '', company: '', phone: '', email: '', requirement: '' });
   const locked = !!user;
 
@@ -38,9 +42,9 @@ export default function CtaForm({ title = '获取专属解决方案', subtitle =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) { setError('请输入姓名'); return; }
-    if (!isValidPhone(form.phone)) { setError('请输入正确的11位手机号'); return; }
-    if (form.email && !isValidEmail(form.email)) { setError('请输入正确的邮箱地址'); return; }
+    if (!form.name.trim()) { setError(t('publicComp.nameRequired')); return; }
+    if (!isValidPhone(form.phone)) { setError(t('publicComp.invalidPhone')); return; }
+    if (form.email && !isValidEmail(form.email)) { setError(t('publicComp.invalidEmail')); return; }
     setError('');
     setLoading(true);
     try {
@@ -55,16 +59,16 @@ export default function CtaForm({ title = '获取专属解决方案', subtitle =
       });
       if (res.code !== 200) {
         if (res.code === 400 && res.message === 'duplicate_submission') {
-          setError('您已在该页面提交过申请，我们将尽快与您联系；如需补充或更新需求，请通过电话或邮箱联系我们');
+          setError(t('publicComp.duplicateSubmission'));
           setLoading(false);
           return;
         }
-        setError(res.message || '提交失败，请稍后再试');
+        setError(res.message || t('publicComp.submitFailed'));
         return;
       }
       setSubmitted(true);
     } catch {
-      setError('提交失败，请稍后再试');
+      setError(t('publicComp.submitFailed'));
     } finally {
       setLoading(false);
     }
@@ -93,52 +97,52 @@ export default function CtaForm({ title = '获取专属解决方案', subtitle =
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Sparkles className="w-8 h-8 text-green-600" />
             </div>
-            <h3 className="text-xl font-semibold text-black mb-2">提交成功！</h3>
-            <p className="text-gray-500 mb-6">感谢您的关注，我们将尽快与您取得联系</p>
-            <button onClick={handleClose} className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-colors">关闭</button>
+            <h3 className="text-xl font-semibold text-black mb-2">{t('publicComp.submitSuccess')}</h3>
+            <p className="text-gray-500 mb-6">{t('publicComp.ctaThanks')}</p>
+            <button onClick={handleClose} className="px-6 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-colors">{t('publicComp.close')}</button>
           </div>
         ) : (
           <>
 <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h3 className="text-xl font-semibold text-black">{title}</h3>
-                  <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+                  <h3 className="text-xl font-semibold text-black">{formTitle}</h3>
+                  <p className="text-sm text-gray-500 mt-1">{formSubtitle}</p>
                 </div>
                 <button onClick={handleClose} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
               {locked && (
-                <p className="text-xs text-gray-400 mb-4 -mt-2">已登录：姓名/联系方式使用账号信息，不可修改，用于防止重复提交</p>
+                <p className="text-xs text-gray-400 mb-4 -mt-2">{t('publicComp.loggedInLockNote')}</p>
               )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">姓名 <span className="text-red-400">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.name')} <span className="text-red-400">*</span></label>
                   <input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={locked}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50 disabled:text-gray-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">公司</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.company')}</label>
                   <input type="text" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} disabled={locked}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50 disabled:text-gray-500" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">手机 <span className="text-red-400">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.phone')} <span className="text-red-400">*</span></label>
                   <input type="tel" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} disabled={locked}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50 disabled:text-gray-500" />
-                  {form.phone && !isValidPhone(form.phone) && <p className="text-xs text-red-500 mt-1">请输入正确的11位手机号</p>}
+                  {form.phone && !isValidPhone(form.phone) && <p className="text-xs text-red-500 mt-1">{t('publicComp.invalidPhone')}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.email')}</label>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={locked}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-50 disabled:text-gray-500" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">需求描述</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('publicComp.requirement')}</label>
                 <textarea rows={3} value={form.requirement} onChange={(e) => setForm({ ...form, requirement: e.target.value })}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black resize-none" />
               </div>
@@ -146,7 +150,7 @@ export default function CtaForm({ title = '获取专属解决方案', subtitle =
               <button type="submit" disabled={loading}
                 className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
                 <Send className="w-4 h-4" />
-                {loading ? '提交中...' : '立即提交'}
+                {loading ? t('publicComp.submitting') : t('publicComp.submitNow')}
               </button>
             </form>
           </>

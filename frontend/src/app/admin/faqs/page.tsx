@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
 import { Faq, PageResult } from '@/types';
-import { Plus, Trash2, Search, Check, X, Pencil, Loader2, Globe, RefreshCw } from 'lucide-react';
-import { useSyncProgress } from '@/hooks/useSyncProgress';
+import { Plus, Trash2, Search, Check, X, Pencil, Loader2 } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
 
 import { useConfirm } from '@/components/ConfirmDialog';
@@ -18,7 +17,6 @@ export default function AdminFaqs() {
   const [newRow, setNewRow] = useState<{ question: string; answer: string; saving: boolean } | null>(null);
   const [editRowId, setEditRowId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{ question: string; answer: string }>({ question: '', answer: '' });
-  const { progress, syncing, startSync, stopSync } = useSyncProgress();
   const [saving, setSaving] = useState(false);
   const { confirm, ConfirmDialog } = useConfirm();
 
@@ -62,12 +60,6 @@ export default function AdminFaqs() {
     finally { setSaving(false); }
   };
 
-  useEffect(() => () => stopSync(), [stopSync]);
-
-  const handleSync = () => {
-    startSync('faq');
-  };
-
   const toggleStatus = async (item: Faq) => {
     const newStatus = item.status === 1 ? 0 : 1;
     setData(prev => prev ? { ...prev, records: prev.records.map(r => r.id === item.id ? { ...r, status: newStatus } : r) } : prev);
@@ -81,15 +73,6 @@ export default function AdminFaqs() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{t('admin.page.faqs')}</h1>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
-            title={t('admin.ui.sections.syncTitle')}
-          >
-            {syncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-            {syncing ? t('common.syncing') : t('common.syncAll')}
-          </button>
           <button onClick={() => { setNewRow({ question: '', answer: '', saving: false }); }} className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800">
             <Plus className="w-4 h-4" /> {t('admin.ui.faqs.addFaq')}
           </button>

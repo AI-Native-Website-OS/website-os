@@ -25,6 +25,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from db import get_db
 from sqlalchemy import text
+from link_resolver import to_relative_url
 
 logger = logging.getLogger("AIConsultant.IntentRecognizer")
 
@@ -78,6 +79,9 @@ _CATALOG_TTL = 60.0
 _EMBED_THRESHOLD = 0.25
 # How many top matches to keep after embedding + rerank
 _MATCH_TOP_N = 3
+# When global RAG hits are available, a top similarity at/above this counts as a
+# content-view intent even without an explicit look verb.
+_RAG_VIEW_SIM = 0.5
 
 
 def _cosine_sim(a: List[float], b: List[float]) -> float:
@@ -205,7 +209,7 @@ class IntentRecognizer:
                 "keywords": keywords,
                 "geoSummary": geo,
                 "faqs": faqs,
-                "canonicalUrl": canonical.strip(),
+                "canonicalUrl": to_relative_url(canonical.strip()),
                 "matchText": "。".join([p for p in parts if p]),
             })
         return list(module_map.values())
@@ -293,7 +297,7 @@ class IntentRecognizer:
             "keywords": [k.strip() for k in kws.split(",") if k.strip()],
             "geoSummary": geo,
             "faqs": [],
-            "canonicalUrl": url,
+            "canonicalUrl": to_relative_url(url),
             "isPage": True,
             "matchText": "。".join([p for p in parts if p]),
         }
@@ -430,25 +434,77 @@ class IntentRecognizer:
 
         return [{**item, "similarity": round(sim, 4)} for item, sim in scored[:top_n]]
 
-    def recognize(self, user_input: str) -> Dict:
+    def _resolve_rag_items(self, rag_hits: List[Dict], top_n: int = _MATCH_TOP_N) -> List[Dict]:
+        """Resolve RAG hits to recommendable website pages (jump links)."""
+        from link_resolver import get_link_resolver
+        candidates = get_link_resolver().resolve(rag_hits, max_items=top_n)
+        items: List[Dict] = []
+        for c in candidates:
+            items.append({
+                "id": c.get("id"),
+                "moduleKey": c.get("moduleKey"),
+                "moduleName": c.get("moduleName"),
+                "title": c.get("title"),
+                "slug": c.get("slug", ""),
+                "categorySlug": c.get("categorySlug"),
+                "url": c.get("url"),
+                "canonicalUrl": c.get("canonicalUrl") or c.get("url"),
+                "keywords": c.get("keywords", []),
+                "geoSummary": c.get("geoSummary") or c.get("summary", ""),
+                "faqs": [],
+                "similarity": c.get("similarity", 0.0),
+            })
+        return items
+
+    @staticmethod
+    def _rag_is_view_intent(rag_hits: List[Dict]) -> bool:
+        """True when the top hit looks like a strong cosine match.
+
+        Only cosine-like scores (0..1) are trusted; reranker logits (>1) are
+        ignored so recommendations stay conservative (explicit look verbs still win).
+        """
+        if not rag_hits:
+            return False
+        try:
+            sim = float(rag_hits[0].get("similarity") or 0.0)
+        except (TypeError, ValueError):
+            return False
+        return _RAG_VIEW_SIM <= sim <= 1.0
+
+    def recognize(self, user_input: str, rag_hits: Optional[List[Dict]] = None) -> Dict:
         """Analyze user input and return detected intent (view_content or lead action).
 
-        For view_content, includes top matched items for targeted link generation.
+        When `rag_hits` (structured global-RAG hits) are provided, view-content
+        recommendations are sourced from those hits' origin pages (resolved to
+        jump links) instead of the seo_configs catalog embedding match. Without
+        them, the previous catalog-matching behavior is used.
         """
-        if self.detect_view_intent(user_input):
+        view_intent = self.detect_view_intent(user_input)
+        lead = self.detect_lead_intent(user_input)
+
+        if rag_hits:
+            if view_intent or self._rag_is_view_intent(rag_hits):
+                items = self._resolve_rag_items(rag_hits)
+                if items:
+                    return {"intent": "view_content", "items": items}
+                if view_intent:
+                    matches = self.match_content(user_input)
+                    if matches:
+                        return {"intent": "view_content", "matches": matches}
+            if lead:
+                return lead
+            return {}
+
+        # ── No RAG hits: fall back to seo_configs catalog matching ──
+        if view_intent:
             matches = self.match_content(user_input)
             return {"intent": "view_content", "matches": matches}
-
-        lead = self.detect_lead_intent(user_input)
         if lead:
             return lead
-
-        # Semantic fallback: even without explicit look verbs, a strong
-        # embedding match can indicate a content-view intent.
+        # Semantic fallback: a strong embedding match indicates a view intent.
         matches = self.match_content(user_input)
         if matches:
             return {"intent": "view_content", "matches": matches}
-
         return {}
 
     def detect_lead_intent(self, user_input: str) -> Optional[Dict]:

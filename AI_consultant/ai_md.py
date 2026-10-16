@@ -25,6 +25,9 @@ router = APIRouter()
 BASE_URL_CONFIG_KEY = "seo_site_url"
 SITE_BRAND_CONFIG_KEY = "site_brand"
 
+# 系统页面模块（首页/关于）：不作为内容模块在首页"核心业务"中列出
+SYSTEM_PAGE_KEYS = ("home", "about")
+
 MD_CTX_HEADER = (
     "> **站点**：{site}{desc}\n\n"
     "> 本文是 {site} 官网页面的 Markdown 版本，与网页内容一致，供大语言模型直接阅读。\n\n"
@@ -204,6 +207,10 @@ def _render_home() -> str:
         cfg = _q1(db, "SELECT title, description, geo_summary, keywords FROM seo_configs "
                       "WHERE page_type = 'home' AND enabled = 1 ORDER BY id LIMIT 1")
 
+    content_modules = [m for m in modules if m[0] not in SYSTEM_PAGE_KEYS]
+    about_row = next((m for m in modules if m[0] == "about"), None)
+    about_label = (about_row[1] if about_row and about_row[1] else "关于我们")
+
     sb = [_llms_ctx()]
     full_name = _site_full_name() or _site_name()
     desc = (cfg[1] if cfg else None) or _site_description()
@@ -214,13 +221,13 @@ def _render_home() -> str:
         sb.append(f"> {desc}\n")
     _append_keywords(sb, cfg[3] if cfg else None)
     sb.append("\n## 核心业务\n")
-    for m in modules:
+    for m in content_modules:
         title_m = (m[2] or m[1])
         desc_m = m[3] or ""
         link = _md_url(base, "/list/category", f"moduleKey={m[0]}")
         sb.append(f"- [{title_m}]({link})" + (f": {desc_m}" if desc_m else ""))
-    sb.append("\n## 关于我们\n")
-    sb.append(f"- [关于我们]({_md_url(base, '/about')})")
+    sb.append(f"\n## {about_label}\n")
+    sb.append(f"- [{about_label}]({_md_url(base, '/about')})")
     sb.append("\n## 常见问题\n")
     sb.append(f"- [常见问题]({_md_url(base, '/faqs')})")
     if contacts:

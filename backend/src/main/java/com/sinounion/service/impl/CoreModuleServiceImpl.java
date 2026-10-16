@@ -3,7 +3,11 @@ package com.sinounion.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sinounion.common.BusinessException;
+import com.sinounion.entity.ContentCategory;
+import com.sinounion.entity.ContentItem;
 import com.sinounion.entity.CoreModule;
+import com.sinounion.mapper.ContentCategoryMapper;
+import com.sinounion.mapper.ContentItemMapper;
 import com.sinounion.mapper.CoreModuleMapper;
 import com.sinounion.service.CoreModuleService;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +21,8 @@ import java.util.stream.IntStream;
 public class CoreModuleServiceImpl implements CoreModuleService {
 
     private final CoreModuleMapper coreModuleMapper;
+    private final ContentCategoryMapper contentCategoryMapper;
+    private final ContentItemMapper contentItemMapper;
 
     @Override
     public Page<CoreModule> getModules(int page, int size, String keyword) {
@@ -49,6 +55,15 @@ public class CoreModuleServiceImpl implements CoreModuleService {
     @Override
     public CoreModule getById(Long id) {
         return coreModuleMapper.selectById(id);
+    }
+
+    @Override
+    public CoreModule getByKey(String moduleKey) {
+        if (moduleKey == null || moduleKey.isEmpty()) return null;
+        return coreModuleMapper.selectOne(new LambdaQueryWrapper<CoreModule>()
+                .eq(CoreModule::getModuleKey, moduleKey)
+                .orderByAsc(CoreModule::getId)
+                .last("LIMIT 1"));
     }
 
     @Override
@@ -114,6 +129,19 @@ public class CoreModuleServiceImpl implements CoreModuleService {
 
     @Override
     public void delete(Long id) {
+        CoreModule existing = coreModuleMapper.selectById(id);
+        if (existing == null) return;
+        if (existing.getIsSystem() != null && existing.getIsSystem() == 1) {
+            throw new BusinessException("系统模块不可删除");
+        }
+        String moduleKey = existing.getModuleKey();
+        Long categoryCount = contentCategoryMapper.selectCount(new LambdaQueryWrapper<ContentCategory>()
+                .eq(ContentCategory::getModuleKey, moduleKey));
+        Long itemCount = contentItemMapper.selectCount(new LambdaQueryWrapper<ContentItem>()
+                .eq(ContentItem::getModuleKey, moduleKey));
+        if ((categoryCount != null && categoryCount > 0) || (itemCount != null && itemCount > 0)) {
+            throw new BusinessException("模块下存在分类或内容，无法删除");
+        }
         coreModuleMapper.deleteById(id);
     }
 

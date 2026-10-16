@@ -138,7 +138,7 @@ export default function AboutPage() {
 
   return (
     <>
-      <SeoHead title={t('about.title')} description="" keywords="关于我们" path="/about" />
+      <SeoHead title={t('about.title')} description="" keywords={t('publicPages.about.seoKeywords')} path="/about" />
       <div className="bg-white min-h-screen">
         {/* 1. 公司介绍 */}
         <section className="pt-28 pb-24 bg-gradient-to-b from-gray-50 to-white">
@@ -182,8 +182,8 @@ export default function AboutPage() {
           <section className="py-24">
             <div className="max-w-4xl mx-auto px-6">
               <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="section-header">
-                <h2 className="section-title">发展历程</h2>
-                <p className="section-subtitle mx-auto">深耕行业，稳步前行</p>
+                <h2 className="section-title">{t('publicPages.about.journeyTitle')}</h2>
+                <p className="section-subtitle mx-auto">{t('publicPages.about.journeySubtitle')}</p>
               </motion.div>
               <div className="relative">
                 <div className="absolute left-4 top-0 bottom-0 w-px bg-gradient-to-b from-black via-gray-300 to-transparent" />
@@ -213,7 +213,7 @@ export default function AboutPage() {
             <div className="max-w-[90rem] mx-auto px-6">
               <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="section-header">
                 <h2 className="section-title">{t('about.contactTitle')}</h2>
-                <p className="section-subtitle mx-auto">期待与您的沟通与合作</p>
+                <p className="section-subtitle mx-auto">{t('publicPages.about.contactSubtitle')}</p>
               </motion.div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
                 {contactItems.map((item, i) => {

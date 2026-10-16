@@ -14,6 +14,8 @@ import type {
   MemoryFileSaveRequest,
   PromptConfigOut,
   PromptConfigSaveRequest,
+  SuggestionsGenerateRequest,
+  SuggestionsGenerateOut,
   ModelConfigOut,
   ModelConfigSaveRequest,
   KnowledgeBaseOut,
@@ -61,10 +63,10 @@ export const aiService = {
       aiApi.delete<StatusOut>('/memory'),
     listFiles: () =>
       aiApi.get<MemoryFileListOut>('/memory/files'),
-    getFile: (username: string, filename: string = 'MEMORY.md') =>
-      aiApi.get<MemoryFileContentOut>('/memory/file', { params: { username, filename } }),
-    saveFile: (username: string, data: MemoryFileSaveRequest, filename: string = 'MEMORY.md') =>
-      aiApi.put<StatusOut>('/memory/file', data, { params: { username, filename } }),
+    getFile: (username: string, filename: string = 'MEMORY.md', role: string = '') =>
+      aiApi.get<MemoryFileContentOut>('/memory/file', { params: { username, filename, role } }),
+    saveFile: (username: string, data: MemoryFileSaveRequest, filename: string = 'MEMORY.md', role: string = '') =>
+      aiApi.put<StatusOut>('/memory/file', data, { params: { username, filename, role } }),
   },
 
   stats: {
@@ -82,6 +84,8 @@ export const aiService = {
       aiApi.get<PromptConfigOut>('/prompt-config'),
     save: (data: PromptConfigSaveRequest) =>
       aiApi.post<StatusOut>('/prompt-config', data),
+    generateSuggestions: (data: SuggestionsGenerateRequest) =>
+      aiApi.post<SuggestionsGenerateOut>('/prompt-config/suggestions/generate', data),
   },
 
   modelConfig: {

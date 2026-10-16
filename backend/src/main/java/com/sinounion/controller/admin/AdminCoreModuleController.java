@@ -5,6 +5,8 @@ import com.sinounion.common.PageResult;
 import com.sinounion.common.Result;
 import com.sinounion.entity.CoreModule;
 import com.sinounion.service.CoreModuleService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
 public class AdminCoreModuleController {
 
     private final CoreModuleService coreModuleService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
 
     @Operation(summary = "获取核心模块列表")
     @GetMapping
@@ -52,21 +56,30 @@ public class AdminCoreModuleController {
     @PostMapping
     @PreAuthorize("hasAuthority('core_module:create')")
     public Result<CoreModule> create(@Valid @RequestBody CoreModule module) {
-        return Result.success(coreModuleService.create(module));
+        CoreModule created = coreModuleService.create(module);
+        knowledgeSyncDispatcher.syncCoreModule(created);
+        translationEnqueueService.enqueueEntity("core_module", created);
+        return Result.success(created);
     }
 
     @Operation(summary = "更新核心模块")
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('core_module:update')")
     public Result<CoreModule> update(@PathVariable Long id, @Valid @RequestBody CoreModule module) {
-        return Result.success(coreModuleService.update(id, module));
+        CoreModule updated = coreModuleService.update(id, module);
+        knowledgeSyncDispatcher.syncCoreModule(updated);
+        translationEnqueueService.enqueueEntity("core_module", updated);
+        return Result.success(updated);
     }
 
     @Operation(summary = "删除核心模块")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('core_module:delete')")
     public Result<Void> delete(@PathVariable Long id) {
+        CoreModule existing = coreModuleService.getById(id);
         coreModuleService.delete(id);
+        if (existing != null) knowledgeSyncDispatcher.deleteModuleKnowledge(existing);
+        translationEnqueueService.removeResource("core_module", id);
         return Result.success(null);
     }
 
@@ -85,6 +98,9 @@ public class AdminCoreModuleController {
         List<Integer> ids = (List<Integer>) body.get("ids");
         int status = (int) body.get("status");
         coreModuleService.batchUpdateStatus(ids.stream().map(Long::valueOf).collect(Collectors.toList()), status);
+        for (Integer id : ids) {
+            knowledgeSyncDispatcher.syncCoreModule(coreModuleService.getById(id.longValue()));
+        }
         return Result.success(null);
     }
 }

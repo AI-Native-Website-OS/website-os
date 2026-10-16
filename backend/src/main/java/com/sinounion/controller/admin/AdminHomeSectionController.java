@@ -3,6 +3,8 @@ package com.sinounion.controller.admin;
 import com.sinounion.common.Result;
 import com.sinounion.entity.HomeSection;
 import com.sinounion.service.HomeSectionService;
+import com.sinounion.service.KnowledgeSyncDispatcher;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,8 @@ import java.util.Map;
 public class AdminHomeSectionController {
 
     private final HomeSectionService homeSectionService;
+    private final KnowledgeSyncDispatcher knowledgeSyncDispatcher;
+    private final TranslationEnqueueService translationEnqueueService;
 
     @Operation(summary = "获取所有首页区块")
     @GetMapping
@@ -39,14 +43,20 @@ public class AdminHomeSectionController {
     @PostMapping
     @PreAuthorize("hasAuthority('home_section:create')")
     public Result<HomeSection> create(@Valid @RequestBody HomeSection section) {
-        return Result.success(homeSectionService.create(section));
+        HomeSection created = homeSectionService.create(section);
+        knowledgeSyncDispatcher.syncHomeSection(created);
+        translationEnqueueService.enqueueEntity("home_section", created);
+        return Result.success(created);
     }
 
     @Operation(summary = "更新首页区块")
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('home_section:update')")
     public Result<HomeSection> update(@PathVariable Long id, @Valid @RequestBody HomeSection section) {
-        return Result.success(homeSectionService.update(id, section));
+        HomeSection updated = homeSectionService.update(id, section);
+        knowledgeSyncDispatcher.syncHomeSection(updated);
+        translationEnqueueService.enqueueEntity("home_section", updated);
+        return Result.success(updated);
     }
 
     @Operation(summary = "删除首页区块")
@@ -54,6 +64,8 @@ public class AdminHomeSectionController {
     @PreAuthorize("hasAuthority('home_section:delete')")
     public Result<Void> delete(@PathVariable Long id) {
         homeSectionService.delete(id);
+        knowledgeSyncDispatcher.deleteContent("home_section", id);
+        translationEnqueueService.removeResource("home_section", id);
         return Result.success(null);
     }
 

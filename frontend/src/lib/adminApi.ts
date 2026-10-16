@@ -1,7 +1,8 @@
 import api from './api';
 import aiApi from './aiApi';
 import aiService from './aiService';
-import { ApiResponse, PageResult, User, Role, Permission, LoginResponse, DashboardStats, Lead, LeadFilterOptions, SyncProgress, Banner, SeoConfig, SeoDetail, SystemConfig, Faq, CoreModule, TrendPoint, HourlyPoint, NameValueItem, PageUrlItem, ContentCategory, MonthlyTrend, ChatTrend, HomeSection, AboutSection, ContactInfo, FooterConfig, ContentModuleCategory } from '@/types';
+import { t } from '@/i18n/translate';
+import { ApiResponse, PageResult, User, Role, Permission, LoginResponse, DashboardStats, Lead, LeadFilterOptions, SyncProgress, Banner, SeoConfig, SeoDetail, SystemConfig, Faq, CoreModule, TrendPoint, HourlyPoint, NameValueItem, PageUrlItem, ContentCategory, MonthlyTrend, ChatTrend, HomeSection, AboutSection, ContactInfo, FooterConfig, ContentModuleCategory, ActivityPoint } from '@/types';
 
 export const adminApi = {
   users: {
@@ -119,8 +120,16 @@ export const adminApi = {
       api.get<any, ApiResponse<DashboardStats>>('/admin/stats/dashboard'),
     weeklyTrend: () =>
       api.get<any, ApiResponse<TrendPoint[]>>('/admin/stats/chart/weekly-trend'),
+    trafficTrend30d: () =>
+      api.get<any, ApiResponse<TrendPoint[]>>('/admin/stats/chart/traffic-trend-30d'),
+    activityTrend: (range: string) =>
+      api.get<any, ApiResponse<ActivityPoint[]>>('/admin/stats/chart/activity-trend', { params: { range } }),
+    geoDistribution: (params: { scope: 'china' | 'world'; source: 'all' | 'visit' | 'lead' }) =>
+      api.get<any, ApiResponse<NameValueItem[]>>('/admin/stats/chart/geo-distribution', { params }),
     hourlyDistribution: () =>
       api.get<any, ApiResponse<HourlyPoint[]>>('/admin/stats/chart/hourly-distribution'),
+    hourlyDistributionYesterday: () =>
+      api.get<any, ApiResponse<HourlyPoint[]>>('/admin/stats/chart/hourly-distribution-yesterday'),
     pageTypeDistribution: () =>
       api.get<any, ApiResponse<NameValueItem[]>>('/admin/stats/chart/page-type-distribution'),
     pageUrlDistribution: () =>
@@ -205,7 +214,7 @@ export const adminApi = {
 
   knowledge: {
     listBases: () =>
-      aiApi.get('/memory/search', { params: { keyword: '', username: '' } }).then((r: any) => ({ data: [{ id: 1, name: '长期记忆库', description: 'AI 长期记忆存储，通过对话自动积累' }] })),
+      aiApi.get('/memory/search', { params: { keyword: '', username: '' } }).then(() => ({ data: [{ id: 1, name: t('libUi.memory.baseName'), description: t('libUi.memory.baseDesc') }] })),
     createBase: (data: { name: string; description?: string }) =>
       Promise.resolve({ data: { id: Date.now(), name: data.name, description: data.description || '' } }),
     updateBase: (id: number, data: { name?: string; description?: string }) =>
@@ -226,9 +235,7 @@ export const adminApi = {
     search: (kbId: number, query: string, limit?: number) =>
       aiService.memory.search(query, '').then((r: any) => ({ data: r.results || [] })),
     syncAll: () =>
-      api.post<any, ApiResponse<{ total: number; success: number; fail: number }>>('/admin/ai/sync-all'),
-    startSyncByType: (type: string) =>
-      api.post<any, ApiResponse<{ taskId: string; status: string }>>('/admin/ai/sync-type', null, { params: { type } }),
+      api.post<any, ApiResponse<{ taskId: string; status: string }>>('/admin/ai/sync-all'),
     getSyncProgress: (taskId: string) =>
       api.get<any, ApiResponse<SyncProgress>>(`/admin/ai/sync-progress/${taskId}`),
   },
@@ -319,6 +326,8 @@ export const adminApi = {
       api.post<any, ApiResponse<void>>(`/admin/content/${moduleKey}/batch-delete`, ids),
     batchStatus: (moduleKey: string, ids: number[], status: number) =>
       api.post<any, ApiResponse<void>>(`/admin/content/${moduleKey}/batch-status`, { ids, status }),
+    move: (moduleKey: string, id: number, targetId: number, position: 'before' | 'after', categoryId?: number) =>
+      api.put<any, ApiResponse<void>>(`/admin/content/${moduleKey}/${id}/move`, null, { params: { targetId, position, categoryId } }),
   },
 
   contentCategories: {

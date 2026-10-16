@@ -5,6 +5,7 @@ import { Upload, X, ImageIcon, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { getImageUrl } from '@/lib/utils';
 import { validateImageFile, type ImageUploadRules } from '@/lib/uploadRules';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface MultiImageUploaderProps {
   images: string[];
@@ -15,6 +16,7 @@ interface MultiImageUploaderProps {
 }
 
 export default function MultiImageUploader({ images, onChange, uploadType = 'temp', subPath, rules }: MultiImageUploaderProps) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +43,7 @@ export default function MultiImageUploader({ images, onChange, uploadType = 'tem
         if (rules) {
           const err = await validateImageFile(file, rules);
           if (err) {
-            setError(`${file.name}：${err}`);
+            setError(t('adminComp.upload.fileError', { name: file.name, err }));
             return;
           }
         }
@@ -81,7 +83,7 @@ export default function MultiImageUploader({ images, onChange, uploadType = 'tem
         disabled={uploading}
         className="flex items-center justify-center gap-2 h-20 w-32 border border-dashed border-gray-300 rounded-md text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50"
       >
-        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><ImageIcon className="w-4 h-4" /><span>批量上传</span></>}
+        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><ImageIcon className="w-4 h-4" /><span>{t('adminComp.upload.batchUpload')}</span></>}
       </button>
       <input ref={inputRef} type="file" accept="image/*" multiple onChange={handleFiles} className="hidden" />
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}

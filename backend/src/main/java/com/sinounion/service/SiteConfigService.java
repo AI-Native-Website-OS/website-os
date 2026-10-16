@@ -36,7 +36,7 @@ public class SiteConfigService {
         defaults.put("contactEmail", "demo@example.com");
         defaults.put("icpNumber", "ICP备案号待配置");
         defaults.put("icpUrl", "https://beian.miit.gov.cn/#/Integrated/recordQuery");
-        defaults.put("url", "https://demo.example.com");
+        defaults.put("url", "");
         defaults.put("logo", "/logo.png");
         defaults.put("favicon", "/logo-lable.png");
         defaults.put("githubUrl", "");

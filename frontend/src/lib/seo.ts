@@ -1,3 +1,5 @@
+import { t } from '@/i18n/translate';
+
 /**
  * 站点身份（名称/域名/描述）运行时从后端站点配置（system_configs.site_brand）获取，
  * 不在代码中硬编码；SEO/GEO 配置页修改后即时生效。
@@ -124,7 +126,7 @@ export function generateProductSchema(product: {
       '@type': 'Brand',
       name: site.name,
     },
-    category: product.category || '企业软件',
+    category: product.category || t('libUi.seo.software'),
     offers: {
       '@type': 'Offer',
       availability: 'https://schema.org/InStock',
@@ -172,7 +174,7 @@ export function generateArticleSchema(article: {
       '@type': 'WebPage',
       '@id': url,
     },
-    articleSection: article.category || '行业资讯',
+    articleSection: article.category || t('libUi.seo.industry'),
   };
 }
 

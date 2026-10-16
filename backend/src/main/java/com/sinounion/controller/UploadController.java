@@ -36,8 +36,13 @@ public class UploadController {
 
     private static final Set<String> ALLOWED_DOC_TYPES = new HashSet<>(Arrays.asList(
             "application/pdf",
-            "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "text/markdown",
+            "text/plain",
+            "text/csv"));
 
     private static final Set<String> FORBIDDEN_DOC_EXTENSIONS = new HashSet<>(Arrays.asList(
             "exe", "php", "jsp", "sh", "bat", "cmd"));
@@ -171,7 +176,7 @@ public class UploadController {
 
     private Result<Void> validateDocument(MultipartFile file, String detectedType) {
         if (detectedType == null || !ALLOWED_DOC_TYPES.contains(detectedType)) {
-            return Result.error("文档仅支持 doc / docx / pdf 格式");
+            return Result.error("文档仅支持 docx / md / pdf / xlsx / xls / csv / pptx / txt 格式");
         }
         if (file.getSize() > DOC_MAX_SIZE) {
             return Result.error("文件大小不能超过 20MB");
@@ -237,29 +242,36 @@ public class UploadController {
             if (header[0] == (byte)0x52 && header[1] == (byte)0x49 && header[2] == (byte)0x46 && header[3] == (byte)0x46
                     && header[8] == (byte)0x57 && header[9] == (byte)0x45 && header[10] == (byte)0x42 && header[11] == (byte)0x50) return "image/webp";
             if (header[0] == (byte)0x25 && header[1] == (byte)0x50 && header[2] == (byte)0x44 && header[3] == (byte)0x46) return "application/pdf";
-            if (header[0] == (byte)0xD0 && header[1] == (byte)0xCF && header[2] == (byte)0x11 && header[3] == (byte)0xE0) return "application/msword";
+
+            String name = file.getOriginalFilename();
+            String lower = name != null ? name.toLowerCase() : "";
+
+            if (header[0] == (byte)0xD0 && header[1] == (byte)0xCF && header[2] == (byte)0x11 && header[3] == (byte)0xE0) {
+                if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+                if (lower.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+                return "application/msword";
+            }
             if (header[0] == (byte)0x50 && header[1] == (byte)0x4B && header[2] == (byte)0x03 && header[3] == (byte)0x04) {
-                String name = file.getOriginalFilename();
-                if (name != null) {
-                    String lower = name.toLowerCase();
-                    if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-                    if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-                }
+                if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
                 return "application/zip";
             }
-            if (header[0] == (byte)0xEF && header[1] == (byte)0xBB && header[2] == (byte)0xBF) return "text/plain";
+            if (header[0] == (byte)0xEF && header[1] == (byte)0xBB && header[2] == (byte)0xBF) return textTypeByExtension(lower);
             String textSample = new String(header, java.nio.charset.StandardCharsets.UTF_8).trim();
             if (textSample.length() > 0 && !textSample.contains("\u0000")) {
-                String name = file.getOriginalFilename();
-                if (name != null) {
-                    String lower = name.toLowerCase();
-                    if (lower.endsWith(".md")) return "text/markdown";
-                    if (lower.endsWith(".txt")) return "text/plain";
-                }
+                return textTypeByExtension(lower);
             }
         } catch (IOException e) {
             log.warn("MIME detection failed", e);
         }
+        return null;
+    }
+
+    private String textTypeByExtension(String lowerName) {
+        if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) return "text/markdown";
+        if (lowerName.endsWith(".csv")) return "text/csv";
+        if (lowerName.endsWith(".txt")) return "text/plain";
         return null;
     }
 }

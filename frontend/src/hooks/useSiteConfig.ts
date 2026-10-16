@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
+import { t } from '@/i18n/translate';
 
 export interface SiteOpenLink {
   label: string;
@@ -35,35 +36,37 @@ export interface SiteConfig {
   versionEnabled?: boolean;
 }
 
-const DEFAULT_SITE_CONFIG: SiteConfig = {
-  siteName: '示例科技',
-  siteFullName: '示例科技有限公司',
-  siteDescription: '',
-  copyright: '示例科技有限公司 版权所有',
-  companyName: '示例科技有限公司',
-  contactPhone: '010-00000000',
-  contactEmail: 'demo@example.com',
-  icpNumber: 'ICP备案号待配置',
-  icpUrl: 'https://beian.miit.gov.cn/#/Integrated/recordQuery',
-  url: 'https://demo.example.com',
-  logo: '/logo.png',
-  favicon: '/logo-lable.png',
-  githubUrl: '',
-  giteeUrl: '',
-  docsUrl: '',
-  pilotUrl: '',
-  githubIcon: 'github',
-  giteeIcon: 'gitee',
-  docsIcon: 'book',
-  pilotIcon: 'rocket',
-  versionEnabled: false,
-  openLinks: [
-    { label: 'GitHub', url: '', icon: 'github', enabled: true },
-    { label: 'Gitee', url: '', icon: 'gitee', enabled: true },
-    { label: 'Docs', url: '', icon: 'book', enabled: true },
-    { label: 'Pilot', url: '', icon: 'rocket', enabled: true },
-  ],
-};
+function defaultSiteConfig(): SiteConfig {
+  return {
+    siteName: t('libUi.site.siteName'),
+    siteFullName: t('libUi.site.siteFullName'),
+    siteDescription: '',
+    copyright: t('libUi.site.copyright'),
+    companyName: t('libUi.site.companyName'),
+    contactPhone: '010-00000000',
+    contactEmail: 'demo@example.com',
+    icpNumber: t('libUi.site.icpNumber'),
+    icpUrl: 'https://beian.miit.gov.cn/#/Integrated/recordQuery',
+    url: '',
+    logo: '/logo.png',
+    favicon: '/logo-lable.png',
+    githubUrl: '',
+    giteeUrl: '',
+    docsUrl: '',
+    pilotUrl: '',
+    githubIcon: 'github',
+    giteeIcon: 'gitee',
+    docsIcon: 'book',
+    pilotIcon: 'rocket',
+    versionEnabled: false,
+    openLinks: [
+      { label: 'GitHub', url: '', icon: 'github', enabled: true },
+      { label: 'Gitee', url: '', icon: 'gitee', enabled: true },
+      { label: 'Docs', url: '', icon: 'book', enabled: true },
+      { label: 'Pilot', url: '', icon: 'rocket', enabled: true },
+    ],
+  };
+}
 
 let cache: SiteConfig | null = null;
 let inflight: Promise<SiteConfig> | null = null;
@@ -83,7 +86,7 @@ async function fetchSiteConfig(): Promise<SiteConfig> {
     inflight = api
       .get('/home/site')
       .then((res: any) => {
-        const data: SiteConfig = { ...DEFAULT_SITE_CONFIG, ...(res?.data || {}) };
+        const data: SiteConfig = { ...defaultSiteConfig(), ...(res?.data || {}) };
         if (!data.openLinks && (data.githubUrl || data.giteeUrl || data.docsUrl || data.pilotUrl)) {
           data.openLinks = buildOpenLinksFromLegacy(data);
         }
@@ -91,7 +94,7 @@ async function fetchSiteConfig(): Promise<SiteConfig> {
         return data;
       })
       .catch(() => {
-        cache = DEFAULT_SITE_CONFIG;
+        cache = defaultSiteConfig();
         return cache;
       })
       .finally(() => {
@@ -102,7 +105,7 @@ async function fetchSiteConfig(): Promise<SiteConfig> {
 }
 
 export function useSiteConfig(): { siteConfig: SiteConfig; loading: boolean } {
-  const [siteConfig, setSiteConfig] = useState<SiteConfig>(DEFAULT_SITE_CONFIG);
+  const [siteConfig, setSiteConfig] = useState<SiteConfig>(defaultSiteConfig);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

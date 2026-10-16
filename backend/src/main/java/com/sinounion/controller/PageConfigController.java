@@ -5,6 +5,8 @@ import com.sinounion.common.Result;
 import com.sinounion.dto.AiWebsiteConfigDTO;
 import com.sinounion.entity.SystemConfig;
 import com.sinounion.mapper.SystemConfigMapper;
+import com.sinounion.translation.LocaleContext;
+import com.sinounion.translation.TranslationOverlayService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,7 @@ public class PageConfigController {
 
     private final SystemConfigMapper systemConfigMapper;
     private final ObjectMapper objectMapper;
+    private final TranslationOverlayService translationOverlayService;
 
     @Operation(summary = "获取页面配置")
     @GetMapping("/{pageKey}")
@@ -29,14 +32,19 @@ public class PageConfigController {
     @Operation(summary = "获取 AI 官网版本介绍与对比配置（未配置时返回默认）")
     @GetMapping("/ai-website")
     public Result<AiWebsiteConfigDTO> getAiWebsiteConfig() {
+        AiWebsiteConfigDTO dto = null;
         SystemConfig config = systemConfigMapper.findByKey("ai_website_config");
         if (config != null && config.getConfigValue() != null && !config.getConfigValue().trim().isEmpty()) {
             try {
-                return Result.success(objectMapper.readValue(config.getConfigValue(), AiWebsiteConfigDTO.class));
+                dto = objectMapper.readValue(config.getConfigValue(), AiWebsiteConfigDTO.class);
             } catch (Exception e) {
-                return Result.success(AiWebsiteConfigDTO.defaults());
+                dto = null;
             }
         }
-        return Result.success(AiWebsiteConfigDTO.defaults());
+        if (dto == null) {
+            dto = AiWebsiteConfigDTO.defaults();
+        }
+        translationOverlayService.overlayConfigValue(LocaleContext.get(), "ai_website_config", dto);
+        return Result.success(dto);
     }
 }

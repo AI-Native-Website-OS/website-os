@@ -1,6 +1,6 @@
 package com.sinounion.security;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.sinounion.util.ClientIpResolver;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,16 +16,11 @@ public class LoginRateLimiter {
     private static final long WINDOW_MINUTES = 15;
 
     private final StringRedisTemplate redisTemplate;
+    private final ClientIpResolver clientIpResolver;
 
-    /**
-     * 是否信任反向代理透传的 X-Real-IP / X-Forwarded-For 头。
-     * 浏览器直连后端端口（nginx 不透传任何 IP 头）时应为 false，仅信任 TCP 连接真实来源 IP。
-     */
-    @Value("${app.trust-proxy-ip-header:true}")
-    private boolean trustProxyIpHeader;
-
-    public LoginRateLimiter(StringRedisTemplate redisTemplate) {
+    public LoginRateLimiter(StringRedisTemplate redisTemplate, ClientIpResolver clientIpResolver) {
         this.redisTemplate = redisTemplate;
+        this.clientIpResolver = clientIpResolver;
     }
 
     public boolean isBlocked(String username, HttpServletRequest request) {
@@ -71,17 +66,6 @@ public class LoginRateLimiter {
     }
 
     private String getClientIP(HttpServletRequest request) {
-        if (!trustProxyIpHeader) {
-            return request.getRemoteAddr();
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isEmpty() && !"unknown".equalsIgnoreCase(realIp)) {
-            return realIp;
-        }
-        String xfHeader = request.getHeader("X-Forwarded-For");
-        if (xfHeader == null || xfHeader.isEmpty()) {
-            return request.getRemoteAddr();
-        }
-        return xfHeader.split(",")[0].trim();
+        return clientIpResolver.resolve(request);
     }
 }

@@ -37,6 +37,8 @@ public class DatabaseInitializer {
             }
             vectorAvailable = vectorExtensionExists();
 
+            createMissingTables();
+
             migrateMissingColumns();
 
             ensureSuperAdminPermissions();
@@ -84,6 +86,54 @@ public class DatabaseInitializer {
         }
     }
 
+    /** 幂等创建新增表（存量库）；新装库由 sinounion.sql 建表。 */
+    private void createMissingTables() {
+        String[] ddl = {
+            "CREATE TABLE IF NOT EXISTS translation_entries ("
+                + "id BIGSERIAL PRIMARY KEY,"
+                + "resource_type VARCHAR(64) NOT NULL,"
+                + "resource_id BIGINT NOT NULL,"
+                + "field VARCHAR(64) NOT NULL,"
+                + "locale VARCHAR(16) NOT NULL,"
+                + "source_hash VARCHAR(64) NOT NULL DEFAULT '',"
+                + "source_text TEXT,"
+                + "translated_text TEXT,"
+                + "status VARCHAR(16) NOT NULL DEFAULT 'final',"
+                + "engine VARCHAR(16) NOT NULL DEFAULT 'llm',"
+                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_entries_key"
+                + " ON translation_entries(resource_type, resource_id, field, locale)",
+            "CREATE INDEX IF NOT EXISTS idx_translation_entries_lookup"
+                + " ON translation_entries(resource_type, resource_id, locale)",
+            "CREATE TABLE IF NOT EXISTS translation_jobs ("
+                + "id BIGSERIAL PRIMARY KEY,"
+                + "resource_type VARCHAR(64) NOT NULL,"
+                + "resource_id BIGINT NOT NULL,"
+                + "field VARCHAR(64) NOT NULL,"
+                + "locale VARCHAR(16) NOT NULL,"
+                + "source_hash VARCHAR(64) NOT NULL DEFAULT '',"
+                + "source_text TEXT,"
+                + "kind VARCHAR(16) NOT NULL DEFAULT 'translate',"
+                + "status VARCHAR(16) NOT NULL DEFAULT 'pending',"
+                + "attempts INT NOT NULL DEFAULT 0,"
+                + "error TEXT,"
+                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_jobs_key"
+                + " ON translation_jobs(resource_type, resource_id, field, locale, source_hash, kind)",
+            "CREATE INDEX IF NOT EXISTS idx_translation_jobs_status"
+                + " ON translation_jobs(status, created_at)",
+        };
+        for (String stmt : ddl) {
+            try {
+                jdbcTemplate.execute(stmt);
+            } catch (Exception e) {
+                log.warn("Failed to create translation table/index: {}", e.getMessage());
+            }
+        }
+    }
+
     private void migrateMissingColumns() {
         String[][] columnsToAdd = {
             {"content_items", "category_id", "BIGINT"},
@@ -107,10 +157,17 @@ public class DatabaseInitializer {
             {"leads", "country", "VARCHAR(100)"},
             {"leads", "province", "VARCHAR(100)"},
             {"leads", "city", "VARCHAR(100)"},
+            // page_views 地理 增强（地域分布地图）
+            {"page_views", "country", "VARCHAR(100)"},
+            {"page_views", "province", "VARCHAR(100)"},
+            {"page_views", "city", "VARCHAR(100)"},
+            // page_views 停留时长（秒）
+            {"page_views", "duration", "INT DEFAULT 0"},
             // pgvector / knowledge base migrations
             {"knowledge_documents", "source_type", "VARCHAR(50) DEFAULT NULL"},
             {"knowledge_documents", "source_id", "BIGINT DEFAULT NULL"},
             {"knowledge_documents", "content", "TEXT DEFAULT ''"},
+            {"knowledge_bases", "code", "VARCHAR(128) DEFAULT NULL"},
             // seo_configs GEO 扩展
             {"seo_configs", "robots", "VARCHAR(50)"},
             {"seo_configs", "og_type", "VARCHAR(20)"},
@@ -163,6 +220,15 @@ public class DatabaseInitializer {
                 jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_source ON knowledge_documents(source_type, source_id)");
             } catch (Exception e) {
                 log.debug("Index idx_docs_source may already exist: {}", e.getMessage());
+            }
+        }
+
+        // Unique index on knowledge_bases.code (stable KB identifier for auto-routed content)
+        if (tableExists("knowledge_bases") && columnExists("knowledge_bases", "code")) {
+            try {
+                jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_kb_code ON knowledge_bases(code)");
+            } catch (Exception e) {
+                log.debug("Index ux_kb_code may already exist: {}", e.getMessage());
             }
         }
 

@@ -16,6 +16,7 @@ public interface ContentItemService {
     void delete(Long id);
     void batchDelete(List<Long> ids);
     void batchUpdateStatus(List<Long> ids, int status);
+    void move(String moduleKey, Long id, Long targetId, String position, Long categoryId);
     void incrementView(Long id);
     List<ContentItem> listAllEnabled();
     Map<String, List<ContentItem>> getRelations(String moduleKey, String slug);

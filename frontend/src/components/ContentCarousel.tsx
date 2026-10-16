@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
 import { getImageUrl, shuffleArray } from '@/lib/utils';
 import { detailUrl } from '@/lib/moduleConfig';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface CarouselItem {
   type: 'product' | 'solution' | 'case' | 'whitepaper' | 'article';
@@ -31,6 +32,7 @@ function fetchModule(moduleKey: string, type: 'product' | 'solution' | 'case' | 
 }
 
 export default function ContentCarousel() {
+  const { t } = useI18n();
   const [items, setItems] = useState<CarouselItem[]>([]);
   const [current, setCurrent] = useState(0);
 
@@ -77,7 +79,7 @@ export default function ContentCarousel() {
                 item.type === 'case' ? 'bg-green-100 text-green-700' :
                 'bg-orange-100 text-orange-700'
               }`}>
-                {item.type === 'product' ? '浜у搧' : item.type === 'solution' ? '鏂规' : item.type === 'case' ? '妗堜緥' : '璧勬簮'}
+                {item.type === 'product' ? t('publicComp.typeProduct') : item.type === 'solution' ? t('publicComp.typeSolution') : item.type === 'case' ? t('publicComp.typeCase') : t('publicComp.typeResource')}
               </span>
               <span className="text-xs font-medium text-gray-900 truncate group-hover:text-black transition-colors">{item.title}</span>
             </div>

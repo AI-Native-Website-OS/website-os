@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import config from '@/config';
+import { getLocale } from '@/lib/localeStore';
+import { t } from '@/i18n/translate';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -24,8 +26,22 @@ export function getFileUrl(filePath?: string): string {
   return base ? `${base}${normalized}` : normalized;
 }
 
+export async function downloadFile(fileUrl: string, fileName?: string): Promise<void> {
+  const response = await fetch(fileUrl);
+  if (!response.ok) throw new Error(t('libUi.utils.downloadFailed'));
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = fileName || fileUrl.split('/').pop()?.split('?')[0] || 'download';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export function formatDate(date: string) {
-  return new Date(date).toLocaleDateString('zh-CN', {
+  return new Date(date).toLocaleDateString(getLocale() === 'en' ? 'en-US' : 'zh-CN', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -75,18 +91,23 @@ export function shuffleArray<T>(array: T[]): T[] {
   return arr;
 }
 
-export const COVER_SCALE_OPTIONS = [
-  { value: '1920x1080', label: '1920 × 1080：高清原图/大图' },
-  { value: '1728x972', label: '1728 × 972' },
-  { value: '1536x864', label: '1536 × 864' },
-  { value: '1440x810', label: '1440 × 810：高清网页展示' },
-  { value: '1344x756', label: '1344 × 756' },
-  { value: '1286x724', label: '1286 × 724' },
-  { value: '1280x720', label: '1280 × 720：非常通用，推荐' },
-  { value: '1200x675', label: '1200 × 675：主流网页展示' },
-  { value: '1152x648', label: '1152 × 648' },
-  { value: '960x540', label: '960 × 540：普通网页产品图' },
+const COVER_SCALE_VALUES = [
+  '1920x1080',
+  '1728x972',
+  '1536x864',
+  '1440x810',
+  '1344x756',
+  '1286x724',
+  '1280x720',
+  '1200x675',
+  '1152x648',
+  '960x540',
 ] as const;
+
+/** 封面缩放比例选项（label 按当前语言实时解析）。 */
+export function coverScaleOptions(): { value: string; label: string }[] {
+  return COVER_SCALE_VALUES.map((value) => ({ value, label: t(`libUi.coverScale.${value}`) }));
+}
 
 export const DEFAULT_COVER_SCALE = '1920x1080';
 

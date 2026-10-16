@@ -2,8 +2,11 @@ server {
     listen 80;
     server_name localhost;
 
+    # 上传文件大小上限（与后端 multipart 限制保持一致）
+    client_max_body_size 20m;
+
     location /api {
-        proxy_pass http://backend:8080;
+        proxy_pass http://sino-website-backend:8080;
         proxy_http_version 1.1;
         proxy_set_header Connection '';
         proxy_set_header Host $host;
@@ -21,7 +24,7 @@ server {
     }
 
     location /ai {
-        proxy_pass http://ai:8000;
+        proxy_pass http://sino-website-ai:8000;
         proxy_http_version 1.1;
         proxy_set_header Connection '';
         proxy_set_header Host $host;

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import config from '@/config';
 import { refreshAuthToken, clearAuthStorage } from './tokenRefresh';
+import { getLocale } from './localeStore';
 
 const aiApi = axios.create({
   baseURL: config.ai.baseUrl,
@@ -12,6 +13,11 @@ aiApi.interceptors.request.use(
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // 注入当前语言，AI 服务按 locale 返回译文（后台为预览，保存时后端还原中文原文）
+    config.params = { ...(config.params || {}) };
+    if (config.params.locale === undefined) {
+      config.params.locale = getLocale();
     }
     return config;
   },

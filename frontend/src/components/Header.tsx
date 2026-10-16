@@ -9,10 +9,11 @@ import { resolveOpenIcon, type OpenIconOption } from '@/lib/openSourceIcons';
 import { useAuth } from '@/hooks/useAuth';
 import { useSiteConfig } from '@/hooks/useSiteConfig';
 import { useI18n } from '@/i18n/I18nProvider';
+import { t as translate } from '@/i18n/translate';
 import Avatar from '@/components/Avatar';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import api from '@/lib/api';
-import { moduleHref, BUILTIN_KEYS, listUrl, categoryUrl, detailUrl, nestedDetailUrl } from '@/lib/moduleConfig';
+import { moduleHref, BUILTIN_KEYS, isSystemPageModuleKey, listUrl, categoryUrl, detailUrl, nestedDetailUrl } from '@/lib/moduleConfig';
 
 interface NavChild {
   name: string;
@@ -28,12 +29,13 @@ interface NavItem {
   moduleType?: number;
 }
 
-const navTemplate: NavItem[] = [
-  { name: '产品', href: listUrl('products'), key: 'products', children: [] },
-  { name: '解决方案', href: listUrl('solutions'), key: 'solutions', children: [] },
-  { name: '案例', href: listUrl('cases'), key: 'cases', children: [] },
-  { name: '资源', href: listUrl('resources'), key: 'resources', children: [] },
-  { name: '关于我们', href: '/about', key: 'about' },
+const navTemplate = (t: (key: string) => string): NavItem[] => [
+  { name: t('publicComp.navHome'), href: '/', key: 'home' },
+  { name: t('publicComp.navProducts'), href: listUrl('products'), key: 'products', children: [] },
+  { name: t('publicComp.navSolutions'), href: listUrl('solutions'), key: 'solutions', children: [] },
+  { name: t('publicComp.navCases'), href: listUrl('cases'), key: 'cases', children: [] },
+  { name: t('publicComp.navResources'), href: listUrl('resources'), key: 'resources', children: [] },
+  { name: t('publicComp.navAbout'), href: '/about', key: 'about' },
 ];
 
 interface NavGroupItem {
@@ -54,7 +56,16 @@ interface OpenLink {
   option: OpenIconOption;
 }
 
-async function loadHeaderData() {
+interface HeaderData {
+  productGroups: NavGroup[];
+  solutionGroups: NavGroup[];
+  resourceGroups: NavGroup[];
+  genericGroups: Record<string, NavGroup[]>;
+  genericItems: Record<string, NavChild[]>;
+  navigation: NavItem[];
+}
+
+async function loadHeaderData(): Promise<HeaderData> {
   const coreModRes: any = await api.get('/core-modules').catch(() => ({ data: [] }));
   const activeModules = (coreModRes.data || []).filter((m: any) => m.status === 1) as any[];
 
@@ -97,7 +108,7 @@ async function loadHeaderData() {
     records.forEach((it: any) => {
       let line = '';
       if (it.categoryId != null && catIdToName[it.categoryId]) line = catIdToName[it.categoryId];
-      else line = it.groupName?.trim() || it[fallbackField]?.trim() || '其他';
+      else line = it.groupName?.trim() || it[fallbackField]?.trim() || translate('publicComp.other');
       if (!groups[line]) groups[line] = [];
       const catSlug = (it.categoryId != null && catSlugMap[it.categoryId]) || catSlugByName[line] || line;
       groups[line].push({ name: it.title, href: catSlug ? nestedDetailUrl(moduleKey, catSlug, it.slug) : detailUrl(moduleKey, it.slug), description: it.summary || '' });
@@ -122,13 +133,14 @@ async function loadHeaderData() {
   const solutionGroups = buildGroups('solutions', solutions, industries, '');
   const resourceGroups = buildGroups('resources', resources, categories, '');
 
-  const navItems: NavItem[] = activeModules.map((m: any) => ({
-    name: m.moduleName,
-    href: moduleHref(m),
-    key: m.moduleKey,
-    children: [],
-    moduleType: m.moduleType,
-  }));
+  const navItems: NavItem[] = activeModules
+    .map((m: any) => ({
+      name: m.moduleName,
+      href: moduleHref(m),
+      key: m.moduleKey,
+      children: [],
+      moduleType: m.moduleType,
+    }));
   const casesNav = navItems.find(n => n.key === 'cases');
   if (casesNav) {
     casesNav.children = cases.slice(0, 10).map((c: any) => ({
@@ -136,7 +148,7 @@ async function loadHeaderData() {
     }));
   }
 
-  const genericMods = activeModules.filter((m: any) => !BUILTIN_KEYS.includes(m.moduleKey));
+  const genericMods = activeModules.filter((m: any) => !BUILTIN_KEYS.includes(m.moduleKey) && !isSystemPageModuleKey(m.moduleKey));
   const genericGroupsRes: Record<string, NavGroup[]> = {};
   const genericItemsRes: Record<string, NavChild[]> = {};
   await Promise.all(genericMods.map(async (m: any) => {
@@ -161,7 +173,7 @@ async function loadHeaderData() {
     const grouped: Record<string, NavGroupItem[]> = {};
     records.forEach((it: any) => {
       const catId = it.categoryId != null ? String(it.categoryId) : '';
-      const line = (catId && idToName[catId]) || it.groupName || '其他';
+      const line = (catId && idToName[catId]) || it.groupName || translate('publicComp.other');
       const catSlug = (catId && idToSlug[catId]) || nameToSlug[line] || line;
       if (!grouped[line]) grouped[line] = [];
       grouped[line].push({ name: it.title, href: nestedDetailUrl(key, catSlug, it.slug), description: it.summary || '' });
@@ -176,18 +188,36 @@ async function loadHeaderData() {
     resourceGroups,
     genericGroups: genericGroupsRes,
     genericItems: genericItemsRes,
-    navigation: [
-      ...navItems,
-      { name: '关于我们', href: '/about', key: 'about' },
-    ] as NavItem[],
+    navigation: navItems,
   };
 }
 
+// 导航数据缓存：避免每次挂载/被多个组件重复拉取，导致导航栏数据「加载不及时」或短暂为空。
+// 失败时保留缓存不覆盖，配合 force 参数在模块变更事件后强制刷新。
+let headerDataCache: HeaderData | null = null;
+let headerDataInflight: Promise<HeaderData> | null = null;
+
+async function getHeaderData(force = false): Promise<HeaderData> {
+  if (!force && headerDataCache) return headerDataCache;
+  if (!headerDataInflight) {
+    headerDataInflight = loadHeaderData()
+      .then((data) => {
+        headerDataCache = data;
+        return data;
+      })
+      .finally(() => {
+        headerDataInflight = null;
+      });
+  }
+  return headerDataInflight;
+}
+
 export default function Header() {
+  const { t } = useI18n();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [navigation, setNavigation] = useState<NavItem[]>(navTemplate);
+  const [navigation, setNavigation] = useState<NavItem[]>(() => navTemplate(t));
   const [productGroups, setProductGroups] = useState<NavGroup[]>([]);
   const [solutionGroups, setSolutionGroups] = useState<NavGroup[]>([]);
   const [resourceGroups, setResourceGroups] = useState<NavGroup[]>([]);
@@ -200,16 +230,27 @@ export default function Header() {
   const navItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userMenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { user, logout, isAdmin } = useAuth();
   const { siteConfig } = useSiteConfig();
-  const { t } = useI18n();
 
   useEffect(() => {
     setMounted(true);
     return () => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
+      if (userMenuTimer.current) clearTimeout(userMenuTimer.current);
     };
   }, []);
+
+  const handleUserMenuEnter = () => {
+    if (userMenuTimer.current) { clearTimeout(userMenuTimer.current); userMenuTimer.current = null; }
+    setUserMenuOpen(true);
+  };
+
+  const handleUserMenuLeave = () => {
+    if (userMenuTimer.current) clearTimeout(userMenuTimer.current);
+    userMenuTimer.current = setTimeout(() => setUserMenuOpen(false), 120);
+  };
 
   const handleNavEnter = (key: string, e: React.MouseEvent<HTMLDivElement>) => {
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
@@ -259,7 +300,7 @@ export default function Header() {
     }));
 
   const navLabel = (item: NavItem): string => {
-    if (item.key === 'about') return t('nav.about');
+    if (item.key === 'about') return item.name || t('nav.about');
     return item.name;
   };
 
@@ -292,20 +333,30 @@ export default function Header() {
   }, []);
 
   useEffect(() => {
-    const handleModulesChanged = () => {
-      (async () => {
-        const data = await loadHeaderData();
+    let alive = true;
+    const apply = async (force: boolean) => {
+      try {
+        const data = await getHeaderData(force);
+        if (!alive) return;
+        if (data.navigation.length > 0) setNavigation(data.navigation);
         setProductGroups(data.productGroups);
         setSolutionGroups(data.solutionGroups);
         setResourceGroups(data.resourceGroups);
         setGenericGroups(data.genericGroups);
         setGenericItems(data.genericItems);
-        setNavigation(data.navigation);
-      })();
+      } catch {
+        // 请求失败时保留上一次（或模板）导航数据，避免导航栏数据被清空
+      }
     };
-    handleModulesChanged();
+    // 先展示缓存（若有），再后台强制刷新，兼顾「立即显示」与「保持最新」
+    apply(false);
+    apply(true);
+    const handleModulesChanged = () => { apply(true); };
     window.addEventListener('core-modules-changed', handleModulesChanged);
-    return () => window.removeEventListener('core-modules-changed', handleModulesChanged);
+    return () => {
+      alive = false;
+      window.removeEventListener('core-modules-changed', handleModulesChanged);
+    };
   }, []);
 
   function renderNavCardItem(item: NavGroupItem) {
@@ -512,6 +563,7 @@ export default function Header() {
   }
 
   function renderMobileSubmenu(item: NavItem): React.ReactNode {
+    if (item.key && isSystemPageModuleKey(item.key)) return null;
     if (item.key === 'products') return renderMobileGroupList('products', productGroups, true, 'name');
     if (item.key === 'solutions') return renderMobileGroupList('solutions', solutionGroups, true, 'name');
     if (item.key === 'resources') return renderMobileGroupList('resources', resourceGroups, false, 'href');
@@ -527,7 +579,7 @@ export default function Header() {
       <header
         className={cn(
           'fixed top-0 left-0 right-0 z-50 transition-all duration-500',
-          scrolled
+          scrolled || mobileMenuOpen
             ? 'bg-white/80 backdrop-blur-xl border-b border-gray-100/80 shadow-sm'
             : 'bg-white/0'
         )}
@@ -535,7 +587,7 @@ export default function Header() {
         <nav className="max-w-[90rem] mx-auto px-6">
           <div className="flex justify-between items-center h-16 gap-4">
           <Link href="/" className="flex items-center shrink-0 transition-transform hover:scale-[1.02]">
-            <img src={getImageUrl(siteConfig.logo) || '/logo.png'} alt={siteConfig.siteName || '示例科技'} className="h-12 w-auto" />
+            <img src={getImageUrl(siteConfig.logo) || '/logo.png'} alt={siteConfig.siteName || t('publicComp.defaultSiteName')} className="h-12 w-auto" />
           </Link>
 
             <div className="hidden lg:flex items-center flex-1 min-w-0">
@@ -544,7 +596,7 @@ export default function Header() {
                 onScroll={handleNavScroll}
               >
                 {navigation.map((item) => {
-                  const hasDropdown = item.key !== undefined && item.key !== 'about';
+                  const hasDropdown = item.key !== undefined && !isSystemPageModuleKey(item.key);
                   const itemKey = item.key || item.name;
                   return (
                     <div
@@ -604,8 +656,13 @@ export default function Header() {
               </div>
             )}
             {user ? (
-              <div className="relative shrink-0">
+              <div
+                className="relative shrink-0"
+                onMouseEnter={handleUserMenuEnter}
+                onMouseLeave={handleUserMenuLeave}
+              >
                 <button
+                  type="button"
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-black transition-colors px-2 py-1 rounded-lg hover:bg-gray-50 whitespace-nowrap"
                 >
@@ -717,14 +774,14 @@ export default function Header() {
     <div
       className={cn(
         'fixed inset-0 top-16 z-40 bg-black/[0.06] backdrop-blur-[3px] transition-opacity duration-300',
-        hoveredNav ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        hoveredNav || mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
       )}
       aria-hidden="true"
     />
     {mounted && hoveredNav && hoverRect && (() => {
       const hoveredItem = navigation.find((n) => (n.key || n.name) === hoveredNav);
       if (!hoveredItem) return null;
-      const hasDropdown = hoveredItem.key !== undefined && hoveredItem.key !== 'about';
+      const hasDropdown = hoveredItem.key !== undefined && !isSystemPageModuleKey(hoveredItem.key);
       if (!hasDropdown) return null;
       const panel = renderDropdownPanel(hoveredItem);
       if (!panel) return null;

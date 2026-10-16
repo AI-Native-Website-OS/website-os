@@ -8,11 +8,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { Plus, Pencil, Trash2, GripVertical, Search, Loader2, RefreshCw, FileText } from 'lucide-react';
 import Modal from '@/components/Modal';
 import { useConfirm } from '@/components/ConfirmDialog';
-
-const typeLabelKeys: Record<number, string> = {
-  1: 'admin.ui.modules.type1',
-  2: 'admin.ui.modules.type2',
-};
+import { isSystemPageModuleKey } from '@/lib/moduleConfig';
 
 const builtinKeys = ['products', 'solutions', 'cases', 'resources'];
 
@@ -69,18 +65,18 @@ export default function AdminModules() {
   };
 
   const handleDelete = async (item: CoreModule) => {
-    if (builtinKeys.includes(item.moduleKey)) {
+    if (item.isSystem === 1 || builtinKeys.includes(item.moduleKey)) {
       setMessage({ type: 'error', text: t('admin.ui.modules.deleteBuiltin') });
       return;
     }
-    if (!(await confirm(t('admin.ui.modules.deleteConfirm').replace('{name}', item.moduleName || '未命名')))) return;
+    if (!(await confirm(t('admin.ui.modules.deleteConfirm').replace('{name}', item.moduleName || t('adminPages.untitled'))))) return;
     try {
       await adminApi.coreModules.delete(item.id);
       setMessage({ type: 'success', text: t('common.deleteSuccess') });
       await load();
       notifyModulesChanged();
-    } catch {
-      setMessage({ type: 'error', text: t('admin.ui.sections.deleteFail') });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err?.response?.data?.message || err?.message || t('admin.ui.sections.deleteFail') });
     }
   };
 
@@ -190,8 +186,6 @@ export default function AdminModules() {
               <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.modules.colName')}</th>
               <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.modules.colTitle')}</th>
               <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.modules.colDesc')}</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500">{t('admin.ui.modules.colKey')}</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500 w-24">{t('admin.ui.modules.colType')}</th>
               <th className="text-center py-3 px-4 font-medium text-gray-500 w-16">{t('admin.ui.modules.colColumns')}</th>
               <th className="text-center py-3 px-4 font-medium text-gray-500 w-20">{t('admin.ui.sections.colStatus')}</th>
               <th className="text-center py-3 px-4 font-medium text-gray-500 w-24">{t('common.actions')}</th>
@@ -213,20 +207,14 @@ export default function AdminModules() {
                     <GripVertical className="w-4 h-4" />
                   </span>
                 </td>
-                <td className="py-3 px-4 font-medium">{item.moduleName || '-'}</td>
-                <td className="py-3 px-4 text-gray-700">{item.moduleTitle || '-'}</td>
-                <td className="py-3 px-4 text-gray-500 truncate max-w-[220px]">{item.moduleDescription || '-'}</td>
-                <td className="py-3 px-4 text-gray-500">
-                  <span className="font-mono text-xs">{item.moduleKey}</span>
-                  {builtinKeys.includes(item.moduleKey) && (
-                    <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded text-[10px]">{t('admin.ui.modules.builtin')}</span>
+                <td className="py-3 px-4 font-medium">
+                  {item.moduleName || '-'}
+                  {item.isSystem === 1 && (
+                    <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded text-[10px]">{t('admin.ui.modules.system')}</span>
                   )}
                 </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">
-                    {typeLabelKeys[item.moduleType] ? t(typeLabelKeys[item.moduleType]) : item.moduleType}
-                  </span>
-                </td>
+                <td className="py-3 px-4 text-gray-700">{item.moduleTitle || '-'}</td>
+                <td className="py-3 px-4 text-gray-500 truncate max-w-[220px]">{item.moduleDescription || '-'}</td>
                 <td className="py-3 px-4 text-center text-gray-700">{item.moduleColumns || 4}</td>
                 <td className="py-3 px-4 text-center">
                   <button
@@ -242,7 +230,7 @@ export default function AdminModules() {
                 </td>
                 <td className="py-3 px-4 text-center">
                   <div className="flex items-center justify-center gap-2">
-                    {!builtinKeys.includes(item.moduleKey) && (
+                    {item.isSystem !== 1 && (
                       <Link
                         href={`/admin/content?module=${item.moduleKey}`}
                         title={t('admin.ui.modules.contentManage')}
@@ -257,19 +245,21 @@ export default function AdminModules() {
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => handleDelete(item)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {item.isSystem !== 1 && (
+                      <button
+                        onClick={() => handleDelete(item)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-gray-400">
+                <td colSpan={7} className="py-8 text-center text-gray-400">
                   {loading ? t('common.loading') : t('admin.ui.modules.noModules')}
                 </td>
               </tr>
@@ -293,7 +283,13 @@ function ModuleForm({ item, saving, onSave }: { item: CoreModule | null; saving:
 
   const update = (field: string, value: any) => setForm({ ...form, [field]: value });
 
+  const nameOnly = item ? isSystemPageModuleKey(item.moduleKey) : false;
+
   const handleSubmit = () => {
+    if (nameOnly) {
+      onSave({ moduleName: form.moduleName.trim(), moduleType: Number(form.moduleType) });
+      return;
+    }
     onSave({
       moduleName: form.moduleName.trim(),
       moduleTitle: form.moduleTitle.trim(),
@@ -310,30 +306,34 @@ function ModuleForm({ item, saving, onSave }: { item: CoreModule | null; saving:
           <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formNameLabel')}<span className="text-red-400">*</span></label>
           <input value={form.moduleName} onChange={(e) => update('moduleName', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" placeholder={t('admin.ui.modules.formNamePlaceholder')} />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formTitleLabel')}</label>
-          <input value={form.moduleTitle} onChange={(e) => update('moduleTitle', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" placeholder={t('admin.ui.modules.formTitlePlaceholder')} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formTypeLabel')}</label>
-          <select value={form.moduleType} onChange={(e) => update('moduleType', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
-            <option value={1}>{t('admin.ui.modules.formTypeOption1')}</option>
-            <option value={2}>{t('admin.ui.modules.formTypeOption2')}</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formColumnsLabel')}</label>
-          <select value={form.moduleColumns} onChange={(e) => update('moduleColumns', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
-            {[2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>{n} 列</option>
-            ))}
-          </select>
-          <p className="text-xs text-gray-400 mt-1">{t('admin.ui.modules.formColumnsHint')}</p>
-        </div>
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formDescLabel')}</label>
-          <textarea value={form.moduleDescription} onChange={(e) => update('moduleDescription', e.target.value)} rows={2} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" placeholder={t('admin.ui.modules.formDescPlaceholder')} />
-        </div>
+        {!nameOnly && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formTitleLabel')}</label>
+              <input value={form.moduleTitle} onChange={(e) => update('moduleTitle', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" placeholder={t('admin.ui.modules.formTitlePlaceholder')} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formTypeLabel')}</label>
+              <select value={form.moduleType} onChange={(e) => update('moduleType', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
+                <option value={1}>{t('admin.ui.modules.formTypeOption1')}</option>
+                <option value={2}>{t('admin.ui.modules.formTypeOption2')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formColumnsLabel')}</label>
+              <select value={form.moduleColumns} onChange={(e) => update('moduleColumns', e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
+                {[2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>{t('adminPages.modules.columnsOption', { n })}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">{t('admin.ui.modules.formColumnsHint')}</p>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.ui.modules.formDescLabel')}</label>
+              <textarea value={form.moduleDescription} onChange={(e) => update('moduleDescription', e.target.value)} rows={2} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" placeholder={t('admin.ui.modules.formDescPlaceholder')} />
+            </div>
+          </>
+        )}
       </div>
       <p className="text-xs text-gray-400 mt-3">{t('admin.ui.modules.autoNote')}</p>
       <div className="flex gap-3 mt-4">

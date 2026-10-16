@@ -35,7 +35,7 @@ import {
 
 import { isValidPhone, isValidEmail } from '@/lib/validators';
 
-import { moduleHref, detailUrl, listUrl, categoryUrl } from '@/lib/moduleConfig';
+import { moduleHref, detailUrl, listUrl, categoryUrl, categoryFilterValue, isSystemPageModuleKey } from '@/lib/moduleConfig';
 import Footer from '@/components/Footer';
 
 import SeoHead from '@/components/SeoHead';
@@ -43,6 +43,7 @@ import SeoHead from '@/components/SeoHead';
 import ParticleBackground from '@/components/ParticleBackground';
 
 import { generateSoftwareApplicationSchema, toSiteIdentity } from '@/lib/seo';
+import { DEFAULT_TEXT_STYLE, normalizeTextStyle, textStyleToCss, inputTextStyleToCss } from '@/lib/textStyle';
 
 import { useAuth } from '@/hooks/useAuth';
 import { useSiteConfig } from '@/hooks/useSiteConfig';
@@ -50,10 +51,12 @@ import { useSiteConfig } from '@/hooks/useSiteConfig';
 import Markdown from '@/components/Markdown';
 
 import { getOrCreateSessionId, createNewSessionId, trimMessages, mapHistoryToMessages, MAX_CONTEXT_MESSAGES } from '@/lib/chatHistory';
+import { friendlyChatError } from '@/lib/chatError';
 import { parseDocumentFile } from '@/lib/fileParser';
 
-import type { HomeSection, CoreModule, ContentItem, ContentModuleCategory } from '@/types';
+import type { HomeSection, CoreModule, ContentItem, ContentModuleCategory, TextStyle, ContentRecommendation } from '@/types';
 import { BlockRenderer } from '@/components/BlockRenderer';
+import RecommendationChips from '@/components/RecommendationChips';
 
 interface ChatFile {
 
@@ -83,8 +86,12 @@ interface Message {
 
   stopped?: boolean;
 
+  animate?: boolean;
+
   files?: ChatFile[];
   recommendations?: {
+
+    items?: ContentRecommendation[];
 
     action?: 'showForm';
 
@@ -114,21 +121,24 @@ const moduleColClass = (m?: CoreModule): string => {
   return map[n] || 'lg:grid-cols-4';
 };
 
-// 首页核心模块区块内容展示上限：每模块固定展示 4 条，超出不展示，避免页面拉伸变形
-const moduleRowLimit = (_m?: CoreModule): number => 4;
+// 首页核心模块区块展示条数：与「核心模块管理」配置的列数一致（默认 4 列），不足时不补足
+const moduleRowLimit = (m?: CoreModule): number => {
+  const n = m?.moduleColumns;
+  return n && n >= 1 && n <= 6 ? n : 4;
+};
 
 // 首页区块斑马纹背景：按渲染位置奇偶交替
 const sectionBg = (i: number): string => (i % 2 === 0 ? 'bg-gray-50' : 'bg-white');
 
-const formTitles: Record<string, string> = {
-  'login-prompt': '温馨提示',
-  demo: '预约产品演示',
-  solution: '获取解决方案',
+const formTitleKeys: Record<string, string> = {
+  'login-prompt': 'publicHome.formTitleTip',
+  demo: 'publicHome.bookDemo',
+  solution: 'publicHome.getSolution',
 };
 
-const formSubmitText: Record<string, string> = {
-  demo: '提交预约',
-  solution: '立即获取',
+const formSubmitKeys: Record<string, string> = {
+  demo: 'publicHome.formSubmitDemo',
+  solution: 'publicHome.formSubmitGetNow',
 };
 
 const buildUserInput = (text: string, files: ChatFile[]): string => {
@@ -138,13 +148,14 @@ const buildUserInput = (text: string, files: ChatFile[]): string => {
   return parts.join('\n\n') + `\n\n${text || '请分析这个文件'}`;
 };
 
-const buildChatBody = (user: any, userInput: string, sessionId: string, visitorId: string, text: string, files: ChatFile[]): Record<string, any> => {
+const buildChatBody = (user: any, userInput: string, sessionId: string, visitorId: string, text: string, files: ChatFile[], language: string): Record<string, any> => {
   const chatBody: Record<string, any> = {
     user_input: userInput,
     session_id: sessionId,
     username: user?.realName || user?.username || '',
     original_input: text || (files.length > 0 ? '查看附件' : ''),
     visitor_id: visitorId || getVisitorId(),
+    language,
   };
   if (files.length > 0) {
     const imgUrls = files.filter(f => f.type === 'image').map(f => f.url);
@@ -161,11 +172,12 @@ const isSendBlocked = (
   aiLimits: { userLimit: number; guestLimit: number },
   setGuestLocked: (v: boolean) => void,
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  t: (key: string, params?: Record<string, string | number>) => string,
 ): boolean => {
   if (user) {
     const rl = checkUserRateLimit(aiLimits.userLimit);
     if (!rl.allowed) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `请求过于频繁，请稍后再试（每分钟最多 ${aiLimits.userLimit} 次）。` }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: t('publicHome.rateLimitUser', { n: aiLimits.userLimit }) }]);
       return true;
     }
     return false;
@@ -186,7 +198,7 @@ const appendReasoning = (prev: Message[], content: string): Message[] => {
   if (last && last.role === 'assistant') {
     updated[updated.length - 1] = { ...last, reasoning: (last.reasoning || '') + content };
   } else {
-    updated.push({ role: 'assistant', content: '', reasoning: content } as Message);
+    updated.push({ role: 'assistant', content: '', reasoning: content, animate: true } as Message);
   }
   return updated;
 };
@@ -197,7 +209,7 @@ const appendContent = (prev: Message[], content: string): Message[] => {
   if (last && last.role === 'assistant') {
     updated[updated.length - 1] = { ...last, content: (last.content || '') + content };
   } else {
-    updated.push({ role: 'assistant', content } as Message);
+    updated.push({ role: 'assistant', content, animate: true } as Message);
   }
   return updated;
 };
@@ -208,24 +220,24 @@ const finalizeAssistant = (prev: Message[], parsed: any): Message[] => {
   if (last && last.role === 'assistant') {
     updated[updated.length - 1] = { ...last, content: parsed.content || last.content, reasoning: parsed.reasoning || last.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped };
   } else {
-    updated.push({ role: 'assistant', content: parsed.content || '', reasoning: parsed.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped } as Message);
+    updated.push({ role: 'assistant', content: parsed.content || '', reasoning: parsed.reasoning, recommendations: parsed.recommendations, stopped: !!parsed.stopped, animate: true } as Message);
   }
   return updated;
 };
 
-const buildRequirementText = (mode: string): string => {
-  if (mode === 'demo') return '产品演示预约（AI对话提交）';
-  if (mode === 'solution') return '解决方案咨询（AI对话提交）';
-  return '案例咨询（AI对话提交）';
+const buildRequirementText = (mode: string, t: (key: string) => string): string => {
+  if (mode === 'demo') return t('publicHome.requirementDemo');
+  if (mode === 'solution') return t('publicHome.requirementSolution');
+  return t('publicHome.requirementCase');
 };
 
 // 打字机效果：流式/一次性拿到全文时都按固定节奏逐字显示，保证可见的逐字输出。
-function TypewriterMarkdown({ content, streaming, onTick }: { content: string; streaming: boolean; onTick?: () => void }) {
-  const [shown, setShown] = useState<number>(() => (streaming ? 0 : content.length));
+function TypewriterMarkdown({ content, animate, onTick }: { content: string; animate: boolean; onTick?: () => void }) {
+  const [shown, setShown] = useState<number>(() => (animate ? 0 : content.length));
   const onTickRef = useRef(onTick);
   onTickRef.current = onTick;
   useEffect(() => {
-    if (!streaming) {
+    if (!animate) {
       setShown(content.length);
       return;
     }
@@ -235,7 +247,7 @@ function TypewriterMarkdown({ content, streaming, onTick }: { content: string; s
       onTickRef.current?.();
     }, 20);
     return () => clearTimeout(timer);
-  }, [streaming, shown, content]);
+  }, [animate, shown, content]);
   return <Markdown content={content.slice(0, shown)} />;
 }
 
@@ -249,15 +261,16 @@ interface ChatStreamContext {
   setShowForm: (v: boolean) => void;
   submitLead: (mode: string, requirement?: string) => void;
   markStopped: () => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
 const handleLimitEvent = (parsed: any, ctx: ChatStreamContext) => {
   if (parsed.reason === 'guest_limit') {
     setGuestQuota(ctx.aiLimits.guestLimit);
     ctx.setGuestLocked(true);
-    ctx.setMessages(prev => pushAssistant(prev, parsed.message || '您今日的免费咨询次数已用完，请登录后继续使用AI顾问。'));
+    ctx.setMessages(prev => pushAssistant(prev, parsed.message || ctx.t('publicHome.guestLimitReached')));
   } else {
-    ctx.setMessages(prev => pushAssistant(prev, parsed.message || '请求过于频繁，请稍后再试。'));
+    ctx.setMessages(prev => pushAssistant(prev, parsed.message || ctx.t('publicHome.rateLimitGeneric')));
   }
 };
 
@@ -278,7 +291,7 @@ const handleRecommendations = (parsed: any, ctx: ChatStreamContext) => {
       ctx.setFormMode(mode);
       ctx.setFormData(prev => ({
         ...prev,
-        requirement: requirement || buildRequirementText(mode),
+        requirement: requirement || buildRequirementText(mode, ctx.t),
       }));
       ctx.setShowForm(true);
     }
@@ -291,7 +304,7 @@ const handleStreamEvent = (parsed: any, ctx: ChatStreamContext, guestUsed: boole
     return { used: guestUsed, stop: true };
   }
   if (parsed.type === 'error') {
-    ctx.setMessages(prev => pushAssistant(prev, '抱歉，AI顾问暂时无法回答。请稍后再试。'));
+    ctx.setMessages(prev => pushAssistant(prev, friendlyChatError(parsed.code)));
     return { used: guestUsed, stop: true };
   }
   if (parsed.type === 'reasoning' && parsed.content) {
@@ -359,15 +372,15 @@ const handleJsonResponse = async (resp: Response, ctx: ChatStreamContext): Promi
     if (json.reason === 'guest_limit') {
       setGuestQuota(ctx.aiLimits.guestLimit);
       ctx.setGuestLocked(true);
-      ctx.setMessages(prev => pushAssistant(prev, json.message || '您今日的免费咨询次数已用完，请登录后继续使用AI顾问。'));
+      ctx.setMessages(prev => pushAssistant(prev, json.message || ctx.t('publicHome.guestLimitReached')));
     } else {
-      ctx.setMessages(prev => pushAssistant(prev, json.message || '请求过于频繁，请稍后再试。'));
+      ctx.setMessages(prev => pushAssistant(prev, json.message || ctx.t('publicHome.rateLimitGeneric')));
     }
     return;
   }
   if (!ctx.user) recordGuestUse();
-  const fullText = json.content || json.message || '感谢您的提问。我们的专业顾问会尽快为您解答。';
-  ctx.setMessages(prev => [...prev, { role: 'assistant' as const, content: fullText, reasoning: json.reasoning, recommendations: json.recommendations }]);
+  const fullText = json.content || json.message || ctx.t('publicHome.thanksQuestion');
+  ctx.setMessages(prev => [...prev, { role: 'assistant' as const, content: fullText, reasoning: json.reasoning, recommendations: json.recommendations, animate: true }]);
   if (json.recommendations?.action === 'showForm' && json.recommendations?.actionData?.mode) {
     const { mode, requirement } = json.recommendations.actionData;
     if (ctx.user) {
@@ -376,7 +389,7 @@ const handleJsonResponse = async (resp: Response, ctx: ChatStreamContext): Promi
       ctx.setFormMode(mode);
       ctx.setFormData(prev => ({
         ...prev,
-        requirement: requirement || buildRequirementText(mode),
+        requirement: requirement || buildRequirementText(mode, ctx.t),
       }));
       ctx.setShowForm(true);
     }
@@ -392,7 +405,7 @@ export default function HomePage() {
   const { siteConfig } = useSiteConfig();
   const site = toSiteIdentity(siteConfig);
 
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const router = useRouter();
 
@@ -408,6 +421,8 @@ export default function HomePage() {
 
   const [thinkingAutoCollapse, setThinkingAutoCollapse] = useState(true);
 
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+
   const [visitorId, setVisitorId] = useState('');
 
   const [aiLimits, setAiLimits] = useState<{ userLimit: number; guestLimit: number }>({ userLimit: DEFAULT_USER_RATE_LIMIT, guestLimit: DEFAULT_GUEST_DAILY_LIMIT });
@@ -419,6 +434,8 @@ export default function HomePage() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [welcomeMessage, setWelcomeMessage] = useState('');
   const [inputPlaceholder, setInputPlaceholder] = useState('');
+  const [welcomeStyle, setWelcomeStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
+  const [inputStyle, setInputStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
 
   const [homeProducts, setHomeProducts] = useState<ContentItem[]>([]);
 
@@ -518,11 +535,16 @@ export default function HomePage() {
         }
         if (res.welcome_message) setWelcomeMessage(res.welcome_message);
         if (res.input_placeholder) setInputPlaceholder(res.input_placeholder);
+        setWelcomeStyle(normalizeTextStyle(res.welcome_message_style));
+        setInputStyle(normalizeTextStyle(res.input_placeholder_style));
       }).catch(() => {});
 
     aiService.config.get().then((cfg: any) => {
       if (typeof cfg?.llm_thinking_auto_collapse === 'boolean') {
         setThinkingAutoCollapse(cfg.llm_thinking_auto_collapse);
+      }
+      if (typeof cfg?.llm_thinking_enabled === 'boolean') {
+        setThinkingEnabled(cfg.llm_thinking_enabled);
       }
       const ul = typeof cfg?.ai_user_rate_limit === 'number' && cfg.ai_user_rate_limit > 0
         ? cfg.ai_user_rate_limit : DEFAULT_USER_RATE_LIMIT;
@@ -578,7 +600,7 @@ export default function HomePage() {
 
     api.get('/core-modules').then(r => {
       const list: CoreModule[] = r.data || [];
-      setCoreModules(list.filter(m => m.status === 1));
+      setCoreModules(list.filter(m => m.status === 1 && !isSystemPageModuleKey(m.moduleKey)));
     }).catch(() => {});
 
   }, []);
@@ -587,8 +609,8 @@ export default function HomePage() {
   useEffect(() => {
     if (user) {
       setGuestLocked(false);
-    } else if (getGuestQuota() >= aiLimits.guestLimit) {
-      setGuestLocked(true);
+    } else {
+      setGuestLocked(getGuestQuota() >= aiLimits.guestLimit);
     }
   }, [user, aiLimits.guestLimit]);
 
@@ -676,7 +698,7 @@ export default function HomePage() {
 
     if (chatLoading) return;
 
-    if (isSendBlocked(user, guestLocked, aiLimits, setGuestLocked, setMessages)) return;
+    if (isSendBlocked(user, guestLocked, aiLimits, setGuestLocked, setMessages, t)) return;
 
     setInput('');
 
@@ -686,7 +708,7 @@ export default function HomePage() {
 
     if (files.length > 0) {
 
-      setMessages(prev => [...prev, { role: 'user', content: text || '查看附件', files }]);
+      setMessages(prev => [...prev, { role: 'user', content: text || t('publicHome.attachment'), files }]);
 
     } else {
 
@@ -736,11 +758,12 @@ export default function HomePage() {
       setShowForm,
       submitLead,
       markStopped,
+      t,
     };
 
     try {
 
-      const chatBody = buildChatBody(user, userInput, sessionId, visitorId, text, files);
+      const chatBody = buildChatBody(user, userInput, sessionId, visitorId, text, files, locale);
 
       const resp = await fetch(config.ai.baseUrl + '/chat', {
 
@@ -776,7 +799,7 @@ export default function HomePage() {
 
       } else {
 
-        setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，我暂时无法回答。您可以点击"联系咨询"与顾问直接沟通。' }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: friendlyChatError('connection') }]);
 
       }
 
@@ -808,9 +831,9 @@ export default function HomePage() {
 
     const source = modeMap[mode] || 'consult';
 
-    const labelMap: Record<string, string> = { demo: '产品演示预约', solution: '解决方案咨询', case: '案例咨询', consult: '商务咨询' };
+    const labelKeys: Record<string, string> = { demo: 'publicHome.labelDemo', solution: 'publicHome.labelSolution', case: 'publicHome.labelCase', consult: 'publicHome.labelConsult' };
 
-    const label = labelMap[mode] || '咨询';
+    const label = t(labelKeys[mode] || 'publicHome.labelConsultFallback');
 
     try {
 
@@ -824,7 +847,7 @@ export default function HomePage() {
 
         email: user.email || '',
 
-        requirement: requirement || `${label}（AI自动提交）`,
+        requirement: requirement || t('publicHome.autoSubmitSuffix', { label }),
 
         source,
 
@@ -838,7 +861,7 @@ export default function HomePage() {
 
           role: 'assistant',
 
-          content: `${res.message || '提交失败'}，请稍后重试或直接联系客服。`,
+          content: t('publicHome.submitRetryContact', { msg: res.message || t('publicHome.submitFailed') }),
 
         }]);
 
@@ -850,7 +873,7 @@ export default function HomePage() {
 
         role: 'assistant',
 
-        content: `已为您自动提交${label}申请，我们的顾问将在24小时内与您联系。您也可以继续咨询其他问题。`,
+        content: t('publicHome.autoSubmitSuccess', { label }),
 
       }]);
 
@@ -860,7 +883,7 @@ export default function HomePage() {
 
         role: 'assistant',
 
-        content: '提交失败，请稍后重试或直接联系客服。',
+        content: t('publicHome.submitFailRetry'),
 
       }]);
 
@@ -989,17 +1012,17 @@ export default function HomePage() {
         <div className={`grid grid-cols-1 md:grid-cols-2 ${moduleColClass(m)} gap-5`}>
           {(productCategories.length > 0 ? productCategories : []).slice(0, moduleRowLimit(m)).map((line, index) => (
             <motion.div key={line.id} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.05 }}>
-              <Link href={categoryUrl('products', line.slug || '')} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
-                {line.coverImage && <img src={getImageUrl(line.coverImage)} alt={line.name} className="w-full aspect-[4/3] object-cover rounded-lg mb-3" />}
+              <Link href={categoryUrl('products', categoryFilterValue(line))} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
+                {line.coverImage && <img src={getImageUrl(line.coverImage)} alt={line.name} className="w-full h-auto rounded-lg mb-3" />}
                 <h3 className="text-lg font-semibold text-black mb-1 group-hover:text-gray-700 line-clamp-2">{line.name}</h3>
-                <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{line.description || `${homeProductCounts[line.name] || 0} 款产品`}</p>
+                <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{line.description || t('publicHome.productCount', { n: homeProductCounts[line.name] || 0 })}</p>
               </Link>
             </motion.div>
           ))}
         </div>
         <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} className="mt-8">
           <Link href={listUrl("products")} className="inline-flex items-center gap-1.5 text-sm font-medium text-black hover:text-gray-600 transition-colors">
-            查看全部产品 <ArrowRight className="w-3.5 h-3.5" />
+            {t('publicHome.viewAllProducts')} <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </motion.div>
       </div>
@@ -1016,17 +1039,17 @@ export default function HomePage() {
         <div className={`grid grid-cols-1 md:grid-cols-2 ${moduleColClass(m)} gap-5`}>
           {(solutionCategories.length > 0 ? solutionCategories : []).slice(0, moduleRowLimit(m)).map((ind, index) => (
             <motion.div key={ind.id} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.05 }}>
-              <Link href={categoryUrl('solutions', ind.slug || '')} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
-                {ind.coverImage && <img src={getImageUrl(ind.coverImage)} alt={ind.name} className="w-full aspect-[4/3] object-cover rounded-lg mb-3" />}
+              <Link href={categoryUrl('solutions', categoryFilterValue(ind))} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
+                {ind.coverImage && <img src={getImageUrl(ind.coverImage)} alt={ind.name} className="w-full h-auto rounded-lg mb-3" />}
                 <h3 className="text-lg font-semibold text-black mb-1 group-hover:text-gray-700 line-clamp-2">{ind.name}</h3>
-                <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{ind.description || '查看方案'}</p>
+                <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{ind.description || t('publicHome.viewSolution')}</p>
               </Link>
             </motion.div>
           ))}
         </div>
         <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} className="mt-8">
           <Link href={listUrl("solutions")} className="inline-flex items-center gap-1.5 text-sm font-medium text-black hover:text-gray-600 transition-colors">
-            查看全部方案 <ArrowRight className="w-3.5 h-3.5" />
+            {t('publicHome.viewAllSolutions')} <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </motion.div>
       </div>
@@ -1044,7 +1067,7 @@ export default function HomePage() {
           {(homeCases.length > 0 ? homeCases : []).slice(0, moduleRowLimit(m)).map((c, index) => (
             <motion.div key={c.id} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.05 }}>
               <Link href={detailUrl('cases', c.slug)} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
-                {c.coverImage && <img src={getImageUrl(c.coverImage)} alt={c.title} className="w-full aspect-[4/3] object-cover rounded-lg mb-3" />}
+                {c.coverImage && <img src={getImageUrl(c.coverImage)} alt={c.title} className="w-full h-auto rounded-lg mb-3" />}
                 <h3 className="text-lg font-semibold text-black mb-1 group-hover:text-gray-700 line-clamp-2">{c.title}</h3>
                 <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{c.summary}</p>
               </Link>
@@ -1053,7 +1076,7 @@ export default function HomePage() {
         </div>
         <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} className="mt-8">
           <Link href={listUrl("cases")} className="inline-flex items-center gap-1.5 text-sm font-medium text-black hover:text-gray-600 transition-colors">
-            查看案例 <ArrowRight className="w-3.5 h-3.5" />
+            {t('publicHome.viewCases')} <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </motion.div>
       </div>
@@ -1071,10 +1094,10 @@ export default function HomePage() {
           <div className={`grid grid-cols-1 md:grid-cols-2 ${moduleColClass(m)} gap-5 mb-6`}>
             {resourceCategories.slice(0, moduleRowLimit(m)).map((cat, index) => (
               <motion.div key={cat.id} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.05 }}>
-                <Link href={categoryUrl('resources', cat.slug || '')} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
-                  {cat.coverImage && <img src={getImageUrl(cat.coverImage)} alt={cat.name} className="w-full aspect-[4/3] object-cover rounded-lg mb-3" />}
+                <Link href={categoryUrl('resources', categoryFilterValue(cat))} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
+                  {cat.coverImage && <img src={getImageUrl(cat.coverImage)} alt={cat.name} className="w-full h-auto rounded-lg mb-3" />}
                   <h3 className="text-lg font-semibold text-black mb-1 group-hover:text-gray-700 line-clamp-2">{cat.name}</h3>
-                  <p className="text-base text-gray-500 leading-relaxed line-clamp-2">查看资源</p>
+                  <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{t('publicHome.viewResource')}</p>
                 </Link>
               </motion.div>
             ))}
@@ -1082,7 +1105,7 @@ export default function HomePage() {
         )}
         <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} className="mt-8">
           <Link href={listUrl("resources")} className="inline-flex items-center gap-1.5 text-sm font-medium text-black hover:text-gray-600 transition-colors">
-            查看全部资源 <ArrowRight className="w-3.5 h-3.5" />
+            {t('publicHome.viewAllResources')} <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </motion.div>
       </div>
@@ -1102,15 +1125,17 @@ export default function HomePage() {
   };
 
   const moduleDots = [
-    { id: 'hero', label: 'AI对话' },
+    { id: 'hero', label: t('publicHome.dotAiChat') },
     ...coreModules.map((m) => ({ id: m.moduleKey, label: m.moduleTitle || m.moduleName })),
-    { id: 'cta', label: '开启您的数字化之旅' },
+    { id: 'cta', label: t('publicHome.ctaTitle') },
   ];
+
+  const hasResourceModule = coreModules.some((m) => m.moduleKey === 'resources');
 
   return (
     <>
       <SeoHead
-        title={site.name || '首页'}
+        title={site.name || t('publicHome.seoHomeTitle')}
         description={site.description || ''}
         keywords=""
         path="/"
@@ -1138,9 +1163,9 @@ export default function HomePage() {
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
 
-              <h1 className="text-3xl md:text-5xl font-semibold text-black mb-3 tracking-tight">
+              <h1 style={textStyleToCss(welcomeStyle)} className="text-3xl md:text-5xl font-semibold text-black mb-3 tracking-tight">
 
-                {welcomeMessage || '有什么可以帮忙的？'}</h1>
+                {welcomeMessage || t('publicHome.welcomeDefault')}</h1>
 
             </motion.div>
 
@@ -1184,7 +1209,7 @@ export default function HomePage() {
                                 <>
                                   <FileText className={`w-4 h-4 ${message.role === 'user' ? 'text-white/70' : 'text-gray-500'}`} />
                                   <span className="truncate max-w-[120px]">{f.name}</span>
-                                  {f.parseError && <span className="text-amber-500 text-[10px] flex-shrink-0" title={f.parseError}>解析失败</span>}
+                                  {f.parseError && <span className="text-amber-500 text-[10px] flex-shrink-0" title={f.parseError}>{t('publicHome.parseFailed')}</span>}
                                 </>
                               )}
                             </div>
@@ -1197,7 +1222,7 @@ export default function HomePage() {
                           ? 'bg-gradient-to-br from-gray-800 to-black text-white shadow-sm'
                           : 'bg-white/70 backdrop-blur-md border border-gray-200/50 text-black shadow-sm'
                       }`}>
-                      {message.role === 'assistant' && message.reasoning && (
+                      {message.role === 'assistant' && thinkingEnabled && message.reasoning && (
                         <details open={!thinkingAutoCollapse} className="mb-2">
                           <summary className="cursor-pointer select-none text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
                             <Brain className="w-3 h-3" />
@@ -1221,7 +1246,7 @@ export default function HomePage() {
                       ) : (
                         <TypewriterMarkdown
                           content={message.content}
-                          streaming={chatLoading && index === messages.length - 1 && message.role === 'assistant'}
+                          animate={message.animate === true}
                           onTick={scrollChatToBottom}
                         />
                       )}
@@ -1234,6 +1259,10 @@ export default function HomePage() {
                       )}
 
                     </div>
+
+                    {message.role === 'assistant' && (
+                      <RecommendationChips items={message.recommendations?.items} />
+                    )}
 
                     </div>
 
@@ -1287,7 +1316,7 @@ export default function HomePage() {
 
                       <span className="truncate">{f.name}</span>
 
-                      {f.parseError && <span className="text-amber-600 truncate" title={f.parseError}>解析失败</span>}
+                      {f.parseError && <span className="text-amber-600 truncate" title={f.parseError}>{t('publicHome.parseFailed')}</span>}
 
                       <button onClick={() => removePendingFile(f.id)} className="p-0.5 text-gray-400 hover:text-red-500 flex-shrink-0 ml-0.5"><X className="w-3 h-3" /></button>
 
@@ -1307,7 +1336,7 @@ export default function HomePage() {
 
                   disabled={chatLoading || uploading || guestLocked}
 
-                  title="新会话"
+                  title={t('home.ai.newSession')}
 
                   className="p-1.5 text-gray-400 hover:text-black transition-colors disabled:opacity-50 flex-shrink-0"
 
@@ -1325,11 +1354,13 @@ export default function HomePage() {
 
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
 
-                  placeholder={guestLocked ? '今日免费次数已用完，请登录后继续使用' : (inputPlaceholder || t('home.ai.placeholder'))}
+                  placeholder={guestLocked ? t('publicHome.guestInputPlaceholder') : (inputPlaceholder || t('home.ai.placeholder'))}
 
                   rows={1}
 
-                  className="flex-1 bg-transparent text-base focus:outline-none placeholder:text-gray-400 resize-none"
+                  style={inputTextStyleToCss(inputStyle)}
+
+                  className="flex-1 bg-transparent text-base focus:outline-none placeholder:text-[color:var(--ph-color)] resize-none"
 
                   disabled={chatLoading || uploading || guestLocked}
 
@@ -1383,7 +1414,7 @@ export default function HomePage() {
 
                     onClick={() => abortRef.current?.abort()}
 
-                    title="停止生成"
+                    title={t('publicHome.stopGenerating')}
 
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors flex-shrink-0 text-xs font-medium"
 
@@ -1419,13 +1450,13 @@ export default function HomePage() {
                 <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
                   <div className="flex items-center gap-2 text-sm text-amber-800">
                     <Sparkles className="w-4 h-4 flex-shrink-0" />
-                    <span>您今日的 {aiLimits.guestLimit} 次免费咨询已用完，登录后即可继续使用AI顾问。</span>
+                    <span>{t('publicHome.guestQuotaRemaining', { n: aiLimits.guestLimit })}</span>
                   </div>
                   <Link
                     href="/login"
                     className="flex-shrink-0 px-4 py-1.5 rounded-lg bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors"
                   >
-                    去登录
+                    {t('auth.goLogin')}
                   </Link>
                 </div>
               )}
@@ -1475,21 +1506,25 @@ export default function HomePage() {
 
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
 
-            <h2 className="section-title mb-4">开启您的数字化之旅</h2>
+            <h2 className="section-title mb-4">{t('publicHome.ctaTitle')}</h2>
 
             <p className="text-gray-500 mb-8 max-w-xl mx-auto text-lg">
 
-              让我们为您设计一套可落地的数字化升级方案
+              {t('publicHome.ctaSubtitle')}
 
             </p>
 
             <div className="flex items-center justify-center gap-4 flex-wrap">
 
-              <button onClick={() => openForm('solution')} className="btn-primary">获取解决方案 <ArrowRight className="w-4 h-4" /></button>
+              <button onClick={() => openForm('solution')} className="btn-primary">{t('publicHome.getSolution')} <ArrowRight className="w-4 h-4" /></button>
 
-              <Link href={listUrl('resources')} className="btn-outline">浏览资源</Link>
+              {hasResourceModule && (
 
-              <button onClick={() => openForm('demo')} className="btn-outline">预约产品演示</button>
+                <Link href={listUrl('resources')} className="btn-outline">{t('publicHome.browseResources')}</Link>
+
+              )}
+
+              <button onClick={() => openForm('demo')} className="btn-outline">{t('publicHome.bookDemo')}</button>
 
             </div>
 
@@ -1511,7 +1546,7 @@ export default function HomePage() {
 
             <div className="flex justify-between items-center mb-5">
 
-              <h3 className="text-lg font-semibold">{formTitles[formMode] || '获取解决方案'}</h3>
+              <h3 className="text-lg font-semibold">{t(formTitleKeys[formMode] || 'publicHome.getSolution')}</h3>
 
               <button onClick={() => setShowForm(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
 
@@ -1521,13 +1556,13 @@ export default function HomePage() {
 
               <div className="text-center py-6">
 
-                <p className="text-gray-700 mb-6">请先注册或登录后，再提交需求</p>
+                <p className="text-gray-700 mb-6">{t('publicHome.loginToSubmit')}</p>
 
                 <div className="flex gap-3 justify-center">
 
-                  <button onClick={() => router.push('/login')} className="px-5 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800">去登录</button>
+                  <button onClick={() => router.push('/login')} className="px-5 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800">{t('auth.goLogin')}</button>
 
-                  <button onClick={() => setShowForm(false)} className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50">稍后再说</button>
+                  <button onClick={() => setShowForm(false)} className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50">{t('publicHome.later')}</button>
 
                 </div>
 
@@ -1539,11 +1574,11 @@ export default function HomePage() {
 
                 <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
 
-                <p className="text-gray-700 font-medium mb-1">提交成功！</p>
+                <p className="text-gray-700 font-medium mb-1">{t('publicHome.submitSuccess')}</p>
 
-                <p className="text-sm text-gray-500">我们的顾问将尽快与您联系。</p>
+                <p className="text-sm text-gray-500">{t('publicHome.consultantContact')}</p>
 
-                <button onClick={() => { setShowForm(false); setFormSuccess(false); }} className="mt-4 px-4 py-2 bg-black text-white rounded-lg text-sm">知道了</button>
+                <button onClick={() => { setShowForm(false); setFormSuccess(false); }} className="mt-4 px-4 py-2 bg-black text-white rounded-lg text-sm">{t('publicHome.gotIt')}</button>
 
               </div>
 
@@ -1553,9 +1588,9 @@ export default function HomePage() {
 
                 e.preventDefault();
 
-                const phoneErr = !isValidPhone(formData.phone) ? '请输入正确的手机号' : '';
+                const phoneErr = !isValidPhone(formData.phone) ? t('publicHome.phoneError') : '';
 
-                const emailErr = formMode !== 'solution' && formData.email && !isValidEmail(formData.email) ? '请输入正确的邮箱地址' : '';
+                const emailErr = formMode !== 'solution' && formData.email && !isValidEmail(formData.email) ? t('publicHome.emailError') : '';
 
                 if (phoneErr || emailErr) return;
 
@@ -1573,11 +1608,11 @@ export default function HomePage() {
 
                     if (res.code === 400 && res.message === 'duplicate_submission') {
 
-                      setFormError('已提交过申请，请耐心等待管理人员联系');
+                      setFormError(t('publicHome.duplicateSubmission'));
 
                     } else {
 
-                      setFormError(res.message || '提交失败，请稍后再试');
+                      setFormError(res.message || t('publicHome.submitFailRetryShort'));
 
                     }
 
@@ -1591,7 +1626,7 @@ export default function HomePage() {
 
                 } catch {
 
-                  setFormError('提交失败，请稍后再试');
+                  setFormError(t('publicHome.submitFailRetryShort'));
 
                 }
 
@@ -1601,49 +1636,49 @@ export default function HomePage() {
 
                 <div>
 
-                  <label className="block text-xs text-gray-500 mb-1">姓名 <span className="text-red-400">*</span></label>
+                  <label className="block text-xs text-gray-500 mb-1">{t('publicHome.labelName')} <span className="text-red-400">*</span></label>
 
-                  <input required value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder="您的姓名" />
+                  <input required value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder={t('publicHome.namePlaceholder')} />
 
                 </div>
 
                 <div>
 
-                  <label className="block text-xs text-gray-500 mb-1">手机号 <span className="text-red-400">*</span></label>
+                  <label className="block text-xs text-gray-500 mb-1">{t('publicHome.labelPhone')} <span className="text-red-400">*</span></label>
 
-                  <input required value={formData.phone} onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder="请输入11位手机号" />
+                  <input required value={formData.phone} onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder={t('publicHome.phonePlaceholder')} />
 
-                  {formData.phone && !isValidPhone(formData.phone) && <p className="text-xs text-red-500 mt-1">请输入正确的11位手机号</p>}
+                  {formData.phone && !isValidPhone(formData.phone) && <p className="text-xs text-red-500 mt-1">{t('publicHome.phoneInvalid11')}</p>}
 
                 </div>
 
                 {formMode !== 'solution' && (<><div>
 
-                  <label className="block text-xs text-gray-500 mb-1">企业名称</label>
+                  <label className="block text-xs text-gray-500 mb-1">{t('publicHome.labelCompany')}</label>
 
-                  <input value={formData.company} onChange={e => setFormData(p => ({ ...p, company: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder="企业名称" />
-
-                </div>
-
-                <div>
-
-                  <label className="block text-xs text-gray-500 mb-1">邮箱</label>
-
-                  <input value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder="您的邮箱" />
+                  <input value={formData.company} onChange={e => setFormData(p => ({ ...p, company: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder={t('publicHome.companyPlaceholder')} />
 
                 </div>
 
                 <div>
 
-                  <label className="block text-xs text-gray-500 mb-1">产品/方案需求</label>
+                  <label className="block text-xs text-gray-500 mb-1">{t('publicHome.labelEmail')}</label>
 
-                  <textarea value={formData.requirement} onChange={e => setFormData(p => ({ ...p, requirement: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" rows={3} placeholder="您想了解的产品或方案" />
+                  <input value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" placeholder={t('publicHome.emailPlaceholder')} />
+
+                </div>
+
+                <div>
+
+                  <label className="block text-xs text-gray-500 mb-1">{t('publicHome.labelRequirement')}</label>
+
+                  <textarea value={formData.requirement} onChange={e => setFormData(p => ({ ...p, requirement: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black" rows={3} placeholder={t('publicHome.requirementPlaceholder')} />
 
                 </div></>)}
 
                 <button type="submit" disabled={formLoading} className="w-full py-2.5 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
 
-                  {formLoading ? '提交中...' : formSubmitText[formMode] || '立即获取'}
+                  {formLoading ? t('publicHome.submitting') : t(formSubmitKeys[formMode] || 'publicHome.formSubmitGetNow')}
 
                 </button>
 
@@ -1706,12 +1741,20 @@ export default function HomePage() {
 }
 
 function GenericModuleSection({ module, index }: { module: CoreModule; index: number }) {
+  // 双层嵌套模块只展示分类层，单层模块展示内容
+  const { t } = useI18n();
+  const isNested = module.moduleType !== 2;
   const [items, setItems] = useState<any[]>([]);
   useEffect(() => {
-    api.get(`/content/${module.moduleKey}`, { params: { page: 1, size: 6 } })
-      .then((res: any) => setItems(res.data?.records || []))
+    const req = isNested
+      ? api.get(`/content/${module.moduleKey}/categories`)
+      : api.get(`/content/${module.moduleKey}`, { params: { page: 1, size: 6 } });
+    req
+      .then((res: any) => setItems((isNested ? res.data : res.data?.records) || []))
       .catch(() => setItems([]));
-  }, [module.moduleKey]);
+  }, [module.moduleKey, isNested]);
+
+  const shown = items.slice(0, moduleRowLimit(module));
 
   return (
     <section id={`section-${module.moduleKey}`} className={`py-12 ${sectionBg(index)}`}>
@@ -1720,24 +1763,31 @@ function GenericModuleSection({ module, index }: { module: CoreModule; index: nu
           <h2 className="section-title">{module.moduleTitle || module.moduleName}</h2>
           {module.moduleDescription && <p className="section-subtitle mx-auto">{module.moduleDescription}</p>}
         </motion.div>
-        {items.length > 0 && (
+        {shown.length > 0 && (
           <div className={`grid grid-cols-1 md:grid-cols-2 ${moduleColClass(module)} gap-5 text-left`}>
-            {items.slice(0, moduleRowLimit(module)).map((item) => (
+            {shown.map((item) => (
               <motion.div key={item.id} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-                <a href={detailUrl(module.moduleKey, item.slug)} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
-                  {item.coverImage && <img src={getImageUrl(item.coverImage)} alt={item.title} className="w-full aspect-[4/3] object-cover rounded-lg mb-3" />}
-                  {module.moduleType !== 2 && item.groupName && <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full mb-2">{item.groupName}</span>}
-                  <h3 className="text-lg font-semibold text-black mb-1 line-clamp-2">{item.title}</h3>
-                  <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{item.summary}</p>
-                </a>
+                {isNested ? (
+                  <Link href={categoryUrl(module.moduleKey, categoryFilterValue(item))} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
+                    {item.coverImage && <img src={getImageUrl(item.coverImage)} alt={item.name} className="w-full h-auto rounded-lg mb-3" />}
+                    <h3 className="text-lg font-semibold text-black mb-1 group-hover:text-gray-700 line-clamp-2">{item.name}</h3>
+                    <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{item.description || t('publicHome.viewModule', { name: module.moduleName })}</p>
+                  </Link>
+                ) : (
+                  <Link href={detailUrl(module.moduleKey, item.slug)} className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group h-full">
+                    {item.coverImage && <img src={getImageUrl(item.coverImage)} alt={item.title} className="w-full h-auto rounded-lg mb-3" />}
+                    <h3 className="text-lg font-semibold text-black mb-1 group-hover:text-gray-700 line-clamp-2">{item.title}</h3>
+                    <p className="text-base text-gray-500 leading-relaxed line-clamp-2">{item.summary}</p>
+                  </Link>
+                )}
               </motion.div>
             ))}
           </div>
         )}
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="mt-8">
-          <a href={moduleHref(module)} className="inline-flex items-center gap-1.5 text-sm font-medium text-black hover:text-gray-600 transition-colors">
-            进入{module.moduleName} <ArrowRight className="w-3.5 h-3.5" />
-          </a>
+          <Link href={moduleHref(module)} className="inline-flex items-center gap-1.5 text-sm font-medium text-black hover:text-gray-600 transition-colors">
+            {t('publicHome.enterModule', { name: module.moduleName })} <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </motion.div>
       </div>
     </section>

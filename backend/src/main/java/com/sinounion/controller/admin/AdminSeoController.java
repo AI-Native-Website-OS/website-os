@@ -21,6 +21,7 @@ import com.sinounion.service.GeoSyncService;
 import com.sinounion.service.SeoGenerateService;
 import com.sinounion.service.SeoSyncService;
 import com.sinounion.service.SyncProgressTracker;
+import com.sinounion.translation.TranslationEnqueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +54,7 @@ public class AdminSeoController {
     private final GeoSyncService geoSyncService;
     private final SeoGenerateService seoGenerateService;
     private final SyncProgressTracker progressTracker;
+    private final TranslationEnqueueService translationEnqueueService;
     private final SystemConfigMapper systemConfigMapper;
 
     private final ExecutorService syncExecutor = Executors.newSingleThreadExecutor();
@@ -235,6 +237,7 @@ public class AdminSeoController {
         seoSyncService.syncContentFromSeo(seoConfig);
         geoSyncService.refreshFilesQuietly();
         seoGenerateService.notifyAiCatalogReload();
+        translationEnqueueService.enqueueEntity("seo_config", seoConfig);
         return Result.success(seoConfig);
     }
 
@@ -251,6 +254,7 @@ public class AdminSeoController {
         seoSyncService.syncContentFromSeo(seoConfig);
         geoSyncService.refreshFilesQuietly();
         seoGenerateService.notifyAiCatalogReload();
+        translationEnqueueService.enqueueEntity("seo_config", seoConfig);
         return Result.success(seoConfig);
     }
 
@@ -405,6 +409,7 @@ public class AdminSeoController {
         seoConfigMapper.deleteById(id);
         geoSyncService.refreshFilesQuietly();
         seoGenerateService.notifyAiCatalogReload();
+        translationEnqueueService.removeResource("seo_config", id);
         return Result.success(null);
     }
 

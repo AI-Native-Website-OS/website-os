@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { aiService } from '@/lib/aiService';
 import { adminApi } from '@/lib/adminApi';
 import { Settings, Bot, Cpu, Database, MessageSquare, Activity, Globe, Check, AlertCircle, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
-import type { ConfigOut, RagConfigOut } from '@/types';
+import SyncProgressBar from '@/components/SyncProgressBar';
+import type { ConfigOut, RagConfigOut, SyncProgress } from '@/types';
 
 export default function AdminAi() {
   const { t } = useI18n();
@@ -17,6 +18,12 @@ export default function AdminAi() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const syncTimer = useRef<any>(null);
+
+  useEffect(() => () => {
+    if (syncTimer.current) clearInterval(syncTimer.current);
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -35,17 +42,38 @@ export default function AdminAi() {
   const handleSyncAll = async () => {
     setSyncing(true);
     setSyncResult(null);
+    setSyncProgress(null);
     try {
       const res: any = await adminApi.knowledge.syncAll();
-      const data = res?.data || res;
-      if (data) {
-        setSyncResult({ type: 'success', text: t('admin.ui.ai.syncDoneMsg').replace('{success}', String(data.success)).replace('{fail}', String(data.fail)) });
-      } else {
+      const taskId = res?.data?.taskId;
+      if (!taskId) {
         setSyncResult({ type: 'success', text: t('admin.ui.ai.syncDone') });
+        setSyncing(false);
+        return;
       }
+      setSyncProgress({ taskId, type: 'knowledge_sync', status: 'running', total: 0, current: 0, success: 0, fail: 0, currentItem: '', errorMessage: '', percent: 0 });
+      syncTimer.current = setInterval(async () => {
+        try {
+          const pr = await adminApi.knowledge.getSyncProgress(taskId);
+          const p = pr?.data;
+          if (!p) return;
+          setSyncProgress({ ...p });
+          if (p.status === 'completed' || p.status === 'error') {
+            if (syncTimer.current) { clearInterval(syncTimer.current); syncTimer.current = null; }
+            setSyncing(false);
+            setSyncResult(
+              p.status === 'completed'
+                ? { type: 'success', text: t('admin.ui.ai.syncDoneMsg').replace('{success}', String(p.success)).replace('{fail}', String(p.fail)) }
+                : { type: 'error', text: t('admin.ui.ai.syncFail').replace('{msg}', p.errorMessage || '') },
+            );
+          }
+        } catch {
+          if (syncTimer.current) { clearInterval(syncTimer.current); syncTimer.current = null; }
+          setSyncing(false);
+        }
+      }, 1000);
     } catch (e: any) {
       setSyncResult({ type: 'error', text: t('admin.ui.ai.syncFail').replace('{msg}', e?.message || '') });
-    } finally {
       setSyncing(false);
     }
   };
@@ -94,6 +122,7 @@ export default function AdminAi() {
               </div>
             )}
           </div>
+          {syncProgress && <SyncProgressBar progress={syncProgress} />}
           {ragConfig && !ragConfig.enabled && (
             <div className="mt-3 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />

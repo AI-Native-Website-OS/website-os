@@ -13,6 +13,7 @@ class ChatRequest(BaseModel):
     visitor_id: Optional[str] = None
     use_knowledge: Optional[bool] = None
     use_thinking: Optional[bool] = None
+    language: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -48,6 +49,7 @@ class MessageOut(BaseModel):
     attachments: Optional[List[Dict[str, Any]]] = None
     images: Optional[List[str]] = None
     display_content: Optional[str] = None
+    error: Optional[Any] = None
     timestamp: Optional[float] = None
 
 
@@ -86,6 +88,7 @@ class ConfigOut(BaseModel):
     llm_stop: Optional[List[str]] = None
     llm_seed: Optional[int] = None
     llm_thinking_auto_collapse: bool = True
+    llm_thinking_enabled: bool = False
     # Embedding
     embedding_provider: Optional[str] = None
     embedding_base_url: Optional[str] = None
@@ -200,6 +203,14 @@ class PromptConfigItem(BaseModel):
     sort_order: int = 0
 
 
+class TextStyle(BaseModel):
+    font_family: str = ""
+    font_size: Optional[float] = None  # px
+    color: str = ""
+    font_style: str = "normal"  # normal / bold / italic / bold-italic
+    letter_spacing: Optional[float] = None  # px
+
+
 class PromptConfigOut(BaseModel):
     system_prompt: str = ""
     suggestions: List[str] = []
@@ -207,6 +218,8 @@ class PromptConfigOut(BaseModel):
     banned_threshold: float = 0.82
     welcome_message: str = ""
     input_placeholder: str = ""
+    welcome_message_style: TextStyle = Field(default_factory=TextStyle)
+    input_placeholder_style: TextStyle = Field(default_factory=TextStyle)
 
 
 class PromptConfigSaveRequest(BaseModel):
@@ -216,6 +229,18 @@ class PromptConfigSaveRequest(BaseModel):
     banned_threshold: Optional[float] = None
     welcome_message: Optional[str] = None
     input_placeholder: Optional[str] = None
+    welcome_message_style: Optional[TextStyle] = None
+    input_placeholder_style: Optional[TextStyle] = None
+
+
+class SuggestionsGenerateRequest(BaseModel):
+    kb_ids: Optional[List[int]] = None
+    count: int = 6
+    language: str = "zh"
+
+
+class SuggestionsGenerateOut(BaseModel):
+    suggestions: List[str] = []
 
 
 class ModelConfigItem(BaseModel):
@@ -245,6 +270,7 @@ class TestConnectivityResult(BaseModel):
 class KnowledgeBaseCreateRequest(BaseModel):
     name: str
     description: str = ""
+    code: Optional[str] = None
     chunk_size: int = 1024
     chunk_overlap: int = 50
     chunk_separator: str = "\n\n"
@@ -277,6 +303,7 @@ class KnowledgeBaseUpdateRequest(BaseModel):
 class KnowledgeBaseOut(BaseModel):
     id: int
     name: str
+    code: str = ""
     description: str = ""
     status: int = 1
     chunk_size: int = 1024
@@ -350,13 +377,17 @@ class KnowledgeReembedOut(BaseModel):
 
 
 class SyncDocumentRequest(BaseModel):
-    kb_id: int
+    kb_id: Optional[int] = None
     source_type: str
     source_id: int
     title: str
     content: str
     file_path: str = ""
     images: Optional[List[Dict[str, Any]]] = None
+    # 按 code find-or-create 知识库（模块/分类自动分库）；提供时优先于 kb_id
+    kb_code: Optional[str] = None
+    kb_name: Optional[str] = None
+    kb_description: str = ""
 
 
 # ── SEO/GEO 内容生成 ────────────────────────────────────────────────

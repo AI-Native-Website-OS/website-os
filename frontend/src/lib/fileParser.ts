@@ -1,4 +1,5 @@
 import * as mammoth from 'mammoth';
+import { t } from '@/i18n/translate';
 
 export interface ParsedFileResult {
   textContent?: string;
@@ -16,7 +17,7 @@ export async function parseDocumentFile(file: File): Promise<ParsedFileResult> {
     try {
       return { textContent: await file.text() };
     } catch {
-      return { error: '无法读取文件内容' };
+      return { error: t('libUi.fileParser.readFailed') };
     }
   }
 
@@ -42,13 +43,13 @@ export async function parseDocumentFile(file: File): Promise<ParsedFileResult> {
   }
 
   if (file.size > MAX_BACKEND_FALLBACK_BYTES) {
-    return { error: '文件内容无法解析（文件过大），请使用知识库功能导入' };
+    return { error: t('libUi.fileParser.parseTooLarge') };
   }
 
   try {
     return { rawBase64: await fileToBase64(file) };
   } catch {
-    return { error: '无法读取文件内容' };
+    return { error: t('libUi.fileParser.readFailed') };
   }
 }
 

@@ -57,6 +57,8 @@ public class SecurityConfig {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(AbstractHttpConfigurer::disable)
+            // 允许同源页面通过 iframe 预览上传的文件（PDF 等）；仍阻止跨源框架嵌套，防点击劫持
+            .headers(headers -> headers.frameOptions().sameOrigin())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeRequests()
                 // 前台仅允许匿名提交线索：创建线索与访客行为建线索；

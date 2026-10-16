@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { parseBlockExtraData, validateBlockTypeData, BLOCK_TYPES } from '@/lib/blockData';
+import { parseBlockExtraData, validateBlockTypeData, blockTypes } from '@/lib/blockData';
 import BlockTypeEditor, { El } from './BlockTypeEditor';
 import { BLOCK_IMAGE_RULES } from '@/lib/uploadRules';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface BlockFormProps {
   item: { id?: number; sectionType?: string; title?: string; subtitle?: string; extraData?: string } | null;
@@ -13,6 +14,7 @@ interface BlockFormProps {
 }
 
 export default function BlockForm({ item, saving, onSave }: BlockFormProps) {
+  const { t } = useI18n();
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [type, setType] = useState('list');
@@ -49,9 +51,9 @@ export default function BlockForm({ item, saving, onSave }: BlockFormProps) {
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
-    if (!title.trim()) errs.title = '请输入区块标题';
-    if (title.length > 50) errs.title = '最多50个字符';
-    if (subtitle.length > 100) errs.subtitle = '最多100个字符';
+    if (!title.trim()) errs.title = t('adminComp.blockForm.errTitleRequired');
+    if (title.length > 50) errs.title = t('adminComp.blockForm.errTitleMax');
+    if (subtitle.length > 100) errs.subtitle = t('adminComp.blockForm.errSubtitleMax');
 
     const dataErrs = validateBlockTypeData(type, data);
     setErrors({ ...errs, ...dataErrs });
@@ -77,21 +79,21 @@ export default function BlockForm({ item, saving, onSave }: BlockFormProps) {
 
       <div className="space-y-3">
         <El errors={errors} errorKey="title">
-          <label className="block text-sm font-medium text-gray-700 mb-1">区块标题 <span className="text-red-400">*</span></label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="请输入区块标题" maxLength={50} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" />
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t('adminComp.blockForm.title')} <span className="text-red-400">*</span></label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('adminComp.blockForm.titlePlaceholder')} maxLength={50} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" />
           <p className="text-xs text-gray-400 mt-1 text-right">{title.length}/50</p>
         </El>
 
         <El errors={errors} errorKey="subtitle">
-          <label className="block text-sm font-medium text-gray-700 mb-1">区块副标题</label>
-          <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="选填，显示在标题下方作为补充说明" maxLength={100} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" />
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t('adminComp.blockForm.subtitle')}</label>
+          <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder={t('adminComp.blockForm.subtitlePlaceholder')} maxLength={100} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" />
           <p className="text-xs text-gray-400 mt-1 text-right">{subtitle.length}/100</p>
         </El>
 
         <El errors={errors} errorKey="type">
-          <label className="block text-sm font-medium text-gray-700 mb-1">展示类型 <span className="text-red-400">*</span></label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t('adminComp.blockForm.displayType')} <span className="text-red-400">*</span></label>
           <select value={type} onChange={(e) => handleTypeChange(e.target.value)} className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm">
-            {BLOCK_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label} — {t.desc}</option>)}
+            {blockTypes().map((bt) => <option key={bt.type} value={bt.type}>{bt.label} — {bt.desc}</option>)}
           </select>
         </El>
 
@@ -108,7 +110,7 @@ export default function BlockForm({ item, saving, onSave }: BlockFormProps) {
           className="px-5 py-2 bg-black text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-          {saving ? '保存中...' : '保存'}
+          {saving ? t('adminComp.saving') : t('adminComp.save')}
         </button>
       </div>
     </div>

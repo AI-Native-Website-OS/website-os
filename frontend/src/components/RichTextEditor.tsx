@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { Bold, Italic, List, ListOrdered, Heading1, Heading2, Quote, Undo } from 'lucide-react';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface RichTextEditorProps {
   value: string;
@@ -11,6 +12,7 @@ interface RichTextEditorProps {
 }
 
 export default function RichTextEditor({ value, onChange, placeholder, minHeight = 300 }: RichTextEditorProps) {
+  const { t } = useI18n();
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
 
@@ -50,14 +52,14 @@ export default function RichTextEditor({ value, onChange, placeholder, minHeight
   }, []);
 
   const toolbar = [
-    { icon: Bold, cmd: 'bold', title: '加粗' },
-    { icon: Italic, cmd: 'italic', title: '斜体' },
-    { icon: Heading1, cmd: 'formatBlock', val: 'h2', title: '标题1' },
-    { icon: Heading2, cmd: 'formatBlock', val: 'h3', title: '标题2' },
-    { icon: List, cmd: 'insertUnorderedList', title: '无序列表' },
-    { icon: ListOrdered, cmd: 'insertOrderedList', title: '有序列表' },
-    { icon: Quote, cmd: 'formatBlock', val: 'blockquote', title: '引用' },
-    { icon: Undo, cmd: 'undo', title: '撤销' },
+    { icon: Bold, cmd: 'bold', title: t('adminComp.richText.bold') },
+    { icon: Italic, cmd: 'italic', title: t('adminComp.richText.italic') },
+    { icon: Heading1, cmd: 'formatBlock', val: 'h2', title: t('adminComp.richText.h1') },
+    { icon: Heading2, cmd: 'formatBlock', val: 'h3', title: t('adminComp.richText.h2') },
+    { icon: List, cmd: 'insertUnorderedList', title: t('adminComp.richText.ul') },
+    { icon: ListOrdered, cmd: 'insertOrderedList', title: t('adminComp.richText.ol') },
+    { icon: Quote, cmd: 'formatBlock', val: 'blockquote', title: t('adminComp.richText.quote') },
+    { icon: Undo, cmd: 'undo', title: t('adminComp.richText.undo') },
   ];
 
   return (
@@ -91,7 +93,7 @@ export default function RichTextEditor({ value, onChange, placeholder, minHeight
         />
         {(!value || value === '<br>') && !isFocused && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm pointer-events-none px-4">
-            {placeholder || '请输入内容...'}
+            {placeholder || t('adminComp.richText.placeholder')}
           </div>
         )}
       </div>
