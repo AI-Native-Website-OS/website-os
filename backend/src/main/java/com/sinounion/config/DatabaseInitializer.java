@@ -20,11 +20,13 @@ import java.util.Map;
 public class DatabaseInitializer {
 
     private final JdbcTemplate jdbcTemplate;
+    private final SqlSchemaBootstrap sqlSchemaBootstrap;
 
     private boolean vectorAvailable;
 
-    public DatabaseInitializer(JdbcTemplate jdbcTemplate) {
+    public DatabaseInitializer(JdbcTemplate jdbcTemplate, SqlSchemaBootstrap sqlSchemaBootstrap) {
         this.jdbcTemplate = jdbcTemplate;
+        this.sqlSchemaBootstrap = sqlSchemaBootstrap;
     }
 
     @PostConstruct
@@ -37,9 +39,11 @@ public class DatabaseInitializer {
             }
             vectorAvailable = vectorExtensionExists();
 
-            createMissingTables();
+            // 以 sinounion.sql 为唯一数据源：每次启动补齐缺失的表/字段/索引/触发器，
+            // 种子 INSERT 仅在首次初始化时执行。
+            sqlSchemaBootstrap.bootstrap();
 
-            migrateMissingColumns();
+            migrateVectorColumns();
 
             ensureSuperAdminPermissions();
 
@@ -86,107 +90,11 @@ public class DatabaseInitializer {
         }
     }
 
-    /** 幂等创建新增表（存量库）；新装库由 sinounion.sql 建表。 */
-    private void createMissingTables() {
-        String[] ddl = {
-            "CREATE TABLE IF NOT EXISTS translation_entries ("
-                + "id BIGSERIAL PRIMARY KEY,"
-                + "resource_type VARCHAR(64) NOT NULL,"
-                + "resource_id BIGINT NOT NULL,"
-                + "field VARCHAR(64) NOT NULL,"
-                + "locale VARCHAR(16) NOT NULL,"
-                + "source_hash VARCHAR(64) NOT NULL DEFAULT '',"
-                + "source_text TEXT,"
-                + "translated_text TEXT,"
-                + "status VARCHAR(16) NOT NULL DEFAULT 'final',"
-                + "engine VARCHAR(16) NOT NULL DEFAULT 'llm',"
-                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-                + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_entries_key"
-                + " ON translation_entries(resource_type, resource_id, field, locale)",
-            "CREATE INDEX IF NOT EXISTS idx_translation_entries_lookup"
-                + " ON translation_entries(resource_type, resource_id, locale)",
-            "CREATE TABLE IF NOT EXISTS translation_jobs ("
-                + "id BIGSERIAL PRIMARY KEY,"
-                + "resource_type VARCHAR(64) NOT NULL,"
-                + "resource_id BIGINT NOT NULL,"
-                + "field VARCHAR(64) NOT NULL,"
-                + "locale VARCHAR(16) NOT NULL,"
-                + "source_hash VARCHAR(64) NOT NULL DEFAULT '',"
-                + "source_text TEXT,"
-                + "kind VARCHAR(16) NOT NULL DEFAULT 'translate',"
-                + "status VARCHAR(16) NOT NULL DEFAULT 'pending',"
-                + "attempts INT NOT NULL DEFAULT 0,"
-                + "error TEXT,"
-                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-                + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_jobs_key"
-                + " ON translation_jobs(resource_type, resource_id, field, locale, source_hash, kind)",
-            "CREATE INDEX IF NOT EXISTS idx_translation_jobs_status"
-                + " ON translation_jobs(status, created_at)",
-        };
-        for (String stmt : ddl) {
-            try {
-                jdbcTemplate.execute(stmt);
-            } catch (Exception e) {
-                log.warn("Failed to create translation table/index: {}", e.getMessage());
-            }
-        }
-    }
-
-    private void migrateMissingColumns() {
-        String[][] columnsToAdd = {
-            {"content_items", "category_id", "BIGINT"},
-            {"content_items", "is_top", "INT DEFAULT 0"},
-            {"content_items", "scheduled_at", "TIMESTAMP"},
-            {"content_items", "published_at", "TIMESTAMP"},
-            {"content_items", "author", "VARCHAR(100)"},
-            {"content_items", "source", "VARCHAR(100)"},
-            {"content_items", "download_count", "INT DEFAULT 0"},
-            {"content_items", "require_form", "INT DEFAULT 0"},
-            {"content_items", "cover_scale", "VARCHAR(20)"},
-            {"core_modules", "is_system", "SMALLINT DEFAULT 0"},
-            {"users", "deleted", "SMALLINT DEFAULT 0"},
-            {"users", "role", "VARCHAR(30) DEFAULT 'VISITOR'"},
-            {"users", "user_type", "VARCHAR(20) DEFAULT 'EXTERNAL'"},
-            {"users", "department", "VARCHAR(100)"},
-            {"faqs", "deleted", "SMALLINT DEFAULT 0"},
-            {"contacts", "icon", "VARCHAR(50)"},
-            // leads IP/城市 增强
-            {"leads", "ip_address", "VARCHAR(50)"},
-            {"leads", "country", "VARCHAR(100)"},
-            {"leads", "province", "VARCHAR(100)"},
-            {"leads", "city", "VARCHAR(100)"},
-            // page_views 地理 增强（地域分布地图）
-            {"page_views", "country", "VARCHAR(100)"},
-            {"page_views", "province", "VARCHAR(100)"},
-            {"page_views", "city", "VARCHAR(100)"},
-            // page_views 停留时长（秒）
-            {"page_views", "duration", "INT DEFAULT 0"},
-            // pgvector / knowledge base migrations
-            {"knowledge_documents", "source_type", "VARCHAR(50) DEFAULT NULL"},
-            {"knowledge_documents", "source_id", "BIGINT DEFAULT NULL"},
-            {"knowledge_documents", "content", "TEXT DEFAULT ''"},
-            {"knowledge_bases", "code", "VARCHAR(128) DEFAULT NULL"},
-            // seo_configs GEO 扩展
-            {"seo_configs", "robots", "VARCHAR(50)"},
-            {"seo_configs", "og_type", "VARCHAR(20)"},
-            {"seo_configs", "geo_summary", "TEXT"},
-            {"seo_configs", "enabled", "INT DEFAULT 1"},
-        };
-
-        for (String[] col : columnsToAdd) {
-            if (!columnExists(col[0], col[1])) {
-                try {
-                    jdbcTemplate.execute("ALTER TABLE " + col[0] + " ADD COLUMN " + col[1] + " " + col[2]);
-                    log.info("Added column {}.{} to existing table", col[0], col[1]);
-                } catch (Exception e) {
-                    log.warn("Failed to add column {}.{}: {}", col[0], col[1], e.getMessage());
-                }
-            }
-        }
-
-        // Add/upgrade embedding column on knowledge_chunks (vector extension already created in init())
+    /**
+     * pgvector 相关列无法在 sinounion.sql 中稳定声明（依赖扩展与旧库升级），单独处理：
+     * 为 knowledge_chunks 补 embedding 列并做类型升级，同时确保存在默认知识库。
+     */
+    private void migrateVectorColumns() {
         if (tableExists("knowledge_chunks")) {
             if (!columnExists("knowledge_chunks", "embedding")) {
                 if (vectorAvailable) {
@@ -211,24 +119,6 @@ public class DatabaseInitializer {
                 } catch (Exception e) {
                     log.warn("Failed to migrate embedding column type: {}", e.getMessage());
                 }
-            }
-        }
-
-        // Create unique index on knowledge_documents(source_type, source_id) if not exists
-        if (tableExists("knowledge_documents") && columnExists("knowledge_documents", "source_type")) {
-            try {
-                jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_source ON knowledge_documents(source_type, source_id)");
-            } catch (Exception e) {
-                log.debug("Index idx_docs_source may already exist: {}", e.getMessage());
-            }
-        }
-
-        // Unique index on knowledge_bases.code (stable KB identifier for auto-routed content)
-        if (tableExists("knowledge_bases") && columnExists("knowledge_bases", "code")) {
-            try {
-                jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_kb_code ON knowledge_bases(code)");
-            } catch (Exception e) {
-                log.debug("Index ux_kb_code may already exist: {}", e.getMessage());
             }
         }
 

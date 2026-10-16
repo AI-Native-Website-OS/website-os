@@ -359,7 +359,7 @@ def _resolve_upload_dir(upload_path: str) -> str:
 
 
 def resolve_upload_temp_path(upload_path: str) -> str:
-    """AI 对话附件临时目录：解析后的 UPLOAD_PATH + "/temp"。"""
+    """AI 对话附件临时目录：上传目录下的 temp 子目录。"""
     return os.path.join(_resolve_upload_dir(upload_path or "uploads"), "temp")
 
 
@@ -412,7 +412,7 @@ def _read_local_file(path: Optional[str]) -> Optional[bytes]:
 
 
 def read_local_temp_media(url_or_path: str, upload_path: str = "") -> Optional[bytes]:
-    """显式从 UPLOAD_PATH/temp 读取 AI 对话附件（不依赖 /uploads/ URL 前缀映射）。
+    """显式从上传目录的 temp 子目录读取 AI 对话附件（不依赖 /uploads/ URL 前缀映射）。
 
     兼容 /uploads/temp/xxx、/temp/xxx、uploads/temp/xxx、纯文件名等引用形式；
     仅按文件名在上传临时目录内查找，并做越界校验，防止路径穿越。

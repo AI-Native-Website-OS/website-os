@@ -1,8 +1,10 @@
 package com.sinounion.utils;
 
+import com.sinounion.config.SystemSecretService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -11,10 +13,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Component
+@RequiredArgsConstructor
 public class JwtUtils {
 
-    @Value("${JWT_SECRET}")
-    private String secret;
+    private final SystemSecretService systemSecretService;
 
     @Value("${jwt.expiration}")
     private Long expiration;
@@ -61,13 +63,13 @@ public class JwtUtils {
                 .setSubject(subject)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + exp))
-                .signWith(SignatureAlgorithm.HS512, secret)
+                .signWith(SignatureAlgorithm.HS512, systemSecretService.getJwtSecret())
                 .compact();
     }
 
     public Claims parseToken(String token) {
         return Jwts.parser()
-                .setSigningKey(secret)
+                .setSigningKey(systemSecretService.getJwtSecret())
                 .parseClaimsJws(token)
                 .getBody();
     }

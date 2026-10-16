@@ -73,7 +73,7 @@ A CMS at its core, AI as its engine, SEO / GEO as the gateway to traffic, and Gr
 | AI Service | Python + FastAPI + pgvector |
 
 
-## Quick Start
+## Local Deployment - Quick Start
 
 > Prerequisites: Java 8+ & Maven, Node.js >= 24.16 & npm, Python 3.12+, and Docker (only for running PostgreSQL + Redis).
 
@@ -109,14 +109,14 @@ cd AI_consultant && pip install -r ..\requirements.txt && python run.py
 # Frontend (:3200)
 cd frontend && npm ci && npm run dev
 ```
+## Docker Deployment - Quick Start
+Docker Containerized Deployment — see [README.md](./docker/README.en.md) for details.
 
 ### 4. Access the services
 
 | Service | URL |
 | ------ | ----------------------- |
 | Website home | <http://localhost:3200> |
-| Backend API | <http://localhost:8080> |
-| AI service | <http://localhost:8000> |
 
 Default super admin: `admin` / `admin123`.
 

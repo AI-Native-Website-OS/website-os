@@ -18,7 +18,7 @@ import java.net.URLEncoder;
 @RequestMapping("/files")
 public class FileController {
 
-    @Value("${UPLOAD_PATH}")
+    @Value("${upload.path}")
     private String uploadPath;
 
     @Operation(summary = "获取上传的文件")

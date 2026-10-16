@@ -10,7 +10,7 @@ server:
 
 spring:
   application:
-    name: ${SPRING_APPLICATION_NAME}
+    name: MyApp
   datasource:
     driver-class-name: org.postgresql.Driver
     # 默认由 PG_* 推导（PG_SERVICE_URL）；特殊场景可用 SPRING_DATASOURCE_* 单独覆盖
@@ -54,9 +54,8 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# JWT配置
+# JWT配置（签名密钥由 system_secrets 表启动时自动生成，见 SystemSecretService）
 jwt:
-  secret: ${JWT_SECRET}
   # access token 有效期，单位为毫秒（JwtUtils 中 new Date(now + expiration)）；默认 24 小时
   expiration: 86400000
   # refresh token 有效期，单位为毫秒；默认 7 天
@@ -64,14 +63,12 @@ jwt:
 
 # 文件上传配置
 upload:
-  path: ${UPLOAD_PATH}
+  path: uploads
   # 允许上传的 MIME 类型（固定值）
   allowed-types: image/png,image/jpeg,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown
 
 # 敏感配置加密（短信 Secret / 模型 API Key 等）：传输用 RSA、落盘用 AES
-# CONFIG_CRYPTO_AES_KEY 为 Base64 编码的 32 字节密钥；未配置时启动自动生成并写入 .env
-config-crypto:
-  aes-key: ${CONFIG_CRYPTO_AES_KEY:}
+# AES 落盘密钥由 system_secrets 表启动时自动生成，见 SystemSecretService
 
 # SpringDoc配置
 springdoc:
@@ -85,11 +82,11 @@ ai:
   service:
     # 默认由 PYTHON_HOST/PYTHON_PORT 推导（PYTHON_SERVICE_URL）；特殊场景可用 PYTHON_SERVICE_URL 显式覆盖
     url: ${PYTHON_SERVICE_URL:http://${PYTHON_HOST:localhost}:${PYTHON_PORT:8000}}
-    memories-dir: ${AI_SERVICE_MEMORIES_DIR}
+    memories-dir: ../AI_consultant/memories
 
 # SEO文件路径（相对于工作目录或绝对路径）
 app:
-  frontend-public-dir: ${APP_FRONTEND_PUBLIC_DIR}
+  frontend-public-dir: ../frontend/public
   frontend-dist-dir: ../frontend/dist
   # 在线编辑配置文件路径（固定为空，由 AdminConfigFileController 按环境探测兜底）
   config-file-path:

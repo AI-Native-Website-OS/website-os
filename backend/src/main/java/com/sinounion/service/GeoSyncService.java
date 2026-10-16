@@ -52,7 +52,7 @@ public class GeoSyncService {
     private final SeoSyncService seoSyncService;
     private final SiteConfigService siteConfigService;
 
-    @Value("${APP_FRONTEND_PUBLIC_DIR}")
+    @Value("${app.frontend-public-dir}")
     private String frontendPublicDir;
 
     @Value("${app.frontend-dist-dir:../frontend/dist}")

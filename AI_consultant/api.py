@@ -138,7 +138,7 @@ def _extract_file_attachment(att: dict, req: ChatRequest, upload_path: str = "")
         if att.get("base64"):
             raw = _b64.b64decode(att["base64"])
         else:
-            # 无内联 base64 时，显式从 UPLOAD_PATH/temp 读取本地附件
+            # 无内联 base64 时，显式从上传目录的 temp 子目录读取本地附件
             ref = att.get("url") or att.get("file_path") or att.get("path") or ""
             if ref:
                 raw = read_local_temp_media(ref, upload_path)

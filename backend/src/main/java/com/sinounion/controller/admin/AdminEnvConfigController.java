@@ -41,8 +41,6 @@ public class AdminEnvConfigController {
         // ── Ports ──
         "BACKEND_HOST", "BACKEND_PORT", "PYTHON_HOST", "PYTHON_PORT", "FRONTEND_HOST", "FRONTEND_PORT",
         "API_SERVER_URL",
-        // ── JWT ──
-        "JWT_SECRET",
         // ── LLM Model Config ──
         "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
         "LLM_TEMPERATURE", "LLM_MAX_TOKENS", "LLM_TOP_P",
@@ -62,12 +60,7 @@ public class AdminEnvConfigController {
         "RERANK_MODEL", "RERANK_ENABLED", "RERANK_TOP_K",
         // ── Logging ──
         "LOG_LEVEL", "LOG_FILE",
-        "LOGGING_LEVEL_COM_SINOUNION", "LOGGING_LEVEL_ORG_SPRINGFRAMEWORK",
-        // ── Backend ──
-        "SPRING_APPLICATION_NAME",
-        "UPLOAD_PATH",
-        "AI_SERVICE_MEMORIES_DIR",
-        "APP_FRONTEND_PUBLIC_DIR"
+        "LOGGING_LEVEL_COM_SINOUNION", "LOGGING_LEVEL_ORG_SPRINGFRAMEWORK"
     );
 
     private Path resolveEnvPath() {

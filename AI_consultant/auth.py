@@ -1,7 +1,9 @@
 """AI 服务鉴权（双通道）。
 
-- 浏览器管理端：携带后端签发的 JWT（HS256/384/512，密钥与 Java 端 JWT_SECRET 一致）。
-- 服务间调用：Java 后端携带 X-Internal-Token（AI_INTERNAL_TOKEN），或退化为服务端 JWT。
+- 浏览器管理端：携带后端签发的 JWT（HS256/384/512，密钥与 Java 端一致）。
+- 服务间调用：Java 后端携带 X-Internal-Token，或退化为服务端 JWT。
+
+上述密钥（JWT_SECRET / AI_INTERNAL_TOKEN）由后端启动时自动生成并存入 system_secrets 表，本服务只读。
 
 公开接口（聊天、健康检查、只读的 config/prompt-config 等）不经过鉴权。
 """
@@ -10,7 +12,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import time
 from typing import Optional
 
@@ -117,11 +118,19 @@ def verify_jwt(token: str, secret: str) -> dict:
 
 
 def _jwt_secret() -> str:
-    return (os.getenv("JWT_SECRET") or "").strip()
+    try:
+        from db import get_system_secret
+        return get_system_secret("JWT_SECRET")
+    except Exception:
+        return ""
 
 
 def _internal_token() -> str:
-    return (os.getenv("AI_INTERNAL_TOKEN") or "").strip()
+    try:
+        from db import get_system_secret
+        return get_system_secret("AI_INTERNAL_TOKEN")
+    except Exception:
+        return ""
 
 
 def authenticate(authorization: Optional[str], x_internal_token: Optional[str]) -> dict:

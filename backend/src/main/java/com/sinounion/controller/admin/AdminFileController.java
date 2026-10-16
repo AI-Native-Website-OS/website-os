@@ -22,7 +22,7 @@ import java.util.Map;
 @RequestMapping("/admin/system/files")
 public class AdminFileController {
 
-    @Value("${APP_FRONTEND_PUBLIC_DIR}")
+    @Value("${app.frontend-public-dir}")
     private String frontendPublicDir;
 
     @Value("${app.frontend-dist-dir:../frontend/dist}")

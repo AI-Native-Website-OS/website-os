@@ -47,7 +47,7 @@ public class UploadController {
     private static final Set<String> FORBIDDEN_DOC_EXTENSIONS = new HashSet<>(Arrays.asList(
             "exe", "php", "jsp", "sh", "bat", "cmd"));
 
-    @Value("${UPLOAD_PATH}")
+    @Value("${upload.path}")
     private String uploadPath;
 
     @Value("${upload.allowed-types}")

@@ -14,7 +14,7 @@ import java.io.File;
 @DependsOn("databaseInitializer")
 public class TempFileCleanupTask {
 
-    @Value("${UPLOAD_PATH}")
+    @Value("${upload.path}")
     private String uploadPath;
 
     @Scheduled(cron = "0 0 0 * * ?")

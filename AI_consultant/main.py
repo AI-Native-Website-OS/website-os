@@ -299,8 +299,8 @@ class Config:
         self.reranker_top_k = _int("RERANK_TOP_K", 6)
 
         # ── 媒体文件（图片/附件文档向量化用）──
-        # 媒体根目录直接复用 UPLOAD_PATH；对话附件存于其 temp 子目录，代码中按需组合 UPLOAD_PATH + "/temp"
-        self.upload_path = _str("UPLOAD_PATH", "uploads")
+        # 媒体根目录固定为 uploads；对话附件存于其 temp 子目录，代码中按需组合 "uploads/temp"
+        self.upload_path = "uploads"
         # 后端兜底拉取地址（BACKEND_SERVER_URL）：默认由 BACKEND_HOST/BACKEND_PORT 推导；特殊场景可显式覆盖
         self.backend_base_url = _str("BACKEND_SERVER_URL", "") or (
             f"http://{_str('BACKEND_HOST', 'localhost')}:{_str('BACKEND_PORT', '8080')}"
@@ -410,11 +410,15 @@ _DB_CONFIG_CACHE_TTL = 5.0
 
 
 def _config_crypto_key() -> Optional[bytes]:
-    """读取敏感配置 AES 落盘密钥（与后端 CONFIG_CRYPTO_AES_KEY 一致）。
+    """读取敏感配置 AES 落盘密钥（由后端启动时生成并存入 system_secrets 表）。
 
     兼容 Base64(16/24/32 字节) 与普通字符串两种写法；普通字符串经 SHA-256 派生。
     """
-    raw = os.getenv("CONFIG_CRYPTO_AES_KEY", "").strip()
+    try:
+        from db import get_system_secret
+        raw = get_system_secret("CONFIG_CRYPTO_AES_KEY")
+    except Exception:
+        raw = ""
     if not raw:
         return None
     try:
@@ -436,7 +440,7 @@ def _decrypt_db_value(value: str) -> str:
         raise RuntimeError("检测到加密敏感配置(enc:v1:)，但未安装 cryptography 依赖")
     key = _config_crypto_key()
     if key is None:
-        raise RuntimeError("检测到加密敏感配置(enc:v1:)，但缺少 CONFIG_CRYPTO_AES_KEY 环境变量")
+        raise RuntimeError("检测到加密敏感配置(enc:v1:)，但缺少 CONFIG_CRYPTO_AES_KEY（system_secrets 表）")
     data = base64.b64decode(value[len("enc:v1:"):])
     nonce, ciphertext = data[:12], data[12:]
     return AESGCM(key).decrypt(nonce, ciphertext, None).decode("utf-8")

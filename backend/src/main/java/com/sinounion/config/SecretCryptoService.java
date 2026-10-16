@@ -1,23 +1,18 @@
 package com.sinounion.config;
 
 import com.sinounion.util.SensitiveKeys;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -25,11 +20,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 
 /**
  * 敏感配置项加解密服务。
@@ -38,11 +29,12 @@ import java.util.Set;
  *   传输层  — 前端用后端下发的 RSA 公钥（OAEP-SHA256）加密新值，密文以 {@code rsa:v1:} 前缀进入请求体；
  *   存储层  — 敏感值在 system_configs 表中以 AES-256-GCM 密文保存，以 {@code enc:v1:} 前缀标识。
  *
- * AES 密钥来源：环境变量 CONFIG_CRYPTO_AES_KEY（Base64，32 字节；也兼容任意字符串并自动派生）。
- * 未配置时自动生成并持久化到项目 .env，保证重启后仍可解密存量密文。
+ * AES 密钥来源：system_secrets 表（由后端启动时自动生成并持久化，见 {@link SystemSecretService}），
+ * Base64(32 字节)，兼容任意字符串并自动 SHA-256 派生。重启后复用同一密钥，保证存量密文可解密。
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class SecretCryptoService {
 
     private static final String ENC_PREFIX = "enc:v1:";
@@ -53,13 +45,10 @@ public class SecretCryptoService {
     private static final int IV_LEN = 12;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
-    @Value("${config-crypto.aes-key:}")
-    private String configuredAesKey;
+    private final SystemSecretService systemSecretService;
 
     private SecretKey aesKey;
     private KeyPair rsaKeyPair;
-    /** 自动生成 AES key 且未能持久化时为 true：此时不执行存量明文加密迁移，避免重启后无法解密。 */
-    private volatile boolean aesKeyEphemeral;
 
     @PostConstruct
     public void init() {
@@ -79,24 +68,7 @@ public class SecretCryptoService {
 
     private void initAesKey() {
         try {
-            String raw = configuredAesKey == null ? "" : configuredAesKey.trim();
-            if (!raw.isEmpty()) {
-                aesKey = deriveAesKey(raw);
-                return;
-            }
-            KeyGenerator generator = KeyGenerator.getInstance(AES_ALGO);
-            generator.init(256);
-            SecretKey generated = generator.generateKey();
-            String b64 = Base64.getEncoder().encodeToString(generated.getEncoded());
-            if (persistAesKeyToEnv(b64)) {
-                aesKey = generated;
-                log.warn("CONFIG_CRYPTO_AES_KEY 未配置，已自动生成并写入 .env；生产环境请显式配置强随机密钥。");
-            } else {
-                aesKey = generated;
-                aesKeyEphemeral = true;
-                log.error("CONFIG_CRYPTO_AES_KEY 未配置且无法写入 .env，当前使用一次性内存密钥，"
-                    + "重启后存量密文将无法解密，已跳过存量数据加密迁移。");
-            }
+            aesKey = deriveAesKey(systemSecretService.getAesKey());
         } catch (Exception e) {
             throw new IllegalStateException("初始化 AES 密钥失败", e);
         }
@@ -116,42 +88,12 @@ public class SecretCryptoService {
         return new SecretKeySpec(key, AES_ALGO);
     }
 
-    private boolean persistAesKeyToEnv(String b64) {
-        Path envPath = resolveEnvPath();
-        try {
-            List<String> lines = Files.exists(envPath)
-                ? new ArrayList<>(Files.readAllLines(envPath, StandardCharsets.UTF_8))
-                : new ArrayList<>();
-            for (String line : lines) {
-                String t = line.trim();
-                if (t.startsWith("CONFIG_CRYPTO_AES_KEY=")) {
-                    return true; // 已存在（理论上不会走到这里）
-                }
-            }
-            lines.add("CONFIG_CRYPTO_AES_KEY=" + b64);
-            Files.write(envPath, lines, StandardCharsets.UTF_8);
-            return true;
-        } catch (IOException e) {
-            log.error("写入 CONFIG_CRYPTO_AES_KEY 到 .env 失败", e);
-            return false;
-        }
-    }
-
-    private Path resolveEnvPath() {
-        String userDir = System.getProperty("user.dir");
-        Path p = Paths.get(userDir, "..", ".env").normalize();
-        if (Files.exists(p)) return p;
-        p = Paths.get(userDir, ".env").normalize();
-        if (Files.exists(p)) return p;
-        return Paths.get(userDir, "..", ".env").normalize();
-    }
-
     public boolean isSensitive(String key) {
         return SensitiveKeys.isSensitive(key);
     }
 
     public boolean isAesKeyEphemeral() {
-        return aesKeyEphemeral;
+        return systemSecretService.isAesKeyEphemeral();
     }
 
     /** 是否 AES 落盘密文。 */

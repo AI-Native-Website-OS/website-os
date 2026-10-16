@@ -23,7 +23,7 @@ import java.util.UUID;
 @RequestMapping("/upload/chat_temp")
 public class ChatUploadController {
 
-    @Value("${UPLOAD_PATH}")
+    @Value("${upload.path}")
     private String uploadPath;
 
     private String absoluteUploadPath;

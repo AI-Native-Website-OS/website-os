@@ -20,7 +20,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final LocaleInterceptor localeInterceptor;
 
-    @Value("${UPLOAD_PATH}")
+    @Value("${upload.path}")
     private String uploadPath;
 
     private String absoluteUploadPath;

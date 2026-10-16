@@ -5,7 +5,7 @@
 -- ============================================================
 
 
-CREATE EXTENSION vector;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $func$
@@ -136,9 +136,9 @@ COMMENT ON COLUMN core_modules.status IS '1=启用 0=禁用';
 COMMENT ON COLUMN core_modules.module_columns IS '首页模块展示列数(默认4)';
 
 INSERT INTO core_modules (module_key, module_name, module_title, module_description, module_type, is_system, path, sort_order, status) VALUES
-('home',  '首页', '', '', 2, 1, '/about', 0, 1)
+('home',  '首页', '', '', 2, 1, '/about', 0, 1),
 ('demo-product',   '演示产品',   '演示模块', '这是一条示例种子数据，用于演示产品类自定义模块', 1, 0, '/demo-product', 1, 1),
-('demo-solution',  '演示方案', '演示模块', '这是一条示例种子数据，用于演示解决方案类自定义模块', 2, 0, '/demo-solution', 2, 1)
+('demo-solution',  '演示方案', '演示模块', '这是一条示例种子数据，用于演示解决方案类自定义模块', 2, 0, '/demo-solution', 2, 1),
 ('about',  '关于我们', '', '', 2, 1, '/', 3, 0)
 ON CONFLICT (module_key) DO NOTHING;
 
@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS content_items (
     summary TEXT,
     content TEXT,
     cover_image VARCHAR(255),
+    cover_scale VARCHAR(20),
     file_path VARCHAR(255),
     file_name VARCHAR(255),
     file_size BIGINT,
@@ -491,6 +492,23 @@ CREATE TRIGGER trg_system_configs_updated_at BEFORE UPDATE ON system_configs
 
 COMMENT ON TABLE system_configs IS '系统配置表';
 
+-- 23.1 系统引导密钥表（JWT 签名密钥 / 服务间内部令牌 / 敏感配置 AES 落盘密钥）
+-- 由后端启动时自动生成并写入，Python AI 服务只读；明文存储，仅内部读取，不经任何 API 暴露。
+CREATE TABLE IF NOT EXISTS system_secrets (
+    id BIGSERIAL PRIMARY KEY,
+    secret_key VARCHAR(64) NOT NULL UNIQUE,
+    secret_value TEXT NOT NULL,
+    description VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+DROP TRIGGER IF EXISTS trg_system_secrets_updated_at ON system_secrets;
+CREATE TRIGGER trg_system_secrets_updated_at BEFORE UPDATE ON system_secrets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE system_secrets IS '系统引导密钥表（启动时自动生成）';
+
 -- 24. 用户行为表
 CREATE TABLE IF NOT EXISTS user_behaviors (
     id BIGSERIAL PRIMARY KEY,
@@ -513,6 +531,10 @@ CREATE TABLE IF NOT EXISTS page_views (
     page_url VARCHAR(255),
     visitor_id VARCHAR(100),
     ip_address VARCHAR(50),
+    country VARCHAR(100),
+    province VARCHAR(100),
+    city VARCHAR(100),
+    duration INT DEFAULT 0,
     user_agent VARCHAR(500),
     referer VARCHAR(255),
     visit_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -649,8 +671,8 @@ INSERT INTO contacts (type, value, sort_order) VALUES
 ON CONFLICT DO NOTHING;
 
 -- ----- 默认管理员账号（密码: admin123）-----
-INSERT INTO users (username, password, email, real_name, role, user_type, status, deleted)
-VALUES ('admin', '$2a$10$lmSNfJTvmFe0.t.5WBTUyuPmqwFWZ.7KzDfEvgBc3gyYj/qz5vJSy', 'admin@example.cn', '超级管理', 'SUPER_ADMIN', 'INTERNAL', 1, 0)
+INSERT INTO users (username, password, email,phone, real_name, role, user_type, status, deleted)
+VALUES ('admin', '$2a$10$lmSNfJTvmFe0.t.5WBTUyuPmqwFWZ.7KzDfEvgBc3gyYj/qz5vJSy', 'admin@example.cn','13750697409', '超级管理', 'SUPER_ADMIN', 'INTERNAL', 1, 0)
 ON CONFLICT (username) DO NOTHING;
 
 -- ----- 默认首页页脚配置（占位，部署后可在后台修改）-----
@@ -673,7 +695,7 @@ VALUES
     ('ai_user_rate_limit', '30', 'system', 'ai_user_rate_limit'),
     (
         'home_footer',
-        '{"logo":"/uploads/image/footer/71c0ed52-c438-4821-bdae-6bde66dd889f.png","copyright":"示例科技有限公司 版权所有","policeIcon":"","icpNumber":"ICP备案号待配置","icpUrl":"","policeNumber":"公安备案号待配置","policeUrl":"","extra":[{"label":"公司名称","value":"示例科技有限公司"},{"label":"公司地址","value":"中国"},{"label":"联系电话","value":"010-00000000"},{"label":"邮箱","value":"demo@example.com"}]}',
+        '{"logo":"/logo.png","copyright":"示例科技有限公司 版权所有","policeIcon":"","icpNumber":"ICP备案号待配置","icpUrl":"","policeNumber":"公安备案号待配置","policeUrl":"","extra":[{"label":"公司名称","value":"示例科技有限公司"},{"label":"公司地址","value":"中国"},{"label":"联系电话","value":"010-00000000"},{"label":"邮箱","value":"demo@example.com"}]}',
         'json',
         '首页页脚内容配置'
     )

@@ -60,6 +60,41 @@ def get_db():
         db.close()
 
 
+# ── 系统引导密钥（system_secrets，后端启动时自动生成）──────────────
+
+_SECRET_CACHE_TTL = 10.0
+_secret_cache = {"ts": 0.0, "values": None}
+
+
+def _load_all_system_secrets():
+    """读取 system_secrets 全表；返回 (dict, ok)。异常时 ok=False，不污染缓存。"""
+    try:
+        from sqlalchemy import text
+        with get_db() as db:
+            rows = db.execute(
+                text("SELECT secret_key, secret_value FROM system_secrets")
+            ).fetchall()
+        return {r[0]: r[1] for r in rows}, True
+    except Exception:
+        return {}, False
+
+
+def get_system_secret(key: str) -> str:
+    """读取引导密钥（JWT_SECRET / AI_INTERNAL_TOKEN / CONFIG_CRYPTO_AES_KEY）。
+
+    带短 TTL 缓存；读取失败或缺失时返回空串（调用方据此判定未就绪）。
+    """
+    import time
+    now = time.time()
+    if _secret_cache["values"] is None or now - _secret_cache["ts"] > _SECRET_CACHE_TTL:
+        values, ok = _load_all_system_secrets()
+        if not ok:
+            return ""
+        _secret_cache["values"] = values
+        _secret_cache["ts"] = now
+    return (_secret_cache["values"].get(key) or "").strip()
+
+
 # ── Redis ─────────────────────────────────────────────────────────
 
 REDIS_HOST = os.getenv("REDIS_HOST")

@@ -73,7 +73,7 @@
 | AI 服务 | Python + FastAPI + pgvector |
 
 
-## 快速启动
+## 本地部署 - 快速启动
 
 > 前置要求：Java 8+ & Maven、Node.js >= 24.16 & npm、Python 3.12+、Docker（仅用于启动 PostgreSQL + Redis）。
 
@@ -110,14 +110,14 @@ cd AI_consultant && pip install -r ..\requirements.txt && python run.py
 cd frontend && npm ci && npm run dev
 ```
 
+## docker部署 - 快速启动
+Docker 容器化部署 — 详见 [README.md](./docker/README.md)。
+
 ### 4. 访问服务
 
 | 服务     | 地址                      |
 | ------ | ----------------------- |
 | 官网首页   | <http://localhost:3200> |
-| 后端 API | <http://localhost:8080> |
-| AI 服务  | <http://localhost:8000> |
-
 默认超级管理员：`admin` / `admin123`。
 
 ## Roadmap

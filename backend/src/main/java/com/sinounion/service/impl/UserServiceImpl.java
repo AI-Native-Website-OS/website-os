@@ -58,7 +58,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
-    @Value("${AI_SERVICE_MEMORIES_DIR}")
+    @Value("${ai.service.memories-dir}")
     private String memoriesDir;
     private final LeadMapper leadMapper;
     private final PasswordEncoder passwordEncoder;
