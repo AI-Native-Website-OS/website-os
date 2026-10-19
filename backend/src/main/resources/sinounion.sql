@@ -998,3 +998,15 @@ CREATE INDEX IF NOT EXISTS idx_translation_jobs_status
     ON translation_jobs(status, created_at);
 COMMENT ON TABLE translation_jobs IS '翻译异步任务表（后台预翻译）';
 
+CREATE TABLE IF NOT EXISTS user_notice_dismissals (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    notice_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_user_notice_dismissals_key
+    ON user_notice_dismissals(user_id, notice_id);
+CREATE INDEX IF NOT EXISTS idx_user_notice_dismissals_user
+    ON user_notice_dismissals(user_id);
+COMMENT ON TABLE user_notice_dismissals IS '用户关闭的站点通知记录（按用户隔离，跨设备生效）';
+

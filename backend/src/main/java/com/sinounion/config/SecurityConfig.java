@@ -94,6 +94,8 @@ public class SecurityConfig {
                     "/files/**"
                 ).permitAll()
                 .antMatchers("/admin/**").authenticated()
+                // 站点通知关闭记录：仅登录用户可读写本人记录
+                .antMatchers("/notices/**").authenticated()
                 .antMatchers(
                     "/swagger-ui/**",
                     "/v3/api-docs/**",

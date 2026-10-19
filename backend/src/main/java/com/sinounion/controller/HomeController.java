@@ -6,7 +6,10 @@ import com.sinounion.common.Result;
 import com.sinounion.dto.FooterConfigDTO;
 import com.sinounion.entity.ContentItem;
 import com.sinounion.entity.SystemConfig;
+import com.sinounion.entity.User;
 import com.sinounion.mapper.SystemConfigMapper;
+import com.sinounion.mapper.UserMapper;
+import com.sinounion.mapper.UserNoticeDismissalMapper;
 import com.sinounion.service.BannerService;
 import com.sinounion.service.ContentItemService;
 import com.sinounion.service.IndustryChainService;
@@ -17,6 +20,7 @@ import com.sinounion.translation.TranslationOverlayService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,8 +29,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Tag(name = "首页数据", description = "首页相关接口")
 @RestController
@@ -39,6 +45,8 @@ public class HomeController {
     private final IndustryChainService chainService;
     private final PartnerService partnerService;
     private final SystemConfigMapper systemConfigMapper;
+    private final UserMapper userMapper;
+    private final UserNoticeDismissalMapper userNoticeDismissalMapper;
     private final ObjectMapper objectMapper;
     private final SiteConfigService siteConfigService;
     private final TranslationOverlayService translationOverlayService;
@@ -114,7 +122,7 @@ public class HomeController {
 
     @Operation(summary = "获取站点通知公告（按启用状态与时间窗过滤）")
     @GetMapping("/notices")
-    public Result<List<Map<String, Object>>> getSiteNotices() {
+    public Result<List<Map<String, Object>>> getSiteNotices(Authentication authentication) {
         SystemConfig config = systemConfigMapper.findByKey("site_notices");
         if (config == null || !StringUtils.hasText(config.getConfigValue())) {
             return Result.success(Collections.emptyList());
@@ -135,8 +143,29 @@ public class HomeController {
         } catch (Exception e) {
             return Result.success(Collections.emptyList());
         }
+        // 已登录用户过滤掉本人已关闭的通知；关闭记录按 user_id 隔离，不影响其他用户
+        Set<String> dismissed = dismissedNoticeIds(authentication);
+        if (!dismissed.isEmpty()) {
+            notices.removeIf(notice -> dismissed.contains(String.valueOf(notice.get("id"))));
+        }
         translationOverlayService.overlayConfigValue(LocaleContext.get(), "site_notices", notices);
         return Result.success(notices);
+    }
+
+    /** 当前登录用户已关闭的通知标识集合；未登录或用户不存在时返回空集合。 */
+    private Set<String> dismissedNoticeIds(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return Collections.emptySet();
+        }
+        String username = authentication.getName();
+        if (!StringUtils.hasText(username) || "anonymousUser".equals(username)) {
+            return Collections.emptySet();
+        }
+        User user = userMapper.findByUsername(username);
+        if (user == null) {
+            return Collections.emptySet();
+        }
+        return new HashSet<>(userNoticeDismissalMapper.findNoticeIdsByUserId(user.getId()));
     }
 
     /** 通知标识：优先沿用已存 id；否则由类型/内容/时间派生稳定标识，内容变更即视为新通知重新展示。 */
