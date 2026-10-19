@@ -88,6 +88,7 @@ class ConfigOut(BaseModel):
     llm_stop: Optional[List[str]] = None
     llm_seed: Optional[int] = None
     llm_thinking_auto_collapse: bool = True
+    llm_enable_thinking: bool = True
     llm_thinking_enabled: bool = False
     # Embedding
     embedding_provider: Optional[str] = None
@@ -127,6 +128,7 @@ class ConfigUpdateRequest(BaseModel):
     llm_seed: Optional[int] = None
     llm_thinking_keyword: Optional[str] = None
     llm_thinking_auto_collapse: Optional[bool] = None
+    llm_enable_thinking: Optional[bool] = None
     embedding_provider: Optional[str] = None
     embedding_base_url: Optional[str] = None
     embedding_api_key: Optional[str] = None

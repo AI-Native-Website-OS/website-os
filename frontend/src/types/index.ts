@@ -563,6 +563,7 @@ export interface ConfigOut {
   llm_stop?: string[] | null;
   llm_seed?: number | null;
   llm_thinking_auto_collapse: boolean;
+  llm_enable_thinking: boolean;
   llm_thinking_enabled: boolean;
   ai_user_rate_limit: number;
   ai_guest_daily_limit: number;

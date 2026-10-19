@@ -388,6 +388,7 @@ def get_config():
         llm_stop=c.llm_stop,
         llm_seed=c.llm_seed,
         llm_thinking_auto_collapse=c.llm_thinking_auto_collapse,
+        llm_enable_thinking=c.llm_enable_thinking,
         llm_thinking_enabled=c.llm_thinking_enabled,
         embedding_provider=c.embedding_provider,
         embedding_base_url=c.embedding_base_url,
@@ -731,6 +732,7 @@ ENV_MAP = {
     "LLM_SEED": "llm_seed",
     "LLM_THINKING_KEYWORD": "llm_thinking_keyword",
     "LLM_THINKING_AUTO_COLLAPSE": "llm_thinking_auto_collapse",
+    "LLM_ENABLE_THINKING": "llm_enable_thinking",
     "LLM_THINKING_ENABLED": "llm_thinking_enabled",
     # ── Embedding ──
     "EMBEDDING_PROVIDER": "embedding_provider",
@@ -934,21 +936,21 @@ def list_memory_files():
 
 
 @router.get("/memory/file", response_model=MemoryFileContentOut)
-def get_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD), role: str = Query(""), file_type: str = Query("")):
+def get_memory_file(username: str = Query(...), filename: str = Query("profile.md"), role: str = Query(""), file_type: str = Query("")):
     try:
-        content = get_engine().read_memory_file(username, role)
+        content = get_engine().read_memory_file(username, role, filename)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return MemoryFileContentOut(username=username, content=content)
+    return MemoryFileContentOut(username=username, filename=filename, content=content)
 
 
 @router.put("/memory/file", response_model=StatusOut)
-def save_memory_file(username: str = Query(...), filename: str = Query(MEMORY_MD), role: str = Query(""), file_type: str = Query(""), req: MemoryFileSaveRequest = None):
+def save_memory_file(username: str = Query(...), filename: str = Query("profile.md"), role: str = Query(""), file_type: str = Query(""), req: MemoryFileSaveRequest = None):
     try:
-        get_engine().write_memory_file(username, req.content, role)
+        get_engine().write_memory_file(username, req.content, role, filename)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return StatusOut(status="ok", message=f"Saved {role}/{username}/{MEMORY_MD}")
+    return StatusOut(status="ok", message=f"Saved {role}/{username}/{filename}")
 
 
 @router.post("/memory/init", response_model=StatusOut)
@@ -959,20 +961,23 @@ def init_memory(username: str = Query(...), role: str = Query("")):
 
 @router.post("/users/{username}/memory/init", response_model=StatusOut)
 def init_user_memory(username: str, req: MemoryInitRequest = None):
-    """Java端创建用户后调用，初始化单个 MEMORY.md"""
+    """Java端创建用户后调用，初始化六个分层记忆文件"""
     role = req.role if req else ""
     get_engine().init_user_memory(username, role)
-    return StatusOut(status="ok", message=f"Initialized memory file for {role}/{username}")
+    return StatusOut(status="ok", message=f"Initialized memory files for {role}/{username}")
 
 
 @router.get("/memory/user-files", response_model=MemoryFileListOut)
 def list_user_memory_files(username: str = Query(...), role: str = Query("")):
-    """List the single MEMORY.md for a specific user."""
-    content = get_engine().read_memory_file(username, role)
+    """List the six layered memory files for a specific user."""
+    try:
+        content = get_engine().read_memory_file(username, role)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     lines = content.strip().splitlines() if content else []
     file_list = [{
         "username": username,
-        "filename": MEMORY_MD,
+        "filename": "MEMORY.md",
         "role": role,
         "size": len(content),
         "line_count": len(lines),
@@ -982,17 +987,17 @@ def list_user_memory_files(username: str = Query(...), role: str = Query("")):
     return MemoryFileListOut(files=file_list)
 
 
-# backward compat: default to MEMORY.md
+# backward compat: operate on the merged view / default profile.md
 @router.get("/memory/files/{username}", response_model=MemoryFileContentOut)
 def get_memory_file_legacy(username: str):
     content = get_engine().read_memory_file(username)
-    return MemoryFileContentOut(username=username, content=content)
+    return MemoryFileContentOut(username=username, filename="profile.md", content=content)
 
 
 @router.put("/memory/files/{username}", response_model=StatusOut)
 def save_memory_file_legacy(username: str, req: MemoryFileSaveRequest):
-    get_engine().write_memory_file(username, req.content)
-    return StatusOut(status="ok", message=f"Saved {username}/{MEMORY_MD}")
+    get_engine().write_memory_file(username, req.content, "", "profile.md")
+    return StatusOut(status="ok", message=f"Saved {username}/profile.md")
 
 
 # ── Forbidden Detection ─────────────────────────────────────────────

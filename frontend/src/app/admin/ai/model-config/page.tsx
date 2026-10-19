@@ -39,6 +39,7 @@ const FIELD_DEFS: FieldDef[] = [
   { key: 'LLM_SEED', labelKey: 'admin.ui.modelConfig.fields.LLM_SEED', type: 'number', placeholderKey: 'admin.ui.modelConfig.seedPlaceholder', descriptionKey: 'admin.ui.modelConfig.descs.LLM_SEED', group: 'llm' },
   { key: 'LLM_STOP', labelKey: 'admin.ui.modelConfig.fields.LLM_STOP', type: 'text', placeholderKey: 'admin.ui.modelConfig.stopPlaceholder', group: 'llm' },
   { key: 'LLM_THINKING_KEYWORD', labelKey: 'admin.ui.modelConfig.fields.LLM_THINKING_KEYWORD', type: 'text', placeholderKey: 'admin.ui.modelConfig.thinkingPlaceholder', group: 'llm' },
+  { key: 'LLM_ENABLE_THINKING', labelKey: 'admin.ui.modelConfig.fields.LLM_ENABLE_THINKING', type: 'boolean', descriptionKey: 'admin.ui.modelConfig.descs.LLM_ENABLE_THINKING', group: 'llm' },
   { key: 'LLM_THINKING_ENABLED', labelKey: 'admin.ui.modelConfig.fields.LLM_THINKING_ENABLED', type: 'boolean', descriptionKey: 'admin.ui.modelConfig.descs.LLM_THINKING_ENABLED', group: 'llm' },
   { key: 'LLM_THINKING_AUTO_COLLAPSE', labelKey: 'admin.ui.modelConfig.fields.LLM_THINKING_AUTO_COLLAPSE', type: 'boolean', descriptionKey: 'admin.ui.modelConfig.descs.LLM_THINKING_AUTO_COLLAPSE', group: 'llm' },
 

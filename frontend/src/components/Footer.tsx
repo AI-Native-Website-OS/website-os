@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import api from '@/lib/api';
-import { getImageUrl } from '@/lib/utils';
+import { getImageUrl, getExternalLink } from '@/lib/utils';
 import { FooterConfig } from '@/types';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useSiteConfig } from '@/hooks/useSiteConfig';
@@ -140,7 +140,7 @@ export default function Footer() {
                       {links.map((l, i) => (
                         <a
                           key={i}
-                          href={l.url}
+                          href={getExternalLink(l.url)}
                           target="_blank"
                           rel="noopener noreferrer nofollow"
                           className="truncate hover:text-black transition-colors"

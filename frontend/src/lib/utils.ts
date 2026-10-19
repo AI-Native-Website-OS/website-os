@@ -18,6 +18,18 @@ export function getImageUrl(path?: string): string {
   return base ? `${base}${normalizedPath}` : normalizedPath;
 }
 
+/**
+ * 外部跳转链接：后台可能只填域名（如 www.baidu.com），补全协议，
+ * 避免被浏览器当作相对路径拼接当前站点域名（如 http://站点/www.baidu.com）。
+ */
+export function getExternalLink(url?: string): string {
+  if (!url) return '';
+  const u = url.trim();
+  if (!u) return '';
+  if (/^(https?:)?\/\//i.test(u) || /^(\/|#|mailto:|tel:)/i.test(u)) return u;
+  return `https://${u}`;
+}
+
 export function getFileUrl(filePath?: string): string {
   if (!filePath) return '';
   if (filePath.startsWith('http://') || filePath.startsWith('https://')) return filePath;

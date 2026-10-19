@@ -22,7 +22,7 @@ public final class ModelConfigKeys {
         "LLM_FREQUENCY_PENALTY", "LLM_PRESENCE_PENALTY",
         "LLM_SEED", "LLM_STOP",
         "LLM_THINKING_KEYWORD", "LLM_THINKING_AUTO_COLLAPSE",
-        "LLM_THINKING_ENABLED",
+        "LLM_ENABLE_THINKING", "LLM_THINKING_ENABLED",
         // ── Embedding ──
         "EMBEDDING_PROVIDER", "EMBEDDING_BASE_URL", "EMBEDDING_API_KEY",
         "EMBEDDING_MODEL", "EMBEDDING_DIMENSION",
@@ -50,7 +50,8 @@ public final class ModelConfigKeys {
         DESCRIPTIONS.put("LLM_STOP", "LLM 停止序列");
         DESCRIPTIONS.put("LLM_THINKING_KEYWORD", "LLM 思考触发词");
         DESCRIPTIONS.put("LLM_THINKING_AUTO_COLLAPSE", "LLM 自动折叠思考");
-        DESCRIPTIONS.put("LLM_THINKING_ENABLED", "LLM 思考过程开关");
+        DESCRIPTIONS.put("LLM_ENABLE_THINKING", "LLM 是否启用思考过程");
+        DESCRIPTIONS.put("LLM_THINKING_ENABLED", "LLM 是否展示思考过程");
         DESCRIPTIONS.put("EMBEDDING_PROVIDER", "Embedding 模型提供商");
         DESCRIPTIONS.put("EMBEDDING_BASE_URL", "Embedding API 地址");
         DESCRIPTIONS.put("EMBEDDING_API_KEY", "Embedding API Key");

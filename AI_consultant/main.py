@@ -102,9 +102,27 @@ Before returning the memory:
 - Prefer the shortest wording that preserves the complete intended meaning.
 
 ## Output
-Return only the updated memory content in Markdown.
-Do not include explanations, analysis, or extraction notes.
-If no useful memory exists, return an empty result in the caller's required format."""
+Return only the updated memory content in Markdown, using these exact section
+headings, each followed by `- ` bullets. Omit a heading when it has no items.
+Do not add any other headings or a top-level title.
+
+## Profile
+Stable identity: name, role, occupation, seniority, long-lived attributes.
+## Preferences
+Answer style, language, tooling, and working-habit preferences.
+## Facts
+Confirmed long-term facts, environments, projects, constraints.
+## Conversations
+Concise summaries of past exchanges worth remembering.
+## Decisions
+Important decisions and the reasons behind them.
+## Timeline
+Dated events.
+
+Rules:
+- One concise English bullet per item; do not copy raw dialogue.
+- Merge and deduplicate against the existing memory.
+- Do not include explanations, analysis, or extraction notes."""
 
 
 def _resolve_role_from_db(identity: str) -> str:
@@ -270,6 +288,7 @@ class Config:
         self.llm_seed = int(seed_raw) if seed_raw and seed_raw.strip().isdigit() else None
         self.llm_thinking_keyword = _str("LLM_THINKING_KEYWORD")
         self.llm_thinking_auto_collapse = _bool("LLM_THINKING_AUTO_COLLAPSE")
+        self.llm_enable_thinking = _str("LLM_ENABLE_THINKING", "true").strip().lower() == "true"
         self.llm_thinking_enabled = _str("LLM_THINKING_ENABLED", "false").strip().lower() == "true"
 
         # ── Embedding Model ──
@@ -340,6 +359,7 @@ class Config:
         "llm_seed": "LLM_SEED",
         "llm_thinking_keyword": "LLM_THINKING_KEYWORD",
         "llm_thinking_auto_collapse": "LLM_THINKING_AUTO_COLLAPSE",
+        "llm_enable_thinking": "LLM_ENABLE_THINKING",
         "llm_thinking_enabled": "LLM_THINKING_ENABLED",
         # ── Embedding ──
         "embedding_provider": "EMBEDDING_PROVIDER",
@@ -391,7 +411,7 @@ class Config:
             return
         int_fields = {"llm_max_tokens", "llm_seed", "embedding_dimension", "vl_max_tokens", "reranker_top_k"}
         float_fields = {"llm_temperature", "llm_top_p", "llm_frequency_penalty", "llm_presence_penalty", "vl_temperature"}
-        bool_fields = {"llm_thinking_auto_collapse", "llm_thinking_enabled", "reranker_enabled"}
+        bool_fields = {"llm_thinking_auto_collapse", "llm_enable_thinking", "llm_thinking_enabled", "reranker_enabled"}
         for attr, env_key in self.DB_MODEL_KEY_MAP.items():
             raw = db_vals.get(env_key)
             if raw is None:
@@ -627,22 +647,37 @@ class TokenTracker:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  3. 记忆管理（短期内存 + 长期 memories/{username}/MEMORY.md 文件）
+#  3. 记忆管理（短期内存 + 长期 memories/{role}/{username}/ 六分层文件）
 # ═══════════════════════════════════════════════════════════════
 class MemoryManager:
-    """长期记忆：每个用户一个 memories/{role}/{username}/MEMORY.md（AGENTS.md 风格精简整合）。
+    """长期记忆：每个用户六个分层文件（memories/{role}/{username}/）。
 
-    短期记忆仍为进程内缓存；长期记忆不再拆分 6 个文件，也不再维护向量索引。
+    六层：profile / preferences / knowledge / conversation / decisions / timeline，
+    内容为精简英文 bullet，由每轮对话后的 LLM 整合重写维护。
+    短期记忆仍为进程内缓存；不再维护向量索引。
     """
 
     MEMORY_DIR = Path(__file__).parent / "memories"
-    MEMORY_SECTIONS = ["Profile", "Preferences", "Facts", "Decisions", "Timeline"]
-    LEGACY_FILENAMES = [
-        "profile.md", "preferences.md", "knowledge.md",
-        "conversation.md", "decisions.md", "timeline.md",
-    ]
+    MEMORY_FILE_TYPES = ["profile", "preferences", "knowledge", "conversation", "decisions", "timeline"]
+    MEMORY_FILE_NAMES = {
+        "profile": "profile.md",
+        "preferences": "preferences.md",
+        "knowledge": "knowledge.md",
+        "conversation": "conversation.md",
+        "decisions": "decisions.md",
+        "timeline": "timeline.md",
+    }
+    # 文件 → 整合输出的小节标题
+    FILE_SECTIONS = {
+        "profile": "Profile",
+        "preferences": "Preferences",
+        "knowledge": "Facts",
+        "conversation": "Conversations",
+        "decisions": "Decisions",
+        "timeline": "Timeline",
+    }
+    LEGACY_FILENAMES = [MEMORY_MD]
     INDEX_FILENAME = ".index.json"
-    _BULLET_RE = re.compile(r'^-\s*(?:\[([^\]]*)\]\s*)?(?:\*\*[^*]*\*\*\s*:?\s*)?(.*)$')
 
     def __init__(self, config: Config):
         self.config = config
@@ -656,9 +691,9 @@ class MemoryManager:
             self.MEMORY_DIR = Path(__file__).parent / "memories"
         self.MEMORY_DIR.mkdir(exist_ok=True)
         try:
-            self.migrate_legacy()
+            self.cleanup_legacy()
         except Exception as exc:
-            logger.warning("memory legacy migration failed: %s", exc)
+            logger.warning("memory legacy cleanup failed: %s", exc)
 
     # ── 路径与文件 ─────────────────────────────────────────
     @staticmethod
@@ -673,10 +708,26 @@ class MemoryManager:
             return parts[0], parts[1]
         return role, username
 
-    def _memory_path(self, username: str, role: str = "") -> Path:
+    def _safe_memory_filename(self, filename: str) -> str:
+        """记忆文件名白名单校验：仅允许预定的六个分层文件名，杜绝路径穿越。"""
+        base = os.path.basename(str(filename or "").replace("\\", "/")).strip()
+        if base not in set(self.MEMORY_FILE_NAMES.values()):
+            raise ValueError(f"invalid memory filename: {filename!r}")
+        return base
+
+    def _memory_path(self, username: str, role: str = "", filename: str = "") -> Path:
         role, uname = self._parse_user(username, role)
         role_dir = self._sanitize(role) if role else "_"
-        return self.MEMORY_DIR / role_dir / self._sanitize(uname) / MEMORY_MD
+        safe_name = self._safe_memory_filename(filename or self.MEMORY_FILE_NAMES["profile"])
+        path = self.MEMORY_DIR / role_dir / self._sanitize(uname) / safe_name
+        try:
+            resolved = path.resolve()
+            root = self.MEMORY_DIR.resolve()
+            if resolved != root and root not in resolved.parents:
+                raise ValueError(f"memory path escapes root: {filename!r}")
+        except (OSError, ValueError) as e:
+            raise ValueError(f"invalid memory path: {filename!r}") from e
+        return path
 
     def _ensure_user_dir(self, username: str, role: str = "") -> Path:
         role, uname = self._parse_user(username, role)
@@ -696,8 +747,9 @@ class MemoryManager:
             for user_dir in sorted(role_dir.iterdir()):
                 if not user_dir.is_dir():
                     continue
-                if (user_dir / MEMORY_MD).exists() or any(
-                        (user_dir / fn).exists() for fn in self.LEGACY_FILENAMES):
+                has_legacy = any((user_dir / fn).exists() for fn in self.LEGACY_FILENAMES)
+                if has_legacy or any(
+                        (user_dir / fn).exists() for fn in self.MEMORY_FILE_NAMES.values()):
                     results.append({
                         "role": role_dir.name,
                         "username": user_dir.name,
@@ -718,114 +770,71 @@ class MemoryManager:
 
     # ── 文件格式（纯英文内部结构）───────────────────────────
     @staticmethod
-    def _new_file(username: str = "", role: str = "") -> str:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        return (f"# Memory\n\n> updated: {now}\n\n## Profile\n\n## Preferences\n\n"
-                f"## Facts\n\n## Decisions\n\n## Timeline\n")
+    def _new_file(username: str = "", role: str = "", file_type: str = "profile") -> str:
+        title = MemoryManager.FILE_SECTIONS.get(file_type, str(file_type).title())
+        return f"# {title}\n"
 
-    @staticmethod
-    def _is_new_format(text: str) -> bool:
-        t = text.lstrip()
-        return t.startswith("# Memory") and any(
-            f"## {s}" in text for s in MemoryManager.MEMORY_SECTIONS)
+    def parse_sections(self, text: str) -> Optional[Dict[str, str]]:
+        """把 LLM 返回的六小节 Markdown 解析为 {file_type: 文件内容}。
 
-    @staticmethod
-    def _memory_body(text: str) -> str:
-        """去掉文件头（# Memory 与元信息引用行），仅保留章节正文。"""
-        lines = []
-        for ln in text.splitlines():
-            s = ln.strip()
-            if s.startswith("# Memory") or s.startswith("> user:") or s.startswith("> updated"):
-                continue
-            lines.append(ln.rstrip())
-        return "\n".join(lines).strip("\n")
-
-    @staticmethod
-    def _section_for_file(filename: str) -> str:
-        return {
-            "profile.md": "Profile",
-            "preferences.md": "Preferences",
-            "knowledge.md": "Facts",
-            "decisions.md": "Decisions",
-            "conversation.md": "Timeline",
-            "timeline.md": "Timeline",
-        }.get(filename, "Facts")
-
-    def _collect_into(self, sections: Dict[str, List[str]], text: str, fallback: str):
-        """把任意格式的旧内容解析进 sections；兼容 `## Section` 分组与逐条 bullet。"""
-        current = fallback
+        小节标题接受 `Profile/Preferences/Facts/Conversations/Decisions/Timeline`
+        或对应的 file_type 名称；无标题内容落入 knowledge。
+        """
+        bullets: Dict[str, List[str]] = {ft: [] for ft in self.MEMORY_FILE_TYPES}
+        by_title = {v.lower(): k for k, v in self.FILE_SECTIONS.items()}
+        current: Optional[str] = None
         for raw in text.splitlines():
             line = raw.strip()
             if not line:
                 continue
-            if line.startswith("##"):
-                name = line[2:].strip()
-                current = name if name in sections else fallback
+            if line.startswith("#"):
+                name = line.lstrip("#").strip().lower()
+                current = by_title.get(name) or (name if name in bullets else None)
                 continue
-            if line.startswith("#") or line.startswith(">"):
+            if line.startswith(">"):
                 continue
-            if not line.startswith("-"):
+            if current is None:
+                current = "knowledge"
+            body = line.lstrip("-* ").strip()
+            if body:
+                bullets[current].append(body)
+        if not any(bullets.values()):
+            return None
+        out: Dict[str, str] = {}
+        for ft, items in bullets.items():
+            if not items:
                 continue
-            m = self._BULLET_RE.match(line)
-            if not m:
-                continue
-            ts = (m.group(1) or "").strip()
-            bullet = (m.group(2) or "").strip()
-            if not bullet:
-                continue
-            if current == "Timeline" and ts:
-                date = re.split(r'[ T]', ts, 1)[0]
-                bullet = f"{date}: {bullet}"
-            sections[current].append(bullet)
-
-    def _render_sections(self, sections: Dict[str, List[str]], username: str,
-                         role: str, now: Optional[str] = None) -> str:
-        now = now or datetime.now().strftime("%Y-%m-%d %H:%M")
-        parts = [f"# Memory\n\n> updated: {now}\n"]
-        seen = set()
-        for section in self.MEMORY_SECTIONS:
-            items = []
-            for b in sections.get(section, []):
+            seen = set()
+            unique = []
+            for b in items:
                 key = b.strip().lower()
                 if not key or key in seen:
                     continue
                 seen.add(key)
-                items.append(b.strip())
-            if not items:
-                continue
-            parts.append("## " + section + "\n" + "\n".join(f"- {b}" for b in items) + "\n")
-        return "\n".join(parts)
+                unique.append(b.strip())
+            title = self.FILE_SECTIONS.get(ft, ft.title())
+            out[ft] = f"# {title}\n\n" + "\n".join(f"- {b}" for b in unique) + "\n"
+        return out or None
 
-    # ── 旧 6 文件迁移（一次性；成功后删除旧文件）─────────────
-    def migrate_legacy(self):
+    # ── 旧单文件清理（一次性；删除 MEMORY.md/.index.json）────
+    def cleanup_legacy(self):
+        """删除旧单文件 MEMORY.md 与 .index.json，并补齐六分层文件。"""
         for info in self._list_user_paths():
+            user_dir = info["path"]
             try:
-                self._migrate_user_dir(info["username"], info["role"], info["path"])
+                for fn in self.LEGACY_FILENAMES:
+                    (user_dir / fn).unlink(missing_ok=True)
+                (user_dir / self.INDEX_FILENAME).unlink(missing_ok=True)
+                for tmp in list(user_dir.glob("*.tmp")):
+                    tmp.unlink(missing_ok=True)
+                for ft in self.MEMORY_FILE_TYPES:
+                    path = user_dir / self.MEMORY_FILE_NAMES[ft]
+                    if not path.exists():
+                        self._write_atomic(
+                            path, self._new_file(info["username"], info["role"], ft))
             except Exception as exc:
-                logger.warning("memory migration failed for %s/%s: %s",
+                logger.warning("memory cleanup failed for %s/%s: %s",
                                info["role"], info["username"], exc)
-
-    def _migrate_user_dir(self, username: str, role: str, user_dir: Path):
-        mem_path = user_dir / MEMORY_MD
-        legacy_present = any((user_dir / fn).exists() for fn in self.LEGACY_FILENAMES)
-        mem_text = mem_path.read_text("utf-8") if mem_path.exists() else ""
-        if not legacy_present and (not mem_path.exists() or self._is_new_format(mem_text)):
-            return
-        sections = {s: [] for s in self.MEMORY_SECTIONS}
-        if mem_text:
-            self._collect_into(sections, mem_text, "Facts")
-        for fn in self.LEGACY_FILENAMES:
-            p = user_dir / fn
-            if p.exists():
-                self._collect_into(sections, p.read_text("utf-8"), self._section_for_file(fn))
-        content = self._render_sections(sections, username, role)
-        self._write_atomic(mem_path, content)
-        # 写入成功后删除旧文件与索引，永久不再出现
-        for fn in self.LEGACY_FILENAMES:
-            (user_dir / fn).unlink(missing_ok=True)
-        (user_dir / self.INDEX_FILENAME).unlink(missing_ok=True)
-        for tmp in list(user_dir.glob("*.tmp")):
-            tmp.unlink(missing_ok=True)
 
     def relocate_orphan_memories(self, role_resolver) -> int:
         """把落在默认 '_' 目录、但能解析出真实角色的用户记忆移动到 {role}/{name}。
@@ -839,8 +848,7 @@ class MemoryManager:
         for user_dir in sorted(default_dir.iterdir()):
             if not user_dir.is_dir():
                 continue
-            src = user_dir / MEMORY_MD
-            if not src.exists():
+            if not any((user_dir / fn).exists() for fn in self.MEMORY_FILE_NAMES.values()):
                 continue
             try:
                 role = role_resolver(user_dir.name)
@@ -849,15 +857,19 @@ class MemoryManager:
             if not role or role == "_":
                 continue
             target_dir = self.MEMORY_DIR / self._sanitize(role) / user_dir.name
-            target = target_dir / MEMORY_MD
-            if target.exists():
-                logger.warning("memory relocate skipped (target exists): %s/%s", role, user_dir.name)
-                continue
             target_dir.mkdir(parents=True, exist_ok=True)
-            os.replace(src, target)
+            for ft, fn in self.MEMORY_FILE_NAMES.items():
+                src = user_dir / fn
+                if not src.exists():
+                    continue
+                target = target_dir / fn
+                if target.exists():
+                    src.unlink(missing_ok=True)
+                else:
+                    os.replace(src, target)
             (user_dir / self.INDEX_FILENAME).unlink(missing_ok=True)
             for f in list(user_dir.iterdir()):
-                if f.is_file() and f != src:
+                if f.is_file():
                     f.unlink(missing_ok=True)
             try:
                 user_dir.rmdir()
@@ -869,51 +881,78 @@ class MemoryManager:
 
     # ── 读写 ───────────────────────────────────────────────
     def init_user(self, username: str, role: str = ""):
-        """为用户创建单个 MEMORY.md（若不存在）。"""
-        path = self._memory_path(username, role)
-        if not path.exists():
-            self._write_atomic(path, self._new_file(username, role))
+        """为用户创建六个分层文件（缺失的才创建）。"""
+        for ft in self.MEMORY_FILE_TYPES:
+            path = self._memory_path(username, role, self.MEMORY_FILE_NAMES[ft])
+            if not path.exists():
+                self._write_atomic(path, self._new_file(username, role, ft))
 
-    def read_file(self, username: str, role: str = "") -> str:
-        path = self._memory_path(username, role)
+    def read_one(self, username: str, filename: str, role: str = "") -> str:
+        path = self._memory_path(username, role, filename)
         if path.exists():
             return path.read_text("utf-8")
         return ""
 
-    def write_file(self, username: str, content: str, role: str = ""):
-        self._write_atomic(self._memory_path(username, role), content)
+    def read_all_user_files(self, username: str, role: str = "") -> Dict[str, str]:
+        return {ft: self.read_one(username, self.MEMORY_FILE_NAMES[ft], role)
+                for ft in self.MEMORY_FILE_TYPES}
+
+    def read_file(self, username: str, role: str = "") -> str:
+        """合并六分层文件的正文（用于注入/整合/规范化）。"""
+        parts = []
+        for ft in self.MEMORY_FILE_TYPES:
+            text = self.read_one(username, self.MEMORY_FILE_NAMES[ft], role)
+            if text and text.strip():
+                parts.append(text.rstrip())
+        return "\n\n".join(parts)
+
+    def write_one(self, username: str, filename: str, content: str, role: str = ""):
+        self._write_atomic(self._memory_path(username, role, filename), content)
+
+    def write_all(self, username: str, files: Dict[str, str], role: str = ""):
+        for ft, content in files.items():
+            if ft in self.MEMORY_FILE_NAMES and content is not None:
+                self._write_atomic(
+                    self._memory_path(username, role, self.MEMORY_FILE_NAMES[ft]), content)
 
     def list_files(self) -> List[Dict]:
         files = []
         for info in self._list_user_paths():
-            path = info["path"] / MEMORY_MD
-            if not path.exists():
-                continue
-            content = path.read_text("utf-8")
-            files.append({
-                "username": info["username"],
-                "filename": MEMORY_MD,
-                "role": info["role"],
-                "size": len(content),
-                "line_count": len(content.strip().splitlines()),
-                "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-            })
+            for ft in self.MEMORY_FILE_TYPES:
+                path = info["path"] / self.MEMORY_FILE_NAMES[ft]
+                if not path.exists():
+                    continue
+                content = path.read_text("utf-8")
+                files.append({
+                    "username": info["username"],
+                    "filename": self.MEMORY_FILE_NAMES[ft],
+                    "role": info["role"],
+                    "file_type": ft,
+                    "size": len(content),
+                    "line_count": len(content.strip().splitlines()),
+                    "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                })
         return files
 
     def search(self, username: str, keyword: str, role: str = "") -> List[Dict]:
-        """单文件内的关键词匹配（后台搜索用，不再依赖向量）。"""
-        content = self.read_file(username, role)
-        if not content or not keyword:
+        """六个分层文件内的关键词匹配（后台搜索用，不再依赖向量）。"""
+        if not keyword:
             return []
         kw = keyword.lower()
         results = []
-        for line in content.splitlines():
-            s = line.strip().lstrip("- ").strip()
-            if not s or s.startswith("#") or s.startswith(">"):
+        for ft in self.MEMORY_FILE_TYPES:
+            content = self.read_one(username, self.MEMORY_FILE_NAMES[ft], role)
+            if not content:
                 continue
-            if kw in s.lower():
-                results.append({"content": s, "role": role,
-                                "username": username, "file_type": "memory"})
+            for line in content.splitlines():
+                s = line.strip().lstrip("-* ").strip()
+                if not s or s.startswith("#") or s.startswith(">"):
+                    continue
+                if kw in s.lower():
+                    results.append({"content": s, "role": role,
+                                    "username": username, "file_type": ft})
+                if len(results) >= 50:
+                    break
             if len(results) >= 50:
                 break
         return results
@@ -972,31 +1011,20 @@ class MemoryManager:
             self._rr = RerankerClient(self.config)
         return self._rr
 
-    _SECTION_LABELS = {
-        "Profile": "Profile", "Preferences": "Preferences", "Facts": "Facts",
-        "Decisions": "Decisions", "Timeline": "Timeline",
-    }
-
     @classmethod
-    def _memory_items(cls, body: str) -> List[Dict[str, str]]:
-        """把 MEMORY.md 正文拆成条目：每个 bullet 一条，附所属 section。"""
+    def _memory_items(cls, files: Dict[str, str]) -> List[Dict[str, str]]:
+        """把六个分层文件拆成条目：每个 bullet 一条，附所属 file_type。"""
         items: List[Dict[str, str]] = []
-        section = ""
-        for raw in body.splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            if line.startswith("##"):
-                name = line[2:].strip()
-                section = cls._SECTION_LABELS.get(name, name)
-                continue
-            if line.startswith("#") or line.startswith(">"):
-                continue
-            text = line.lstrip("-* ").strip()
-            if not text:
-                continue
-            label = f"{section}: {text}" if section else text
-            items.append({"section": section, "text": text, "label": label})
+        for ft in cls.MEMORY_FILE_TYPES:
+            text = files.get(ft, "") or ""
+            for raw in text.splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or line.startswith(">"):
+                    continue
+                body = line.lstrip("-* ").strip()
+                if not body:
+                    continue
+                items.append({"file_type": ft, "text": body, "label": f"{ft}: {body}"})
         return items
 
     @staticmethod
@@ -1071,15 +1099,13 @@ class MemoryManager:
     def build_memory_blocks(self, username: str, role: str = "", query: str = "",
                             session_messages: Optional[List[Dict]] = None,
                             budget: Optional[int] = None) -> List[ContextBlock]:
-        """先按提问对 MEMORY.md 条目做 Embedding 检索 + Rerank，再在 token 预算内注入。"""
+        """先按提问对六文件条目做 Embedding 检索 + Rerank，再在 token 预算内注入。"""
         if not (self.config.memory_long_term_enabled and username):
             return []
         if not role:
             role = _resolve_role_from_db(username) or "_"
-        body = self._memory_body(self.read_file(username, role))
-        if not body.strip():
-            return []
-        items = self._memory_items(body)
+        files = self.read_all_user_files(username, role)
+        items = self._memory_items(files)
         if not items:
             return []
         budget = budget or MEMORY_BUDGET_TOKENS
@@ -1618,11 +1644,15 @@ class ChatGPT:
     def list_memory_files(self) -> List[Dict]:
         return self.memory.list_files()
 
-    def read_memory_file(self, username: str, role: str = "") -> str:
+    def read_memory_file(self, username: str, role: str = "", filename: str = "") -> str:
+        if filename:
+            return self.memory.read_one(username, filename, role)
         return self.memory.read_file(username, role)
 
-    def write_memory_file(self, username: str, content: str, role: str = ""):
-        self.memory.write_file(username, content, role)
+    def write_memory_file(self, username: str, content: str, role: str = "", filename: str = ""):
+        if not filename:
+            filename = self.memory.MEMORY_FILE_NAMES["profile"]
+        self.memory.write_one(username, filename, content, role)
 
     def init_user_memory(self, username: str, role: str = ""):
         self.memory.init_user(username, role)
@@ -1715,8 +1745,10 @@ class ChatGPT:
         return ChatGPT._executor
 
     def _resolve_use_thinking(self, use_thinking: Optional[bool]) -> bool:
-        """默认进行思考：始终请求并保留思考过程（reasoning 由后端存储）。
-        是否在前端展示由后台「模型参数配置」的 LLM_THINKING_ENABLED 控制，默认不展示。"""
+        """是否在调用模型时启用思考，由后台「模型参数配置」LLM_ENABLE_THINKING 控制，默认启用。
+        是否在前端展示思考过程由 LLM_THINKING_ENABLED 控制（reasoning 始终由后端存储）。"""
+        if not self.config.llm_enable_thinking:
+            return False
         if use_thinking is None:
             return True
         return use_thinking
@@ -2010,7 +2042,7 @@ class ChatGPT:
                 blocks.append(blk)
         blocks.sort(key=lambda b: b.priority)
 
-        # 默认进行思考（保留思考过程）；是否在前端展示由后台「模型参数配置」LLM_THINKING_ENABLED 控制
+        # 是否启用思考由「模型参数配置」LLM_ENABLE_THINKING 控制；是否在前端展示由 LLM_THINKING_ENABLED 控制
         use_thinking = self._resolve_use_thinking(use_thinking)
         # 给配置提示词加上来源标记；为空则不产生系统提示词
         sp = self._compose_system_prompt(sp)
@@ -2166,18 +2198,17 @@ class ChatGPT:
 
     def _consolidate_memory_once(self, username: str, role: str,
                                  user_input: str, assistant_response: str):
+        self.memory.init_user(username, role)
         current = self.memory.read_file(username, role)
-        if not current.strip():
-            current = self.memory._new_file(username, role)
-        new_content = self._llm_consolidate(username, role, current, user_input, assistant_response)
-        if new_content and new_content.strip():
-            self.memory.write_file(username, new_content, role)
+        updated = self._llm_consolidate(username, role, current, user_input, assistant_response)
+        if updated:
+            self.memory.write_all(username, updated, role)
 
     def _llm_consolidate(self, username: str, role: str, current: str,
-                         user_input: str = "", assistant_response: str = "") -> Optional[str]:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                         user_input: str = "", assistant_response: str = "") -> Optional[Dict[str, str]]:
+        """调用 LLM 整合，返回 {file_type: 文件内容}；无法解析时返回 None。"""
         has_new = bool((user_input or "").strip() or (assistant_response or "").strip())
-        context = [f"## Existing Memory File\n\n{current}"]
+        context = [f"## Existing Memory\n\n{current}"]
         if has_new:
             context.append(
                 "## New Conversation\n\n"
@@ -2194,9 +2225,7 @@ class ChatGPT:
             content = re.sub(r'\s*```$', '', content).strip()
         if not content:
             return None
-        if not self.memory._is_new_format(content):
-            content = f"# Memory\n\n> updated: {now}\n\n" + content
-        return content
+        return self.memory.parse_sections(content)
 
     # ── 配置热更新 ──────────────────────────────────────────
     def update_config(self, **kwargs):
