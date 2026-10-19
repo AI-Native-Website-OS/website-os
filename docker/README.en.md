@@ -33,6 +33,9 @@ BACKEND_HOST=0.0.0.0
 
 # ===== Frontend =====
 FRONTEND_PORT=3200
+
+# ===== docker Mirror Source =====
+REGISTRY=ghcr.1ms.run/ai-native-website-os/website-os
 ```
 
 ### Step 2: Run the Services
@@ -40,6 +43,9 @@ FRONTEND_PORT=3200
 > If there is no local image, the source code will be built to create the image. If you want to quickly start using pre-built docker images, run `docker compose pull` first.
 
 ```bash
+# Building Docker Images from Source：If building from the official source is slow, add the configuration `CN_MIRROR=true` in the .env file to switch npm/pip/maven to domestic mirrors
+# docker compose up -d --build
+
 docker compose pull && docker compose up -d
 ```
 
@@ -64,12 +70,4 @@ docker compose pull
 
 # Start the services
 docker compose up -d --force-recreate
-```
-
-### Building Docker Images from Source
-
-> If building from the official source is slow, add the configuration `CN_MIRROR=true` in the .env file to switch npm/pip/maven to domestic mirrors
-
-```bash
-docker compose up -d --build
 ```

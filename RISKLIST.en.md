@@ -13,6 +13,8 @@
 * **Risk Scope**: Security risks, functional defects, code quality, configuration risks, data risks, and other potential issues
 * **Conclusion Nature**: AI testing and analysis conclusions; requires manual review against the actual environment
 * **Maintenance**: Continuously updated as the project version iterates
+* **Status Marker**: Each item is marked with Partially Fixed / Not Fixed / Changed as of the latest verification (current working tree); "Partially Fixed" means the main path is remediated but residuals remain
+* **Pruning Principle**: Fully-fixed items are removed from this list (their fix history lives in the commit log) so the list stays lean and does not keep growing across versions
 
 > **Special Note:** This list is intended to assist with project development and quality management. It does not constitute a guarantee that the system is free of security vulnerabilities or other defects.
 
@@ -22,13 +24,13 @@
 
 | ID(Source) | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| A1 | `.env` contains real credentials, tracked by git and released with the open-source code | `.env` is removed from git and added to `.gitignore`; weak examples in `.env.example` replaced with `REPLACE_WITH_STRONG_*` placeholders. **Residual**: old values remain in git history and must be considered leaked; `docker/docker-compose.yml` still ships weak defaults (`sinounion`/`sinoredis`/`change-me-in-production`) | root `.env`, `.env.example`, `docker/docker-compose.yml` | Rotate all DB/Redis/JWT/AES keys and purge git history; make compose require external injection with no weak defaults |
-| A3 | Default super admin `admin/admin123` not forced to change password | bcrypt seed, password public in README | `backend/src/main/resources/sinounion.sql:649-651`; `README.md:72` | Force password change on first login / validate weak passwords at deploy time |
-| A4 | SMS verification "dev fallback" returns the code in plaintext and prints it to logs | If SMS is not configured in production, anyone can take over any phone-number account (`send-code`/`login-by-code` are public endpoints with auto-registration); `SmsService.java:79-80` still `log.info` and `return code` | `backend/.../service/SmsService.java:77-81` | Disable fallback echo in production; isolate dev/prod profiles; add IP-level rate limiting and error-count limits to `send-code`/`login-by-code` |
-| A5 (ref. BUG S-03, D-13) | JWT stored in `localStorage` + non-HttpOnly/non-Secure cookie | logout only clears the browser; token remains usable until expiry (no server-side revocation); combined with the S-03 injection chain, login state can be stolen | `frontend/src/hooks/useAuth.tsx:41-60,94-102`; `src/lib/api.ts:11` | Move token to httpOnly cookie; server-side `tokenVersion`/blacklist revocation |
-| B4 / S-06 | CORS fully open and duplicated | `AllowedOriginPatterns("*")` + `allowCredentials=true`; `CorsConfig` and `SecurityConfig` remain two identical copies, both unchanged | `backend/.../config/CorsConfig.java:16-21`; `backend/.../config/SecurityConfig.java:33-43` | Restrict to an allowed-origin whitelist; remove one of the duplicated definitions |
-| A9 / D-12 | `localStorage` parsing without exception fallback | `admin-layout.tsx:229-239` now has try/catch; but `useAuth.tsx:47-48` and `useTracking.ts:72` still call bare `JSON.parse` | `useAuth.tsx:47-48`, `useTracking.ts:72` | Add exception fallback to the remaining parse sites |
-| A6 / S-11 | Admin api-docs loads Swagger UI from a third-party CDN at runtime | `integrity` (SRI) and `crossOrigin` added to the unpkg script/style; **Residual**: still a third-party CDN, and `persistAuthorization` still persists the token to localStorage | `frontend/src/app/admin/api-docs/page.tsx:45-46,54-55` (`persistAuthorization` at `:28`) | Bundle locally or pin version + SRI; remove `persistAuthorization` |
+| A1 | `.env` contained real credentials, tracked by git | **Partially Fixed**: `.env` removed from git and added to `.gitignore`; `.env.example` uses `REPLACE_WITH_STRONG_*` placeholders. **Residual**: old values remain in git history and must be considered leaked; `docker/docker-compose.yml` still ships weak defaults (`DB_USER` defaults `root`, `DB_PASSWORD` defaults `sinounion`, `REDIS_PASSWORD` defaults `sinoredis`) | root `.env`, `.env.example`, `docker/docker-compose.yml:25-26,43` | Rotate all DB/Redis/JWT/AES keys and purge git history; make compose require external injection with no weak defaults |
+| A3 | Default super admin `admin/admin123` not forced to change password | **Not Fixed**: bcrypt seed password and public README credential both still present; no first-login password-change flag anywhere | `backend/src/main/resources/sinounion.sql:673-676`; `README.md:121` | Force password change on first login / validate weak passwords at deploy time |
+| A4 | SMS "dev fallback" returns the code in plaintext and logs it | **Not Fixed**: when SMS is unconfigured it still `log.info`s the code and returns it via `devCode` in the response, enabling takeover of any phone-number account (`send-code`/`login-by-code` are public endpoints with auto-registration) | `backend/.../service/SmsService.java:77-82`; `.../controller/AuthController.java:69-73` | Disable fallback echo in production; isolate dev/prod profiles |
+| A5 (ref. BUG S-03, D-13) | JWT stored in `localStorage` + non-HttpOnly/non-Secure cookie | **Partially Fixed**: refresh token + server-side `tokenVersion` added (incremented on password change; filter rejects stale versions). **Residual**: access token still in `localStorage`, the JS-written cookie is still non-HttpOnly/non-Secure, and there is no server-side logout/blacklist revocation endpoint | `frontend/src/hooks/useAuth.tsx:43-51,66-70,104-113`; `src/lib/api.ts:14`; `src/lib/tokenRefresh.ts:21-61`; `backend/.../utils/JwtUtils.java:27-45,92-95`; `.../security/JwtAuthenticationFilter.java:51-61` | Move token to httpOnly cookie; add server-side logout/blacklist revocation |
+| B4 / S-06 | CORS fully open and duplicated | **Not Fixed**: `CorsConfig` and `SecurityConfig` remain two identical copies, both `AllowedOriginPatterns("*")` + `allowCredentials=true` | `backend/.../config/CorsConfig.java:14-26`; `backend/.../config/SecurityConfig.java:33-43` | Restrict to an allowed-origin whitelist; remove one duplicated definition |
+| A9 / D-12 | `localStorage` parsing without exception fallback | **Partially Fixed**: `admin-layout.tsx` now has try/catch; `useAuth.tsx:47-50` and `useTracking.ts:69` still call bare `JSON.parse` | `useAuth.tsx:47-50`, `useTracking.ts:69`, `admin-layout.tsx:270-279` | Add exception fallback to the remaining parse sites |
+| A6 / S-11 | Admin api-docs loads Swagger UI from a third-party CDN at runtime | **Partially Fixed**: `integrity` (SRI) and `crossOrigin` added to the unpkg script/style. **Residual**: still a third-party CDN (`swagger-ui-dist@5.17.14`), and `persistAuthorization:true` still persists the token to localStorage | `frontend/src/app/admin/api-docs/page.tsx:28,42,44-46,52-55` | Bundle locally or pin version + SRI; remove `persistAuthorization` |
 
 ---
 
@@ -36,28 +38,27 @@
 
 | ID(Source) | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| B3 | `/admin/forbidden-topics/**`, `/admin/faqs/**`, `/admin/related-content/**` only `authenticated()` | Ordinary users can modify sensitive words/FAQ/traverse content | Corresponding `AdminForbiddenTopicController` / `AdminFaqController` / `AdminRelatedContentController` | Add role-level `@PreAuthorize` |
-| B6 | SMS code 6 digits + 5-min window with no failure-count limit | `send-code` only has 60s cooldown per phone number, no IP dimension; SMS bombing/brute force possible | `SmsService.java:64-73`; `AuthController.java:64-75` | IP-level rate limiting + verification-code error-count cap |
-| S-02 (ref. G5) | Visitor stats endpoint anonymously readable | `/stats/**` permitAll; `GET /api/stats/dashboard` returns operational data (today's visits) without auth | `SecurityConfig.java:79` | Move into AdminStatsController or add permissions |
-| S-09 (ref. G5) | Redundant/unused public endpoints enlarge attack surface | Banner/Partner/IndustryChain/AboutSection/HomeSection public controllers duplicate admin side and have no frontend usage; duplicate Lead CRUD | `/banners`, `/partners`, `/industry-chains`, `/about-sections`, `/home-sections`; `LeadController.java`, `controller/admin/AdminLeadController.java` | Audit and remove unused public endpoints; consolidate Lead into a single Admin controller |
-| B7 | No security response headers | Missing CSP/HSTS/`X-Content-Type-Options`/`X-Frame-Options`; CSRF disabled (reasonable for stateless JWT but headers still missing) | `SecurityConfig.java:55-100` | Add security response headers |
-| B8 | Frontend admin permission/role cached in login snapshot | Revocation/change requires re-login to take effect (Java side has strong checks, so display-layer lag; but for the Python AI surface it is the only gate) | `useAuth.tsx:40-51`, `admin-layout.tsx:224-259` | Re-fetch permissions on demand within session / add server-side auth to AI surface |
-| S-10 | Whether admin access is restricted externally is unclear | "Whether webpage restricts backend access" requirement not implemented; `/admin/**` is still only JWT-authenticated with no intranet/origin restriction | global security config | Clarify intranet/extranet/role access policy and apply in SecurityConfig |
-| S-12 | Duplicate `permitAll` path declaration | `/resources/**` whitelisted twice; redundant rules easy to mis-edit | `SecurityConfig.java:70` and `:82` | Deduplicate |
+| B3 | `/admin/forbidden-topics/**`, `/admin/faqs/**`, `/admin/related-content/**` only `authenticated()` | **Not Fixed**: all three controllers lack role/permission annotations; any authenticated user can modify sensitive words/FAQ/traverse content | `.../admin/AdminForbiddenTopicController.java:17-110`, `AdminFaqController.java:16-62`, `AdminRelatedContentController.java:17-87`; `SecurityConfig.java:96` | Add role-level `@PreAuthorize` |
+| B6 | SMS code 6 digits + 5-min window with no failure-count limit | **Not Fixed**: `send-code` only has a per-phone 60s cooldown, no IP dimension; `verifyCode` has no failure-count cap; `LoginRateLimiter` applies to password login only | `SmsService.java:42,44,64-67,69,85-98`; `AuthController.java:67-73` | IP-level rate limiting + verification-code error-count cap |
+| S-02 (ref. G5) | Visitor stats endpoint anonymously readable | **Not Fixed**: `/stats/**` permitAll; `GET /api/stats/dashboard` returns operational data anonymously (`/admin/stats` has `stats:view`, but the public copy remains) | `SecurityConfig.java:84`; `controller/StatsController.java:26-30`; `controller/admin/AdminStatsController.java:17,24-27` | Move into AdminStatsController or add permissions |
+| S-09 (ref. G5) | Redundant/unused public endpoints enlarge attack surface | **Partially Fixed**: Lead CRUD duplication resolved (`LeadController` keeps only `POST /leads`, `/leads/from-visitor`; CRUD lives in `AdminLeadController`); About/Home public controllers are actually used by the frontend. **Residual**: `Banner/Partner/IndustryChain` public controllers still exist and are unused by the frontend | `/banners`, `/partners`, `/industry-chains` (`BannerController`/`PartnerController`/`IndustryChainController`); `SecurityConfig.java:89-91` | Remove unused public endpoints |
+| B7 | Missing security response headers | **Changed/Partially Fixed**: Spring Security defaults still emit `X-Content-Type-Options: nosniff` etc., and `X-Frame-Options` is now `SAMEORIGIN`. **Residual**: no explicit CSP, no HSTS; CSRF still disabled (reasonable for stateless JWT) | `SecurityConfig.java:59-61` | Add explicit CSP/HSTS (recommended at the nginx proxy layer) |
+| B8 | Frontend admin permission/role cached in login snapshot | **Partially Fixed**: the AI surface now has server-side auth (see C1), so it is no longer the "only gate"; frontend permissions are still cached in the login snapshot, so revocation/change needs re-login | `useAuth.tsx:43-51`, `admin-layout.tsx` | Re-fetch permissions on demand within session |
+| S-10 | Whether admin access is restricted externally is unclear | **Not Fixed**: `/admin/**` is still only JWT-authenticated; `docker/nginx.conf.d` has no `allow/deny`; no intranet/origin restriction | `SecurityConfig.java:96`; `docker/nginx.conf.d` | Clarify intranet/extranet/role policy and apply in SecurityConfig / proxy |
+| S-12 | Duplicate `permitAll` path declaration | **Not Fixed**: `/resources/**` still whitelisted twice; redundant rules easy to mis-edit | `SecurityConfig.java:76` and `:87` | Deduplicate |
 
 ---
 
 ## 3. AI Service (FastAPI `/ai`) Control-Plane Exposure
 
-> Common root cause: `AI_consultant/api.py` long had no authentication; CORS wildcard + credentials; FastAPI `/docs` enabled by default. **C5 is fixed**: admin/destructive endpoints now require a backend JWT or an internal token (`AI_consultant/auth.py`); however config writes (C4), sessions/rate limiting (C6/C7), and docs exposure (C8) remain, and docker config still forces `0.0.0.0`.
+> Common root cause: `AI_consultant` long had no authentication. **Current state**: an auth middleware now exists (backend JWT or internal token, `AI_consultant/auth.py`), and Python entrypoints default to loopback `127.0.0.1`; however route protection is assembled by prefix/exact matching, many endpoints remain open, CORS is still wildcard + credentials, and the container still forces `0.0.0.0`.
 
 | ID | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| C1 | `/ai` all routes unauthenticated, CORS `*` + credentials, listening on 0.0.0.0 | Default bind changed to `PYTHON_HOST` (default 127.0.0.1, see `main.py`/`api.py` entrypoints); **Residual**: still no authentication, `allow_origins=["*"]` + `allow_credentials=True` unchanged, and `docker/.env.example` + compose still set `PYTHON_HOST=0.0.0.0` | `AI_consultant/api.py:75-81`, `main.py` entrypoint | Add API-Key/server-side token validation to `/ai` (issued by backend, frontend proxied through backend); close public exposure |
-| C4 | Unauthorized rewriting of model `base_url` etc. config | The POST `/model-config` write path was removed (now only reloads from DB); **Residual**: the unauthenticated `POST /ai/config` → `update_config` can still rewrite `llm_base_url`/`llm_api_key`, keeping the "send real provider key to attacker server" path alive | `AI_consultant/api.py:343-362,534-550`, `main.py` | Write operations like `base_url`/system prompt only allowed from backend |
-| C6 | Cross-user shared Redis `active_session` key | On worker restart/failover may resume another user's session; multi-worker doubles in-memory rate-limit counters | `AI_consultant/db.py:95-111`, `main.py:943-950`, `rate_limit.py:101-169` | Bind session key to real authenticated identity |
-| C7 | Rate limiting bypassable | guest counted by client `visitor_id`/`session_id`, user by request-body `username`; rotation bypasses "5/day, 30/min"; Redis-failure degrades to per-worker memory count with unbounded dict growth | `api.py:96-103`, `rate_limit.py:111-179` | Bind to server-issued identity; limit dict growth |
-| C8 | `/docs`, `/openapi.json` exposed by default; `migrate.py` `drop_tables()` has no protection switch | API docs / destructive script reachable | `AI_consultant/api.py:72`, `migrate.py:25-28` | Disable docs in production; add protection switch to drop |
+| C1 | Many `/ai` routes unauthenticated + CORS wildcard with credentials + container listening on `0.0.0.0` | **Partially Fixed**: auth middleware added (`auth.py:136-186`), protecting memory/forbidden/knowledge/documents/rag-config/seo/stats/models/model-config and non-GET config/prompt-config; entrypoint default changed to `127.0.0.1`. **Residual**: `POST /ai/chat`, all `/ai/sessions*` (incl. DELETE), `POST /ai/prompt-config/suggestions/generate`, `POST /ai/users/{username}/memory/init`, all `/ai/md/*`, `/ai/translate/health` still unauthenticated; `allow_origins=["*"]`+`allow_credentials=True` unchanged; `docker/ai.Dockerfile` still `--host 0.0.0.0` | `AI_consultant/api.py:81-87,90-101,1522`; `auth.py:136-186`; `main.py:2232`; `docker/ai.Dockerfile:17` | Route all `/ai` through server-issued identity; tighten CORS; do not rebind the container default |
+| C6 | Cross-user shared Redis `active_session` key | **Not Fixed**: still a global key with no per-user namespace; the in-process singleton engine shares the "current session", so a restart/failover may resume another user's session | `AI_consultant/db.py:130-146`; `main.py:1136-1142` | Bind session key to real authenticated identity |
+| C7 | Rate limiting bypassable | **Not Fixed**: guest counted by client `visitor_id/session_id`, user by request-body `username`; rotation bypasses; Redis-failure degrades to memory dicts (`_mem_user`/`_mem_guest`) with unbounded growth; multi-worker doubles counters | `api.py:294-295,300`; `rate_limit.py:118-135,137-144,171-179` | Bind to server-issued identity; limit dict growth |
+| C8 | `/docs`, `/openapi.json` exposed by default; `migrate.py` `drop_tables()` has no protection switch | **Not Fixed**: no `docs_url=None`/`openapi_url=None`; the drop script relies only on CLI `--drop` | `AI_consultant/api.py:78`; `migrate.py:25-28` | Disable docs in production; add protection switch to drop |
 
 ---
 
@@ -65,8 +66,8 @@
 
 | ID(Source) | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| D3 (ref. S-03) | `dangerouslySetInnerHTML` renders rich text/attachment HTML without DOMPurify-style sanitization | Editor only textifies "paste"; drag-drop/`insertHTML`/history/imported content can still carry event attributes; no DOMPurify anywhere in the repo | `BlockContent.tsx:214`, `ModuleDetailView.tsx`, `FilePreview.tsx:73` | Sanitize all stored HTML with DOMPurify whitelist before rendering |
-| D4 | Prompt injection | RAG retrieved content, user memory, attachment text concatenated verbatim into system prompt with no "content ≠ instruction" fence; sensitive-word filtering applies only to raw user input; uploads/knowledge-base data sources unauthenticated → shared RAG poisoning | `AI_consultant/main.py:1462-1486,887-899`, `api.py:113-125` | Isolate content from instructions; add auth/isolation to uploads & knowledge base |
+| D3 (ref. S-03) | `dangerouslySetInnerHTML` renders rich text/attachment HTML without DOMPurify-style sanitization | **Not Fixed**: still no DOMPurify anywhere; `BlockContent.tsx:214` (rich_text direct), `ModuleDetailView.tsx:51`, `FilePreview.tsx:183` (mammoth docx). `iframe sandbox` (no `allow-same-origin`) isolation of HTML blocks is partial mitigation; `SeoHead`/`SiteJsonLd` use `safeJsonLd` escaping | `frontend/src/components/BlockContent.tsx:214`, `modules/ModuleDetailView.tsx:51`, `FilePreview.tsx:183`, `HtmlBlockView.tsx:193-207` | Sanitize all stored HTML with a DOMPurify whitelist before rendering |
+| D4 | Prompt injection | **Partially Fixed**: RAG/memory now injected as labeled `ContextBlock`s and attachment text passes the sensitive-word detector; upload/KB endpoints now require auth. **Residual**: RAG/memory content still has no "content ≠ instruction" fence; `POST /ai/prompt-config/suggestions/generate` remains open | `AI_consultant/main.py:207-221,1071-1093,1701-1708`; `api.py:146-148` | Isolate content from instructions; bring open endpoints under auth |
 
 ---
 
@@ -74,11 +75,11 @@
 
 | ID(Source) | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| E3 | Backend upload `type` param not whitelist-validated | Concatenated directly into storage/echo path | `backend/.../controller/UploadController.java:99` | Validate type against whitelist |
-| E4 | `ChatUploadController` does not validate extension | Can store `.html/.svg` for browser execution (stored XSS surface); filename without a dot causes `StringIndexOutOfBoundsException` | `backend/.../controller/ChatUploadController.java:53-56` | Validate extension/MIME + handle empty filenames |
-| E5 | Frontend "download/preview after login" is client-side only | Backend `/uploads/**`, `/files/**` public; exclusive-material protection is ineffective | `SecurityConfig.java:88-89`; `ModuleDetailView.tsx`; `lib/utils.ts` | Backend-auth protected resources |
-| E6 | Attachment/document upload has no size cap or MIME whitelist | Backend multipart limit is now configurable with an 8MB default (`application.yml:33-34`); **Residual**: AI-side attachment/document upload still `read()`s the whole file with no MIME/page/zip-bomb limits, and `docker-compose.yml` overrides the limit back to 50/100MB | `AI_consultant/api.py:874-911`, `knowledge.py:443-472` | Limit size/MIME, stream parsing & zip-bomb protection; unify compose override |
-| D5 | `images` accepts arbitrary URL fetched server-side by vision model | Content sent to third party/intranet probing (SSRF surface) | `AI_consultant/main.py:1170-1177` | URL whitelist or forbid public fetch |
+| E3 | Backend upload `type` param not whitelist-validated | **Not Fixed**: `type` is concatenated directly into storage/echo path (`subPath` is sanitized but `type` is not, so it can traverse outside the upload root) | `backend/.../controller/UploadController.java:67-71,104,120` | Validate type against whitelist |
+| E4 | `ChatUploadController` does not validate extension | **Partially Fixed**: magic-byte MIME detection added; `.html/.svg` no longer pass. **Residual**: a no-dot filename still causes `StringIndexOutOfBoundsException` (500) | `backend/.../controller/ChatUploadController.java:46-50,52-53` | Handle empty filenames |
+| E5 | Frontend "download/preview after login" is client-side only | **Not Fixed**: backend `/uploads/**`, `/files/**` still public; download/preview sends no token | `SecurityConfig.java:93-94`; `ModuleDetailView.tsx:133-139,174-182`; `lib/utils.ts:21-41`; `FilePreview.tsx:80-107` | Backend-auth protected resources |
+| E6 | Attachment/document upload has no size cap or MIME whitelist | **Partially Fixed**: backend multipart is now 20MB, nginx `client_max_body_size 20m`, compose no longer overrides; frontend added `uploadRules.ts` size/extension validation. **Residual**: AI-side attachment/document still `read()`s the whole file with no MIME/page/zip-bomb limits | `backend/.../application.yml:36-39`; `docker/nginx.conf.d:6`; `frontend/src/lib/uploadRules.ts`; `AI_consultant/api.py:1192`, `knowledge.py:511-540` | Limit size/MIME, stream parsing & zip-bomb protection |
+| D5 | `images` accepts arbitrary URL fetched server-side by vision model | **Partially Fixed**: KB document image fetching now has an allowlist (backend host only, redirects disabled). **Residual**: chat `images` http(s) URLs are still passed through to the vision model | `AI_consultant/api.py:171-190`; `knowledge.py:433-464` | URL whitelist or forbid public fetch |
 
 ---
 
@@ -86,11 +87,10 @@
 
 | ID | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| F1 | AES master key auto-generated at startup if unset and **written back to git-tracked `.env`** | Still auto-generates and writes back to `.env` (`SecretCryptoService.java:119-138`); because `.env` is no longer git-tracked it is no longer committed | `SecretCryptoService.java:87-99,119-138` | Use injection/key-management system; forbid writing back to files |
-| F2 | AES key derivation: falls back to bare SHA-256 (no KDF/salt) for non-Base64/invalid length | Weak passwords brute-forceable; Python lenient `b64decode` vs Java strict parsing yield different keys for whitespace-containing Base64 → hard to debug decryption failures | `SecretCryptoService.java:105-117`, `AI_consultant/main.py:196-226` | Unify KDF and Base64 parsing rules |
-| F3 | RSA transport keypair regenerated each restart, not persisted | RSA-encrypted values invalid across restarts (frontend must re-fetch public key each time); public key could be public but is gated behind `page:config:view` | `SecretCryptoService.java:66-74,272-279` | Persist keypair; issue public key separately |
-| F4 | RSA decryption runs on unbounded input | Added a post-decrypt length warning and exception logging (`SecretCryptoService.java:259-274`); **Residual**: input still has no length cap, so the large-payload RSA DoS surface remains | `SecretCryptoService.java:248-274` | Limit ciphertext length |
-| F5 | `SecretConfigMigrationRunner` swallows all exceptions and skips migration | Plaintext sensitive items may silently remain unencrypted | `SecretConfigMigrationRunner.java:58-60` | Log and alert failed items |
+| F2 | AES key derivation: falls back to bare SHA-256 (no KDF/salt) for non-Base64/invalid length | **Not Fixed**: weak passwords brute-forceable; Python lenient `b64decode` vs Java strict parsing yield different keys | `SecretCryptoService.java:77-89`, `AI_consultant/main.py:196-226` | Unify KDF and Base64 parsing rules |
+| F3 | RSA transport keypair regenerated each restart, not persisted | **Not Fixed**: a fresh 2048-bit pair is generated every startup | `SecretCryptoService.java:53-67` | Persist keypair; issue public key separately |
+| F4 | RSA decryption runs on unbounded input | **Partially Fixed**: added post-decrypt length warning and exception logging; RSA-2048/OAEP already bounds plaintext to ~190 bytes, but the ciphertext input still has no explicit length check (the `>4096` warning branch is effectively unreachable) | `SecretCryptoService.java:194-216` | Explicitly limit ciphertext length |
+| F5 | `SecretConfigMigrationRunner` swallows all exceptions and skips migration | **Not Fixed**: only `log.warn` then continues; plaintext sensitive items may silently remain unencrypted | `SecretConfigMigrationRunner.java:58-60` | Log and alert failed items |
 
 ---
 
@@ -98,13 +98,12 @@
 
 | ID(Source) | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| G1 | Spring Boot **2.7.18 is EOL** | No security patches; targets Java 1.8 | `backend/pom.xml:10` | Upgrade to a supported version |
-| G3 | No CSP/security headers and site has multiple stored-XSS surfaces | Loses last line of defense; `next.config.js` has no `headers()`, static export cannot apply either | `frontend/next.config.js:1-21` | Add CSP and other security headers (apply at server/proxy layer) |
-| B5 | SpringDoc Swagger enabled in production main config | `/swagger-ui/**`, `/v3/api-docs/**` etc. now require the `system:api-docs:view` authority (`SecurityConfig.java:93-97`); **Residual**: `springdoc` is still enabled in the main config, not disabled per profile | `backend/src/main/resources/application.yml:67-72` | Disable in production profile |
-| G2 | Next.js 15.3.3 is outdated | Not on latest 15.x security patches | `frontend/package.json` | Upgrade to latest 15.x |
-| G4 | Generated SEO files expose full site text to AI crawlers; domain mismatch | SEO files were regenerated but now point to an **internal address** `http://192.168.0.68:3200` (leaks internal info, see N-02), and still mismatch the `www.example.cn` used by `layout.tsx`/`seo.ts` | `frontend/public/robots.txt`, `sitemap.xml`, `llms*.txt`, `src/lib/seo.ts` | Unify to the public domain; assess SEO file access policy |
-| G5 (ref. S-02, S-09) | Public endpoints `/seo/**`, `/stats/**`, `/ai/**`, `/upload/**` broadly permitted | Each controller needs confirmation of whether auth is required | `SecurityConfig.java:62-90` | Minimize per-endpoint exposure |
-| G6 | Test artifacts and binaries committed | `frontend/test-results/.last-run.json` still tracked; large `ip2region.xdb` (~11MB) still committed | git tracked list | Remove from tracking; improve .gitignore |
+| G1 | Spring Boot **2.7.18 is EOL** | **Not Fixed**: no security patches; targets Java 1.8 | `backend/pom.xml:10,18-21` | Upgrade to a supported version |
+| G3 | No CSP/security headers and site has multiple stored-XSS surfaces | **Not Fixed**: `next.config.js` has no `headers()` (static export cannot apply either); `docker/nginx.conf.d` has no `add_header` | `frontend/next.config.js`; `docker/nginx.conf.d` | Add CSP/HSTS and other headers at the nginx proxy layer |
+| B5 | SpringDoc Swagger enabled in production main config | **Partially Fixed**: `/swagger-ui/**`, `/v3/api-docs/**` etc. now require the `system:api-docs:view` authority. **Residual**: `springdoc` is still enabled in the main config, not disabled per profile | `backend/src/main/resources/application.yml:73-78`; `SecurityConfig.java:97-102`; `sinounion.sql:636` | Disable in production profile |
+| G2 | Next.js 15.3.3 is outdated | **Not Fixed**: not on latest 15.x security patches | `frontend/package.json:20` | Upgrade to latest 15.x |
+| G5 (ref. S-02, S-09) | Public endpoints `/seo/**`, `/stats/**`, `/ai/**`, `/upload/**` broadly permitted | **Not Fixed**: the `SecurityConfig` permitAll list still contains `/ai/**`, `/stats/**`, `/seo/**`, `/upload/**`, `/uploads/**`, `/files/**`, etc. | `SecurityConfig.java:66-95` | Minimize per-endpoint exposure |
+| G6 | Test artifacts and binaries committed | **Partially Fixed**: `test-results/`, `playwright-report/`, `coverage/` etc. are now `.gitignore`d and untracked. **Residual**: `ip2region.xdb` (~11MB) still committed; no `*.xdb` ignore rule | git tracked list; `backend/src/main/resources/ip2region.xdb` | Remove from tracking or use Git LFS / build-time download |
 
 ---
 
@@ -112,14 +111,14 @@
 
 | ID | Risk Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| H1 | `LeadServiceImpl.assignLead/updateLeadStatus` dereferences nonexistent id → NPE 500 | Should be 404 | `backend/.../service/impl/LeadServiceImpl.java:185-197` | Null-check, return 404 |
-| H4 | `.env` online rewrite non-atomic (full-file rewrite, loses comments/quotes) | Concurrent write conflict with startup `persistAesKeyToEnv` | `AdminEnvConfigController.java:166-194` | Atomic/serialized writes |
-| H5 | Python spawns one daemon thread per `/ai/chat` + shared 4-worker pool without semaphore | Token records one thread per call + unbounded cache dict; disconnect only checks stop flag per chunk → high-concurrency thread/memory exhaustion | `AI_consultant/api.py:216`, `main.py:1488-1493` | Bounded pool/semaphore; clean caches |
-| H6 | Runtime DDL with shared privileged DB account (`CREATE EXTENSION vector`, `ALTER … embedding TYPE vector(dim)`) | Production table locks/full-table rewrite | `AI_consultant/knowledge.py:566-589`, `main.py` | Separate migration from runtime accounts |
-| H2 | `AdminRelatedContentController.batch` throws `NumberFormatException` for non-numeric `ids` → 500 with echo | Should be 400 | `AdminRelatedContentController.java:53-56` | Parameter validation |
-| H3 | `AuthController /auth/me` NPE when user deleted (`user` null) | Should be 401/404 | `AuthController.java:57-61` | Null-check |
-| H7 | `db.py` `int(PG_PORT)` crashes at import; Redis helper swallows connection errors returning `None` | Callers must null-check everywhere (already caused rate-limit/session degradation) | `AI_consultant/db.py:20-33,88-111` | Validate config at startup; fail explicitly on connection errors |
-| H8 | `AdminEnvConfigController` / `AdminConfigFileController` allow writing arbitrary `application.yml`/`.env` content online | config-permission holder ≈ config tampering/near-RCE surface, only constrained by fixed paths | `AdminConfigFileController.java:63-77` | Tighten permissions & content validation; audit logging |
+| H1 | `LeadServiceImpl.assignLead/updateLeadStatus` dereferences nonexistent id → NPE 500 | **Not Fixed**: should be 404 | `backend/.../service/impl/LeadServiceImpl.java:184-190,192-197` | Null-check, return 404 |
+| H4 | `.env` online rewrite non-atomic (full-file rewrite, loses comments/quotes) | **Not Fixed**: `readAllLines` → in-memory edit → `Files.write`, with no temp-file+atomic-rename or locking; races with the startup key write | `AdminEnvConfigController.java:160-188` | Atomic/serialized writes |
+| H5 | Python spawns one daemon thread per `/ai/chat` + shared 4-worker pool without semaphore | **Not Fixed**: one daemon thread per request; shared `ThreadPoolExecutor(max_workers=4)`; unbounded `_memory_cache`/`link_resolver._cache`/`translation/live._CACHE` | `AI_consultant/api.py:287`; `main.py:1710-1715,1758-1768`; `knowledge.py:54`; `link_resolver.py:89`; `translation/live.py:20` | Bounded pool/semaphore; clean caches |
+| H6 | Runtime DDL with shared privileged DB account | **Not Fixed**: `CREATE EXTENSION vector`, `ALTER … embedding TYPE vector(dim)` etc. run at runtime with table-lock/full-rewrite risk | `AI_consultant/knowledge.py:687-703`; `forbidden_detector.py:50-74` | Separate migration from runtime accounts |
+| H2 | `AdminRelatedContentController.batch` throws `NumberFormatException` for non-numeric `ids` → 500 with echo | **Not Fixed**: should be 400 | `AdminRelatedContentController.java:53-56` | Parameter validation |
+| H3 | `AuthController /auth/me` NPE when user deleted (`user` null) | **Partially Fixed**: deleted users are rejected at `JwtAuthenticationFilter` (401); the controller still has no null guard, leaving a "deleted after filter" race NPE | `AuthController.java:59-65`; `security/JwtAuthenticationFilter.java:44-48` | Null-check |
+| H7 | `db.py` `int(PG_PORT)` crashes at import; Redis helper swallows connection errors returning `None` | **Not Fixed**: `PG_PORT` has no default; Redis failures silently return `None`, forcing null-checks everywhere | `AI_consultant/db.py:21,31,109-125` | Validate config at startup; fail explicitly on connection errors |
+| H8 | `AdminEnvConfigController` / `AdminConfigFileController` allow writing arbitrary `application.yml`/`.env` content online | **Partially Fixed**: both controllers remain, now gated by `page:config:edit`; writes still are not restricted to a key/content whitelist (near-RCE surface) | `AdminConfigFileController.java:62-77`; `AdminEnvConfigController.java:126-194` | Tighten content validation & audit logging |
 
 ---
 
@@ -127,16 +126,11 @@
 
 | ID | Defect Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| D-01 | Lead Chinese text garbled | Form name/source page written to DB as GB18030 bytes; API returns UTF-8; frontend shows mojibake; only lead-related data affected | `GET /api/leads` (name="超级管理", sourcePage="测试视频1" both garbled) | Unify request/storage encoding to UTF-8; trace form submission chain and JDBC connection encoding |
-| D-02 | Lead location not displayed correctly | IP→location resolution missing or wrong in lead management | lead management pages | Improve location resolution (e.g. https://ipwho.is/) |
-| D-03 | Inconsistent business return codes and messages | Returns code 400, message `duplicate_submission`; frontend hard to map friendly prompts | `LeadController.java:55/61/68` | Unify error-code spec; map friendly dialogs on frontend |
-| D-04 | Knowledge base ungrouped; full-corpus retrieval in every dialog | Each dialog uses entire library content when enabled; costly and low precision | knowledge-base module | Split KB by module; AI dialog reads by category |
-| D-05 | Some formats cannot render in module-detail online preview | pdf/md cannot be previewed properly (this revision only extracted a render helper, no new formats) | module-detail online preview | Support pdf/md/docx/txt/excel display |
-| D-06 | Database import/export exceptions | Import via Navicat etc. fails to import data | DB operations | Support quick import/backup via visual tools |
-| D-07 | DB not saved in real time; config-loss risk | Config not persisted promptly after entry | config/persistence chain | Back up env/DB/persisted files on each entry (keep ~1h) + nightly backup policy |
-| D-08 | Cannot switch historical versions of content | Content lacks versioning/rollback | content management module | Add historical version records & switching |
-| D-10 | Admin police icon not shown on init | Not shown in admin on initialization, fine on public side | police icon pages | Trace init-load logic |
-| D-11 | No friendly dialog on interface failure | Page API errors have no prompt; e.g. KB unusable without embedding/rerank model but user unaware | various business pages | Add unified error dialog & configurable prompts |
+| D-01 | Lead Chinese text garbled | **Changed/To confirm**: no GB18030/GBK code remains in the repo; Spring/PG default to UTF-8 so it is unlikely to reproduce; however no explicit `client_encoding`/`charSet` is set and there is no targeted fix evidence | `application.yml:17` (JDBC URL); `docker/docker-compose.yml` | Explicitly enforce UTF-8 and trace the form submission chain |
+| D-06 | Database import/export exceptions | **Not Fixed**: no import/export/backup/restore capability (only lead CSV export); still relies on the `.sql` init script | no backend implementation | Support quick import/backup via visual tools |
+| D-07 | DB not saved in real time; config-loss risk | **Not Fixed**: no per-entry or nightly backup policy (only temp-file cleanup and scheduled publish tasks) | no backend task | Back up env/DB/persisted files on each entry + nightly backup policy |
+| D-08 | Cannot switch historical versions of content | **Not Fixed**: no version/history table or endpoints | `ContentItem.java`; `sinounion.sql` | Add historical version records & switching |
+| D-11 | No friendly dialog on interface failure | **Partially Fixed**: chat error codes map to friendly i18n (`chatError.ts`) and public pages use a unified `PageState`. **Residual**: no unified API-failure dialog, `lib/toast.ts` is dead code, and no explicit warning when embedding/rerank models are unconfigured | `frontend/src/lib/chatError.ts`; `components/PageState.tsx`; `lib/toast.ts` | Add a unified error dialog & configurable prompts |
 
 ---
 
@@ -144,15 +138,14 @@
 
 | ID | Issue Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| Q-01 | Prompts etc. stored in env file | AI prompts in env, cannot be managed flexibly online | env config | Store in DB |
-| Q-02 | Redundant env config items | Scattered/duplicated, high maintenance cost | env config | Full consolidation |
-| Q-03 | Unused tables in DB | Unclean structure, higher maintenance/troubleshooting cost | database | Clean up unused tables |
-| Q-04 | Chat SSE logic duplicated in two places with inconsistent behavior | Each of the two SSE loops was refactored into helpers, but two implementations remain and diverge (`ChatWidget` lacks rate-limit/guest-quota/abort handling) | `(public)/page.tsx`, `ChatWidget.tsx` | Extract shared `useChatStream`/SSE utility |
-| Q-05 | axios/fetch mixed; aiApi sends no token, no 401 handling | Inconsistent request capability; no unified auth-expiry handling | `src/lib/aiApi.ts:1-16`, `api.ts` | Unify client wrapper; unified token/401 logic |
-| Q-06 | 4 home module blocks nearly duplicated | Products/solutions/cases/resources ~110 lines of duplicated JSX (still 4 separate render functions) | `(public)/page.tsx:953-1061` | Merge into single render component |
-| Q-07 | Admin CRUD boilerplate duplicated | Confirm-dialog + loadData + table + pagination repeated in every page | users/roles/faqs/leads/content/home/about pages | Extract AdminTable/ConfirmActions/Pagination shared components |
-| Q-08 | Dead code & unused config | `src/styles/globals.css` unreferenced; `config.ai.sessionTimeout` unused; `homeProducts` etc. unused state | `config/index.ts:32`; `(public)/page.tsx:399,514` | Clean up |
-| Q-09 (ref. E-01) | Large amount of hardcoded Chinese not i18n'd | Permissions page now uses i18n (`i18n/messages.ts` added permission keys); home page and many components still hardcode Chinese | `user-center/not-found/ChatWidget/ModuleDetailView/ModuleListView`; `blockData.ts` | Apply `t()` across public pages |
+| Q-02 | Redundant env config items | **Partially Fixed**: dual override layers remain — `PG_*`/`SPRING_DATASOURCE_*`, `REDIS_*`/`SPRING_REDIS_*`, `PYTHON_SERVICE_URL`/`PYTHON_HOST/PORT`; `IP_LOCATION_*` not surfaced in `.env.example` | `.env.example`; `application.yml:17-34,84` | Full consolidation |
+| Q-03 | Unused tables in DB | **Not Fixed (uncertain)**: ~36 tables roughly all referenced by Java/Python; none confirmed dead; no cleanup done | `sinounion.sql` | Clean up unused tables |
+| Q-04 | Chat SSE logic duplicated in two places with inconsistent behavior | **Changed**: `ChatWidget.tsx` is now unreferenced (dead code); only the `(public)/page.tsx` SSE path is wired in, though the duplicate implementation remains in source | `(public)/page.tsx:329-397`; `components/ChatWidget.tsx:139-195` | Delete dead code and extract a shared `useChatStream` |
+| Q-05 | axios/fetch mixed; aiApi sends no token, no 401 handling | **Partially Fixed**: `aiApi.ts` now sends a token and does 401→refresh→retry; `api.ts` has unified interceptors. **Residual**: the AI SSE (`(public)/page.tsx:768`) still uses raw `fetch` with no token/401, and `admin/leads/page.tsx` reads the token manually | `src/lib/aiApi.ts:11-49`; `src/lib/api.ts:12-56`; `(public)/page.tsx:768` | Unify client wrapper; unified token/401 logic |
+| Q-06 | 4 home module blocks nearly duplicated | **Partially Fixed**: a generic `GenericModuleSection` fallback was added, but products/solutions/cases/resources remain 4 near-duplicate render functions | `(public)/page.tsx:1005-1113` | Merge into a single render component |
+| Q-07 | Admin CRUD boilerplate duplicated | **Partially Fixed**: confirm dialog extracted (`useConfirm`/`ConfirmDialog`) plus `BatchToolbar`; table/pagination/loadData boilerplate still repeated per page | `components/ConfirmDialog.tsx`, `BatchToolbar.tsx`; `admin/users/page.tsx:98`, `admin/faqs/page.tsx:153`, `admin/leads/page.tsx:315` | Extract AdminTable/Pagination shared components |
+| Q-08 | Dead code & unused config | **Not Fixed**: `src/styles/globals.css` unreferenced, `config.ai.sessionTimeout` unused, `homeProducts` in `(public)/page.tsx` unused | `config/index.ts:30`; `(public)/page.tsx:440` | Clean up |
+| Q-09 (ref. E-01) | Large amount of hardcoded Chinese not i18n'd | **Partially Fixed**: new `i18n/parts/*`; public pages/most admin components use `t()`. **Residual**: `(public)/page.tsx` attachment prompt strings and dead-code `ChatWidget` still hardcode Chinese | `i18n/parts/*`; `(public)/page.tsx:147-156` | Apply `t()` across public pages |
 
 ---
 
@@ -160,8 +153,8 @@
 
 | ID | Issue Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| R-01 | Inconsistent styling | 89 native `<img>` (no lazy), 28 inline styles | whole site; `next.config.js:6-8` already `images.unoptimized` | Unify next/image + Tailwind theme variables |
-| R-02 | Whole site statically exported but all client-side API calls | `output:'export'`, no SSR/SEO rendering | `next.config.js:3` | Confirm architecture intent; consider SSG prefetch for content pages |
+| R-01 | Inconsistent styling | **Not Fixed**: ~16 native `<img>` (none with `loading="lazy"`), ~34 inline styles | whole site; `next.config.js:7` already `images.unoptimized` | Unify next/image + Tailwind theme variables |
+| R-02 | Whole site statically exported but all client-side API calls | **Not Fixed (by design)**: `output:'export'`, no SSR/SEO rendering | `next.config.js:3-5` | Confirm architecture intent; consider SSG prefetch for content pages |
 
 ---
 
@@ -169,8 +162,7 @@
 
 | ID | Issue Item | Current Status & Impact | Remediation |
 | --- | --- | --- | --- |
-| O-01 | Missing Docker deployment instructions | Incomplete deployment process (no production Compose section added to README) | Add Docker deployment docs/scripts |
-| O-02 | Inter-container connectivity not fully verified | `docker-compose.yml` added `PYTHON_HOST=0.0.0.0`, healthchecks and `depends_on`; **Residual**: no actual connectivity verification done | Verify and lock down one by one: backend↔frontend, backend↔python, frontend↔python |
+| O-02 | Inter-container connectivity not fully verified | **Partially Fixed**: compose has healthchecks and `depends_on`, and no longer forces `PYTHON_HOST=0.0.0.0` (controlled by the mounted `.env`). **Residual**: docs have no connectivity-verification steps; the healthcheck user mismatches the default `POSTGRES_USER` (`pg_isready -U ${DB_USER:-sinounion}` vs `POSTGRES_USER:-root`); `PG_PORT`/`REDIS_PORT` have no defaults | Verify and lock down one by one: backend↔frontend, backend↔python, frontend↔python; add connectivity-verification steps |
 
 ---
 
@@ -178,19 +170,21 @@
 
 | ID | Item | Current Status & Notes | To Confirm / Suggestion |
 | --- | --- | --- | --- |
-| E-01 (ref. Q-09) | Incomplete Chinese/English switching | Permissions page i18n added; AI answers stay Chinese when switching to English; site-wide EN switching unfinished | Apply i18n across public pages; AI answer language follows UI language |
-| E-02 | Welcome message/input prompt font-size not configurable | Chat welcome & input prompt lack font/size config | Add config options |
-| E-03 | Missing Demo portal site | Demo portal not built | Clarify whether to open admin accounts; add access restrictions to front/back content once opened |
+| E-01 (ref. Q-09) | Incomplete Chinese/English switching | **Partially Fixed**: public pages/admin largely i18n'd; AI answers follow the UI language (new translation pipeline). **Residual**: some hardcoded strings and AI chat attachment prompts | Apply i18n across public pages |
+| E-03 | Missing Demo portal site | **Not Fixed**: only seed "demo product/solution" content; no standalone demo portal | Clarify whether to open admin accounts; add access restrictions to front/back content once opened |
 
 ---
 
 ## 14. New Observations in This Revision
 
-> Issues newly identified during this verification (current working tree), or introduced by these changes, for follow-up scheduling.
+> Issues newly identified while verifying the current working tree, or introduced by these changes, for follow-up scheduling; fixed new items are pruned under the same principle.
 
 | ID | Issue Item | Current Status & Impact | Location | Remediation |
 | --- | --- | --- | --- | --- |
-| N-01 (ref. A8) | `encryptSecret` silently falls back to plaintext transport in non-secure contexts | `secretCrypto.ts:26-30` returns the plaintext directly when `crypto.subtle` is unavailable (HTTP), so sensitive keys travel in the plaintext request body; encryption only actually applies over HTTPS | `frontend/src/lib/secretCrypto.ts:26-30` | Enforce HTTPS; non-secure contexts should error rather than silently downgrade |
-| N-02 (ref. G4) | SEO-generated files point to an internal address | `robots.txt`/`sitemap.xml`/`llms*.txt` were regenerated to `http://192.168.0.68:3200`, exposing an internal IP and mismatching the site domain | `frontend/public/robots.txt`, `sitemap.xml`, `llms.txt`, `llms-full.txt` | Inject the public domain at generation time; avoid committing internal addresses |
-| N-03 (ref. C1/C4) | New unauthenticated AI admin/connectivity endpoints | Newly added `/ai/md/*` and `/model-config/test` routes have no auth; the test endpoint forwards the configured API key to the configured `base_url` | `AI_consultant/api.py`, `ai_md.py` | Unified auth; restrict test endpoint source and target whitelist |
-| N-04 (ref. E6) | compose overrides the upload limit | `application.yml` defaults to 8MB, but `docker/docker-compose.yml` overrides it back to 50MB/100MB, negating the tightening | `docker/docker-compose.yml` | Unify the limit policy and document it |
+| N-01 (ref. A8) | `encryptSecret` silently falls back to plaintext transport in non-secure contexts | **Not Fixed**: returns the plaintext directly when `crypto.subtle` is unavailable (HTTP), so sensitive keys travel in the plaintext request body | `frontend/src/lib/secretCrypto.ts:26-29` | Enforce HTTPS; non-secure contexts should error rather than silently downgrade |
+| N-03 (ref. C1/C4) | Unauthenticated AI admin/connectivity endpoints | **Partially Fixed**: `/ai/model-config/test` is now covered by the `/ai/model-config` prefix auth; **Residual**: `/ai/md/*` remains unauthenticated (read-only render, content disclosure) | `AI_consultant/api.py`; `ai_md.py:450-486`; `auth.py:179,181` | Unified auth; restrict test endpoint source and target whitelist |
+| N-05 | `X-Real-IP` trusted unconditionally — client IP spoofable | **Not Fixed**: `ClientIpResolver` takes `X-Real-IP` directly; with `forward-headers-strategy: none` and the backend listening on `0.0.0.0`, and with the trusted-proxy chain/CIDR validation removed in e505d34, a client reaching the backend directly can spoof its IP, bypassing login IP rate limiting and poisoning recorded lead IP/geolocation | `backend/.../util/ClientIpResolver.java:19-31`; `application.yml:7-9,93-95`; `security/LoginRateLimiter.java:69`; `controller/LeadController.java:89` | Restore trusted-proxy validation or force proxying (`$remote_addr`); do not expose the backend directly |
+| N-06 (ref. F1) | System keys stored in cleartext in DB `system_secrets` | **Not Fixed**: `JWT_SECRET`/`AI_INTERNAL_TOKEN`/`CONFIG_CRYPTO_AES_KEY` are stored in cleartext; a failed DB write degrades to a one-time in-memory key (lost on restart, forcing re-login) | `backend/.../config/SystemSecretService.java:43-50,89-111` | Encrypt/restrict the key table; alert on write failure |
+| N-07 (ref. C1/C7) | New unauthenticated, unthrottled expensive AI endpoint | **Not Fixed**: `POST /ai/prompt-config/suggestions/generate` triggers embedding + rerank + LLM generation; it is neither in the auth prefix list nor rate-limited, so anonymous callers can invoke it repeatedly (denial-of-wallet/DoS) | `AI_consultant/api.py:621-679`; `auth.py:161-186`; `docker/nginx.conf.d:26-27` | Bring under auth and rate limiting |
+| N-08 (ref. O-02/N-04) | Containers run as root; DB/Redis exposed on all interfaces with weak defaults | **Not Fixed**: `ai/backend/frontend` Dockerfiles have no `USER`; compose publishes PG/Redis ports on all host interfaces with weak default passwords | `docker/*.Dockerfile`; `docker/docker-compose.yml:25-28,43-45` | Run non-root, bind `127.0.0.1` or intranet, enforce strong passwords |
+| N-09 (ref. D3) | docx preview injects mammoth output via `dangerouslySetInnerHTML` | **Not Fixed**: `FilePreview.tsx` renders `mammoth.convertToHtml` output directly; mammoth is not a strict sanitizer, so a malicious docx can cause HTML injection/external resource loads | `frontend/src/components/FilePreview.tsx:88,183` | Sanitize mammoth output with DOMPurify |

@@ -9,7 +9,7 @@ cd docker
 cp ../.env.example .env
 ```
 
-> 如有特殊需求，其他配置项请参考`.env.example`中的提示自行调整。`JWT_SECRET、AI_INTERNAL_TOKEN、CONFIG_CRYPTO_AES_KEY` 已改为后端启动时自动生成并存入数据库（system_secrets 表），无需在 .env 中配置。
+> 如有特殊需求，其他配置项请参考`.env.example`中的提示自行调整。
 
 ```bash
 # 可将以下内容直接覆盖env文件默认配置
@@ -33,6 +33,9 @@ BACKEND_HOST=0.0.0.0
 
 # ===== 前端 =====
 FRONTEND_PORT=3200
+
+# ===== docker 镜像源 =====
+REGISTRY=ghcr.1ms.run/ai-native-website-os/website-os
 ```
 
 ### 第二步：运行服务
@@ -40,6 +43,9 @@ FRONTEND_PORT=3200
 > 本地无镜像时会 build 编译源码构建镜像，如果想使用预构建好的 docker 镜像快速启动，请执先行 docker compose pull
 
 ```bash
+# 从源码构建Docker镜像：如果官方源构建速度慢,请在 .env 文件内添加配置 `CN_MIRROR=true` 以控制 npm/pip/maven 切换使用国内源
+# docker compose up -d --build
+
 docker compose pull && docker compose up -d
 ```
 
@@ -65,12 +71,3 @@ docker compose pull
 # 启用服务
 docker compose up -d --force-recreate
 ```
-
-### 从源码构建Docker镜像
-
-> 如果官方源构建速度慢，请在 .env 文件内添加配置 `CN_MIRROR=true` 以控制 npm/pip/maven 切换使用国内源
-
-```bash
-docker compose up -d --build
-```
-
