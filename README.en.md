@@ -123,15 +123,15 @@ Default super admin: `admin` / `admin123`.
 ## Roadmap
 
 | Phase | Theme | Scope | Status |
-|------|------|----------|------|
-| v1.0 | Website foundation | CMS content management, responsive multi-device portal, RBAC permissions, Chinese/English | ✅ Done |
-| v1.1 | AI consultant | RAG knowledge-base Q&A, sensitive-word filtering, streaming output, long-term memory, intent recognition | ✅ Done |
-| v1.2 | Marketing & lead gen | Behavior tracking, lead capture/de-duplication/scoring/export, data dashboards | ✅ Done |
-| v1.3 | SEO / GEO | Keyword and FAQ generation, structured data | ✅ Done |
-| v2.0 | Deployment experience | One-command Docker Compose orchestration, production deployment docs, live demo | 🚧 In progress |
-| v2.1 | Performance & extensibility | Frontend component refactoring, static snapshot generation | ⏳ Planned |
-| v2.2 | AI enhancements | Multi-model support (OpenAI/Claude/Qwen, etc.), agent-based automated follow-up, lead-scoring tuning | ⏳ Planned |
-| v2.3 | Open capabilities | Open API + Webhooks, custom form/content types, pluggable theme templates | ⏳ Planned |
+|--------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------|
+| v1.0.0 | Website foundation | Public website: home, products, solutions, customer cases, resource center, about us, FAQ, contact us, user center; AI consultant: streaming chat, image recognition; SEO metadata and sitemap; PV/UV and user behavior tracking; admin: dashboard, users/roles/permissions, content management, AI management, lead management, statistics management, settings; AI consultant service: multi-model, RAG/Rerank, multimodal, intent recognition, prohibited-content detection, user memory | ✅ Done |
+| v1.0.1 | Experience improvements | Dynamic page titles, mobile footer adaptation, backend configuration for homepage footer / contact icons / core modules / case statistics, detail image upload, AI first-response and chat-record consistency, rate limiting (5 for guests / 30 per minute for logged-in users), 20-message context retention, AI response coherence, lead merging, online SEO/GEO editing in admin, upload type and size limits | ✅ Done |
+| v2.0.0 | Pre-open-source and official open-source release | Swagger permission control, SonarQube issue cleanup, internal information removal and white-labeling, 16 features including editable logo / SMS login / Chinese-English bilingual, 4 bug fixes, content and bilingual documentation; open-source engineering: GitHub org/repos, README/LICENSE/CONTRIBUTING, Issue/PR templates, release process, backup and upgrade plan; governance and monetization: Community/Pro/SaaS/Enterprise boundaries, license/trademark/plugin agreements, contributor incentives; launch: three-edition comparison page, open-source entry, articles/videos, roadmap, pilot recruitment | ✅ Done |
+| v2.0.1 | Feature iteration and bug fixes | Fixes for login popup, online preview/download, thinking-process toggle, resource center filtering, homepage case count, image display, mobile menu overlay; English auto-translation and English answers; guest quota of 30, AI knowledge-base accuracy, super admin memory, welcome message/prompt styling; editable main categories, case categories and ordering, three-level menu ordering, content list loading, admin bell notifications; footer/contact QR code, notification popup, friend links; Docker deployment | ✅ Done |
+| v2.0.2 | Community edition refinement | AI testing and bug fixes, security risk governance, SEO/GEO optimization, data permission management, database cleanup and backup, content version history, frontend/backend code simplification and refactoring, removal of redundant APIs and deprecated features, exception handling and interaction experience optimization, automated testing and CI quality gates, open-source deployment and documentation | ⏳ Planned |
+| v2.1.0 | Extended community edition | Add website shopping-guide / pre-sales / customer-service / content agents; add CRM integration | ⏳ Planned |
+| v2.2.0 | Extended professional edition | Multi-site / multi-domain / sub-sites | ⏳ Planned |
+| v2.3.0 | Extended SaaS edition | Online sign-up/trial; AI website builder (generate a site automatically from company materials); cloud hosting, domains, publishing; plans and billing; AI operations and data analytics | ⏳ Planned |
 
 > Contributions to the roadmap via Issue / PR are welcome — it evolves with community feedback.
 
@@ -140,8 +140,8 @@ Default super admin: `admin` / `admin123`.
 The project's currently identified security risks, technical risks, data risks, operational risks, and other potential risks are documented in:
 
 > 📋 **[Project Risk List](RISKLIST.en.md)**
-
-The risk list will be continuously maintained and updated throughout the project's development, testing, deployment, and operation.
+>
+> The risk list will be continuously maintained and updated throughout the project's development, testing, deployment, and operation.
 
 ## Contributing
 
