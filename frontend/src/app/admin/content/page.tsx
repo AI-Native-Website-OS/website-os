@@ -861,7 +861,7 @@ function CategoryForm({ item, saving, onSave }: { item: ContentModuleCategory | 
   const handleSubmit = async () => {
     let img = form.coverImage;
     if (pendingImage) {
-      const result = await uploadFile(pendingImage, 'temp', undefined, 'cover');
+      const result = await uploadFile(pendingImage, 'category', undefined, 'cover');
       img = result.url;
       setPendingImage(null);
     }
